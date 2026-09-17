@@ -1,0 +1,269 @@
+/* Integrations View - Serene Linear / Frosted Glass Aesthetics */
+.integrations-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 28px;
+  box-sizing: border-box;
+  overflow: hidden;
+  user-select: none;
+}
+
+.integrations-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+
+.integrations-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.integrations-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Body */
+.integrations-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-top: 18px;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.integrations-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.integrations-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 9999px;
+}
+
+/* Single Unified Frosted Container */
+.integrations-unified-list {
+  background: rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-top: 1px solid rgba(255, 255, 255, 0.90);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 4px 16px -4px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(20px);
+}
+
+.integration-list-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  transition: background 0.15s ease;
+}
+
+.integration-list-row:last-child {
+  border-bottom: none;
+}
+
+.integration-list-row:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Icon Squircle */
+.integration-icon-squircle {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(15, 23, 42, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.integration-icon-squircle.active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.30);
+  color: #2563eb;
+}
+
+/* Row Meta */
+.integration-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.integration-row-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.integration-row-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* Controls */
+.integration-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.integration-status-tag {
+  font-size: 11px;
+  font-weight: 550;
+  padding: 3px 8px;
+  border-radius: 9999px;
+}
+
+.integration-status-tag.active {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+}
+
+.integration-status-tag.idle {
+  background: rgba(148, 163, 184, 0.15);
+  color: #64748b;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+/* Tactile Spring Toggle */
+.tactile-toggle {
+  width: 42px;
+  height: 24px;
+  border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.60);
+  position: relative;
+  cursor: pointer;
+  padding: 2px;
+  transition: background-color 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.tactile-toggle.is-on {
+  background: #3b82f6;
+}
+
+.tactile-toggle-thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.20);
+  transform: translate3d(0, 0, 0);
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.tactile-toggle.is-on .tactile-toggle-thumb {
+  transform: translate3d(18px, 0, 0);
+}
+
+/* Webhook Box */
+.webhook-config-box {
+  background: rgba(255, 255, 255, 0.30);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.webhook-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.webhook-box-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.webhook-box-hint {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.webhook-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.webhook-input {
+  flex: 1;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.60);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: #0f172a;
+  outline: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  transition: all 0.15s ease;
+}
+
+.webhook-input:focus {
+  background: #ffffff;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.webhook-test-btn {
+  height: 32px;
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.60);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1e293b;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.webhook-test-btn:hover {
+  background: #ffffff;
+  border-color: #3b82f6;
+  color: #0f172a;
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+
+.webhook-test-btn:active {
+  transform: scale(0.97);
+}

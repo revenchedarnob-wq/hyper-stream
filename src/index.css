@@ -1,0 +1,401 @@
+:root {
+  /* ==========================================================================
+     HYPERSTREAM MASTER DESIGN SYSTEM TOKENS (PHASE 01 FOUNDATION)
+     ========================================================================== */
+
+  /* --------------------------------------------------------------------------
+     1. Typography System
+     -------------------------------------------------------------------------- */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-body: var(--font-sans);
+  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Tabular Numeral & OpenType Features */
+  --font-feature-numeric: 'tnum' 1;
+  --font-numeric-tabular: tabular-nums;
+
+  /* Standardized Typographic Scale */
+  --font-size-3xs: 0.625rem;  /* 10px */
+  --font-size-2xs: 0.6875rem; /* 11px */
+  --font-size-xs: 0.75rem;    /* 12px */
+  --font-size-sm: 0.8125rem;  /* 13px */
+  --font-size-base: 0.875rem; /* 14px */
+  --font-size-md: 0.9375rem;  /* 15px */
+  --font-size-lg: 1.0625rem;  /* 17px */
+  --font-size-xl: 1.25rem;    /* 20px */
+  --font-size-2xl: 1.5rem;    /* 24px */
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Standardized Line Heights */
+  --line-height-none: 1;
+  --line-height-tight: 1.25;  /* Headings & section titles */
+  --line-height-snug: 1.35;   /* Cards & item titles */
+  --line-height-normal: 1.48; /* Body copy & descriptions */
+  --line-height-relaxed: 1.62;/* Extended reading */
+
+  /* Standardized Letter Spacing (Tracking) */
+  --tracking-tight: -0.02em;  /* Headings & prominent numbers */
+  --tracking-snug: -0.01em;   /* Interactive titles & buttons */
+  --tracking-normal: 0em;     /* Standard body copy */
+  --tracking-wide: 0.02em;    /* Metadata, durations, timestamps */
+  --tracking-caps: 0.045em;   /* Micro technical labels & section tags */
+
+  /* --------------------------------------------------------------------------
+     2. 4px Spacing Rhythm
+     -------------------------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* --------------------------------------------------------------------------
+     3. Radius Geometry Tokens
+     (Explicit rule: avoid "everything is a pill". Pill is strictly for dots/badges)
+     -------------------------------------------------------------------------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-window: 12px;
+  --radius-full: 9999px;
+
+  /* --------------------------------------------------------------------------
+     4. Standardized Control Heights
+     -------------------------------------------------------------------------- */
+  --control-height-sm: 28px;
+  --control-height-md: 32px;
+  --control-height-lg: 36px;
+
+  /* --------------------------------------------------------------------------
+     5. Motion & Physics
+     -------------------------------------------------------------------------- */
+  --duration-instant: 100ms;
+  --duration-normal: 180ms;
+  --duration-gentle: 280ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* --------------------------------------------------------------------------
+     6. Functional Brand & Status Colors (Shared semantics)
+     -------------------------------------------------------------------------- */
+  --color-brand-primary: #4f46e5;
+  --color-brand-gradient: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+  --color-status-success: #10b981;
+  --color-status-warning: #f59e0b;
+  --color-status-danger: #ef4444;
+  --color-status-info: #3b82f6;
+
+  /* --------------------------------------------------------------------------
+     7. Default Base Material Surfaces (Level 0 - Level 3: Baseline Natural Environment)
+     -------------------------------------------------------------------------- */
+  /* Environmental chromatic inheritance parameters */
+  --env-backdrop-blur: 28px;
+  --env-backdrop-saturate: 112%;
+  --env-backdrop-brightness: 100%;
+  --env-backdrop-contrast: 102%;
+
+  --env-tint-shell: rgba(255, 255, 255, 0.05);
+  --env-tint-pane: rgba(255, 255, 255, 0.14);
+  --env-tint-card: rgba(255, 255, 255, 0.32);
+  --env-tint-card-hover: rgba(255, 255, 255, 0.44);
+  --env-specular-top: rgba(255, 255, 255, 0.80);
+  --env-specular-side: rgba(255, 255, 255, 0.38);
+  --env-border-rim: rgba(255, 255, 255, 0.42);
+  --env-shadow-ambient: rgba(15, 23, 42, 0.08);
+
+  /* Semantic material surfaces consuming environmental parameters */
+  --surface-level-1: var(--env-tint-shell);
+  --surface-level-2: var(--env-tint-pane);
+  --surface-level-3: var(--env-tint-card);
+  --surface-level-3-hover: var(--env-tint-card-hover);
+  --surface-level-3-active: rgba(255, 255, 255, 0.65);
+
+  /* L4 Controls: Tactile interaction layer */
+  --surface-control: rgba(255, 255, 255, 0.42);
+  --surface-control-hover: rgba(255, 255, 255, 0.62);
+  --surface-control-active: rgba(255, 255, 255, 0.85);
+  --surface-overlay: rgba(255, 255, 255, 0.90);
+  --surface-badge: rgba(15, 23, 42, 0.06);
+
+  --border-subtle: var(--env-specular-side);
+  --border-normal: var(--env-border-rim);
+  --border-elevated: rgba(15, 23, 42, 0.12);
+  --border-focus: rgba(79, 70, 229, 0.50);
+  --border-specular-top: var(--env-specular-top);
+
+  --shadow-sm: 0 1px 2px var(--env-shadow-ambient);
+  --shadow-card: 0 8px 24px -4px var(--env-shadow-ambient), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-elevated: 0 16px 36px -6px var(--env-shadow-ambient), 0 4px 10px rgba(15, 23, 42, 0.04);
+  --shadow-inset-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.70);
+
+  /* Semantic Theme & Material-Aware Text Tokens (Light Environments) */
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #243048;
+  --color-text-tertiary: #475569;
+  --color-text-disabled: #8592a6;
+  --color-text-inverse: #ffffff;
+  --color-text-brand: #4338ca;
+
+  /* Global defaults */
+  line-height: var(--line-height-normal);
+  font-weight: var(--font-weight-regular);
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Bind semantic surface tokens to window-container so environmental variables re-evaluate dynamically per wallpaper scope */
+.window-container {
+  --surface-level-1: var(--env-tint-shell);
+  --surface-level-2: var(--env-tint-pane);
+  --surface-level-3: var(--env-tint-card);
+  --surface-level-3-hover: var(--env-tint-card-hover);
+  --border-subtle: var(--env-specular-side);
+  --border-normal: var(--env-border-rim);
+  --border-specular-top: var(--env-specular-top);
+  --shadow-sm: 0 1px 2px var(--env-shadow-ambient);
+  --shadow-card: 0 8px 24px -4px var(--env-shadow-ambient), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-elevated: 0 16px 36px -6px var(--env-shadow-ambient), 0 4px 10px rgba(15, 23, 42, 0.04);
+}
+
+/* --------------------------------------------------------------------------
+   Environmental Scopes: Chromatic Parameters per Wallpaper
+   (Provides environmental parameters only; components consume semantic tokens)
+   -------------------------------------------------------------------------- */
+
+/* 1. Neon Waves (Dark Violet / Indigo) */
+.window-container[data-wallpaper-id="neon-waves"] {
+  --env-backdrop-blur: 20px;
+  --env-backdrop-saturate: 114%;
+  --env-backdrop-brightness: 99%;
+  --env-backdrop-contrast: 103%;
+  --env-tint-shell: rgba(180, 160, 255, 0.035);
+  --env-tint-pane: rgba(165, 140, 255, 0.05);
+  --env-tint-card: rgba(185, 165, 255, 0.10);
+  --env-tint-card-hover: rgba(205, 190, 255, 0.15);
+  --env-specular-top: rgba(225, 215, 255, 0.42);
+  --env-specular-side: rgba(180, 165, 255, 0.14);
+  --env-border-rim: rgba(200, 185, 255, 0.16);
+  --env-shadow-ambient: rgba(5, 3, 15, 0.35);
+
+  --surface-control: rgba(255, 255, 255, 0.10);
+  --surface-control-hover: rgba(255, 255, 255, 0.18);
+  --surface-control-active: rgba(255, 255, 255, 0.28);
+  --surface-overlay: rgba(15, 18, 32, 0.90);
+  --surface-badge: rgba(255, 255, 255, 0.08);
+  --surface-level-3-active: rgba(205, 190, 255, 0.20);
+
+  --shadow-inset-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+
+  --color-text-primary: #ffffff;
+  --color-text-secondary: rgba(255, 255, 255, 0.85);
+  --color-text-tertiary: rgba(255, 255, 255, 0.60);
+  --color-text-disabled: rgba(255, 255, 255, 0.38);
+  --color-brand-primary: #818cf8;
+}
+
+/* 2. Ghibli Meadow (Bright Fresh Sage / Cyan) */
+.window-container[data-wallpaper-id="ghibli-meadow"] {
+  --env-backdrop-blur: 26px;
+  --env-backdrop-saturate: 112%;
+  --env-backdrop-brightness: 100%;
+  --env-backdrop-contrast: 102%;
+  --env-tint-shell: rgba(225, 245, 235, 0.05);
+  --env-tint-pane: rgba(215, 240, 230, 0.13);
+  --env-tint-card: rgba(235, 248, 242, 0.30);
+  --env-tint-card-hover: rgba(242, 252, 247, 0.42);
+  --env-specular-top: rgba(255, 255, 255, 0.68);
+  --env-specular-side: rgba(255, 255, 255, 0.28);
+  --env-border-rim: rgba(255, 255, 255, 0.38);
+  --env-shadow-ambient: rgba(15, 28, 22, 0.08);
+}
+
+/* 3. Amber Flow (Warm Amber / Honey) */
+.window-container[data-wallpaper-id="amber-flow"] {
+  --env-backdrop-blur: 26px;
+  --env-backdrop-saturate: 110%;
+  --env-backdrop-brightness: 100%;
+  --env-backdrop-contrast: 102%;
+  --env-tint-shell: rgba(255, 242, 225, 0.05);
+  --env-tint-pane: rgba(255, 238, 218, 0.12);
+  --env-tint-card: rgba(255, 246, 232, 0.30);
+  --env-tint-card-hover: rgba(255, 250, 240, 0.42);
+  --env-specular-top: rgba(255, 250, 240, 0.68);
+  --env-specular-side: rgba(255, 242, 225, 0.28);
+  --env-border-rim: rgba(255, 245, 230, 0.38);
+  --env-shadow-ambient: rgba(35, 25, 15, 0.08);
+}
+
+/* 4. Silk Loop (Very Bright Pearl Silver / Lavender) */
+.window-container[data-wallpaper-id="silk-loop"] {
+  --env-backdrop-blur: 28px;
+  --env-backdrop-saturate: 112%;
+  --env-backdrop-brightness: 99%;
+  --env-backdrop-contrast: 103%;
+  --env-tint-shell: rgba(235, 230, 250, 0.05);
+  --env-tint-pane: rgba(230, 225, 248, 0.13);
+  --env-tint-card: rgba(242, 238, 255, 0.32);
+  --env-tint-card-hover: rgba(248, 245, 255, 0.44);
+  --env-specular-top: rgba(255, 255, 255, 0.72);
+  --env-specular-side: rgba(255, 255, 255, 0.30);
+  --env-border-rim: rgba(255, 255, 255, 0.40);
+  --env-shadow-ambient: rgba(25, 20, 45, 0.09);
+}
+
+/* 5. Rose Petals (Warm Rose Quartz / Blush) */
+.window-container[data-wallpaper-id="rose-petals"] {
+  --env-backdrop-blur: 26px;
+  --env-backdrop-saturate: 110%;
+  --env-backdrop-brightness: 99%;
+  --env-backdrop-contrast: 103%;
+  --env-tint-shell: rgba(255, 230, 238, 0.05);
+  --env-tint-pane: rgba(255, 225, 235, 0.12);
+  --env-tint-card: rgba(255, 240, 246, 0.30);
+  --env-tint-card-hover: rgba(255, 248, 251, 0.42);
+  --env-specular-top: rgba(255, 245, 248, 0.68);
+  --env-specular-side: rgba(255, 235, 242, 0.28);
+  --env-border-rim: rgba(255, 238, 245, 0.38);
+  --env-shadow-ambient: rgba(40, 15, 25, 0.08);
+}
+
+/* 6. Prism Wave (Prismatic Refraction) */
+.window-container[data-wallpaper-id="prism-wave"] {
+  --env-backdrop-blur: 26px;
+  --env-backdrop-saturate: 112%;
+  --env-backdrop-brightness: 99%;
+  --env-backdrop-contrast: 103%;
+  --env-tint-shell: rgba(230, 242, 255, 0.05);
+  --env-tint-pane: rgba(225, 240, 255, 0.12);
+  --env-tint-card: rgba(238, 248, 255, 0.30);
+  --env-tint-card-hover: rgba(246, 252, 255, 0.42);
+  --env-specular-top: rgba(255, 255, 255, 0.70);
+  --env-specular-side: rgba(255, 255, 255, 0.28);
+  --env-border-rim: rgba(255, 255, 255, 0.38);
+  --env-shadow-ambient: rgba(15, 25, 45, 0.08);
+}
+
+/* 7. Violet Discs (Electric Violet Holographic) */
+.window-container[data-wallpaper-id="violet-discs"] {
+  --env-backdrop-blur: 24px;
+  --env-backdrop-saturate: 114%;
+  --env-backdrop-brightness: 100%;
+  --env-backdrop-contrast: 104%;
+  --env-tint-shell: rgba(225, 210, 255, 0.05);
+  --env-tint-pane: rgba(220, 200, 255, 0.12);
+  --env-tint-card: rgba(235, 222, 255, 0.28);
+  --env-tint-card-hover: rgba(245, 235, 255, 0.40);
+  --env-specular-top: rgba(250, 245, 255, 0.68);
+  --env-specular-side: rgba(240, 225, 255, 0.28);
+  --env-border-rim: rgba(245, 235, 255, 0.38);
+  --env-shadow-ambient: rgba(30, 15, 45, 0.10);
+}
+
+/* Fallback for generic dark theme */
+.window-container[data-wallpaper-theme="dark"]:not([data-wallpaper-id]),
+[data-theme="dark"] .window-container {
+  --env-backdrop-blur: 20px;
+  --env-backdrop-saturate: 114%;
+  --env-backdrop-brightness: 99%;
+  --env-backdrop-contrast: 103%;
+  --env-tint-shell: rgba(255, 255, 255, 0.035);
+  --env-tint-pane: rgba(255, 255, 255, 0.06);
+  --env-tint-card: rgba(255, 255, 255, 0.11);
+  --env-tint-card-hover: rgba(255, 255, 255, 0.16);
+  --env-specular-top: rgba(255, 255, 255, 0.42);
+  --env-specular-side: rgba(255, 255, 255, 0.14);
+  --env-border-rim: rgba(255, 255, 255, 0.16);
+  --env-shadow-ambient: rgba(0, 0, 0, 0.35);
+
+  --surface-level-3-active: rgba(255, 255, 255, 0.18);
+  --surface-control: rgba(255, 255, 255, 0.10);
+  --surface-control-hover: rgba(255, 255, 255, 0.18);
+  --surface-control-active: rgba(255, 255, 255, 0.28);
+  --surface-overlay: rgba(15, 20, 32, 0.90);
+  --surface-badge: rgba(255, 255, 255, 0.08);
+
+  --shadow-inset-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+
+  --color-text-primary: #ffffff;
+  --color-text-secondary: rgba(255, 255, 255, 0.85);
+  --color-text-tertiary: rgba(255, 255, 255, 0.60);
+  --color-text-disabled: rgba(255, 255, 255, 0.38);
+  --color-text-inverse: #090d16;
+  --color-text-brand: #818cf8;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: transparent;
+}
+
+/* In native Windows Tauri app, keep root and body transparent for native Windows acrylic and studio glass */
+html.is-tauri,
+body.is-tauri {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+  background: transparent !important;
+}
+
+/* Refinement: selection & keyboard focus affordances */
+::selection {
+  background: rgba(99, 102, 241, 0.25);
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* --------------------------------------------------------------------------
+   Tabular Numerals & Technical Metric Alignment Utilities
+   -------------------------------------------------------------------------- */
+.tabular-nums,
+[data-numeric="tabular"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Micro typography utilities */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

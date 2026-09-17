@@ -1,0 +1,1612 @@
+@import './components/common/sheen.css';
+
+/* =========================================================
+   Browser Dev & Localhost Simulation Mode
+   Only active in standard web browsers (localhost:5173).
+   NEVER active inside the native Windows Tauri executable.
+========================================================= */
+.hyperstream-root-wrapper {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Bulletproof DOM-level Desktop Simulator Wallpaper & Smooth Cross-Fade */
+.browser-simulator-backdrop-container {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.browser-simulator-backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.browser-simulator-backdrop.prev {
+  z-index: 0;
+}
+
+.browser-simulator-backdrop:not(.prev) {
+  z-index: 1;
+}
+
+/* Luxury Wallpaper Switch Cross-Fade Animation */
+@keyframes wallpaperCrossFade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.wallpaper-fade-enter {
+  animation: wallpaperCrossFade 550ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity;
+}
+
+.potato-parallax-bg.potato-parallax-prev {
+  z-index: 0;
+}
+
+.potato-parallax-bg:not(.potato-parallax-prev) {
+  z-index: 1;
+}
+
+.studio-idle-wallpaper.studio-idle-prev {
+  z-index: 0;
+}
+
+.studio-idle-wallpaper:not(.studio-idle-prev) {
+  z-index: 1;
+}
+
+
+body.is-browser-environment .window-container {
+  position: relative;
+  z-index: 10;
+}
+
+body.is-browser-environment .window-container:not(.is-maximized) {
+  width: min(1280px, calc(100vw - 48px));
+  height: min(820px, calc(100vh - 48px));
+  border-radius: 14px;
+  box-shadow:
+    0 35px 85px -15px rgba(10, 15, 30, 0.45),
+    0 15px 35px -5px rgba(10, 15, 30, 0.25),
+    0 2px 8px 0 rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.40);
+  margin: auto;
+  transition:
+    width 350ms cubic-bezier(0.34, 1.36, 0.64, 1),
+    height 350ms cubic-bezier(0.34, 1.36, 0.64, 1),
+    border-radius 300ms ease,
+    box-shadow 300ms ease;
+}
+
+body.is-browser-environment .window-container.is-maximized {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  margin: 0;
+  box-shadow: none;
+}
+
+/* Unified Window Dragging & Cursor Standards */
+.topbar,
+.topbar-drag-spacer,
+.topbar-brand {
+  cursor: default;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.topbar-controls,
+.window-controls,
+.sidebar-toggle-btn,
+button, a, input, [role="button"] {
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+
+body.is-browser-dragging,
+body.is-browser-dragging * {
+  cursor: default !important;
+  user-select: none !important;
+}
+
+.window-container.is-dragging {
+  transition: none !important;
+  will-change: transform;
+}
+
+/* Localhost Dev Simulator Control Dock */
+.browser-simulator-dock {
+  position: fixed;
+  bottom: 12px;
+  right: 16px;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  color: #f8fafc;
+  font-size: 11px;
+  font-weight: 500;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  max-width: calc(100vw - 32px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.browser-simulator-dock::-webkit-scrollbar {
+  display: none;
+}
+
+.browser-simulator-dock .sim-tag {
+  opacity: 0.7;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.browser-simulator-dock .sim-btn {
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f1f5f9;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.browser-simulator-dock .sim-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+.browser-simulator-dock .sim-btn.active {
+  background: #3b82f6;
+  border-color: #60a5fa;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.browser-simulator-dock .sim-btn-toggle {
+  margin-left: 4px;
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.window-container {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: transparent;
+  flex-shrink: 0;
+  transition:
+    border-radius 350ms cubic-bezier(0.34, 1.36, 0.64, 1);
+  will-change: border-radius;
+  z-index: 10;
+}
+
+.window-container.is-maximized {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0px;
+  box-shadow: none;
+}
+
+.window-container.is-maximized .app-shell {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  padding: 6px 14px 14px 14px;
+}
+
+.window-backdrop-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 0;
+  backdrop-filter: blur(var(--env-backdrop-blur, 36px)) saturate(var(--env-backdrop-saturate, 130%)) contrast(var(--env-backdrop-contrast, 102%)) brightness(var(--env-backdrop-brightness, 98%));
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 36px)) saturate(var(--env-backdrop-saturate, 130%)) contrast(var(--env-backdrop-contrast, 102%)) brightness(var(--env-backdrop-brightness, 98%));
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.window-container.is-maximized .window-backdrop-layer {
+  border-radius: 0;
+}
+
+/* Subtle Inactive Resting Glass (preserves text contrast, softens specular, pauses telemetry loops) */
+.window-container.is-unfocused .app-shell {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.02) 35%, transparent 70%),
+    var(--surface-level-1);
+  border-color: var(--border-subtle);
+  border-top-color: var(--env-specular-side, rgba(255, 255, 255, 0.35));
+  box-shadow:
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.25),
+    0 15px 35px -10px var(--env-shadow-ambient, rgba(15, 23, 42, 0.12));
+  transition: background 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
+}
+
+/* Deep Inactivity Sleep: Freeze all CSS animations and GPU wakeups when blurred */
+.window-container.is-unfocused *,
+.window-container.is-unfocused *::before,
+.window-container.is-unfocused *::after {
+  animation-play-state: paused !important;
+}
+
+.window-container.is-unfocused .topbar-brand,
+.window-container.is-unfocused .win-btn {
+  opacity: 0.82;
+}
+
+/* =========================================================
+   Pre-Baked Optical Texture Engine (Potato Mode — Minimal GPU / Pre-baked effects)
+   Bakes high-resolution optical frosted glass texture directly
+   into the window container, avoiding runtime backdrop-blur passes
+   for minimal GPU overhead while retaining the aesthetic everywhere.
+========================================================= */
+.window-container.potato-mode {
+  background: transparent !important;
+}
+
+.window-container.potato-mode .window-backdrop-layer {
+  display: block !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: transparent !important;
+  overflow: hidden !important;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.window-container:not(.potato-mode) {
+  background: transparent !important;
+}
+
+.window-container:not(.potato-mode) .app-shell {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 65%),
+    rgba(15, 20, 32, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.38);
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.30),
+    0 25px 60px -15px rgba(0, 0, 0, 0.25);
+}
+
+/* Studio Glass Mode: Cross-fade to pre-baked frosted wallpaper when idle/unfocused instead of total flat gray */
+.window-container:not(.potato-mode) .studio-idle-wallpaper {
+  position: absolute;
+  width: var(--screen-width, 100vw);
+  height: var(--screen-height, 100vh);
+  top: 0;
+  left: 0;
+  background-image: var(--potato-bg-url, url("/wallpapers/bg-neon-waves-frosted.webp"));
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+  transform: translate3d(calc(-1 * var(--bg-parallax-x, 0px)), calc(-1 * var(--bg-parallax-y, 0px)), 0);
+  z-index: 0;
+}
+
+.window-container:not(.potato-mode).is-unfocused .studio-idle-wallpaper,
+.window-container:not(.potato-mode) .studio-idle-wallpaper.is-idle {
+  opacity: 1;
+}
+
+/* Efficiency Mode: 100% true-vibrancy pre-baked texture with real-time screen-anchored drag parallax */
+.window-container.potato-mode .potato-parallax-bg {
+  position: absolute;
+  width: var(--screen-width, 100vw);
+  height: var(--screen-height, 100vh);
+  top: 0;
+  left: 0;
+  background-image: var(--potato-bg-url, url("/wallpapers/bg-neon-waves-frosted.webp"));
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  will-change: transform;
+  transform: translate3d(calc(-1 * var(--bg-parallax-x, 0px)), calc(-1 * var(--bg-parallax-y, 0px)), 0);
+  pointer-events: none;
+}
+
+.window-container.is-maximized .potato-parallax-bg,
+.window-container.is-maximized .studio-idle-wallpaper {
+  width: 100vw !important;
+  height: 100vh !important;
+  transform: translate3d(0, 0, 0) !important;
+}
+
+/* Efficiency Mode Shell - Default Clean Optical Glass Sheen */
+.window-container.potato-mode .app-shell {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 70%),
+    rgba(15, 20, 32, 0.04) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-top: 1.5px solid var(--border-specular-top) !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.35) !important;
+  box-shadow:
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.35),
+    0 25px 60px -15px rgba(10, 15, 30, 0.20) !important;
+  border-radius: var(--radius-window);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Efficiency Mode Shell - Pure Balanced Glass for Light 2K Wallpapers (Silk Loop, Ghibli Meadow, Amber Flow, etc.) */
+.window-container.potato-mode[data-wallpaper-theme="light"] .app-shell {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 35%, transparent 75%),
+    rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
+  border-top: 1.5px solid rgba(255, 255, 255, 0.75) !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.55) !important;
+  box-shadow:
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.60),
+    0 25px 60px -15px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Efficiency Mode Shell - Crystal Dark Glass for Dark 2K Wallpapers (Neon Waves) */
+.window-container.potato-mode[data-wallpaper-theme="dark"] .app-shell {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 65%),
+    rgba(15, 20, 32, 0.06) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-top: 1.5px solid var(--border-specular-top) !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.30) !important;
+  box-shadow:
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.35),
+    0 25px 60px -15px rgba(10, 15, 30, 0.25) !important;
+}
+
+.window-container.potato-mode .topbar {
+  background: transparent !important;
+  border-bottom: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.window-container.potato-mode .app-title {
+  color: var(--color-text-primary) !important;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+}
+
+.window-container.potato-mode .topbar-logo {
+  color: var(--color-brand-primary) !important;
+}
+
+.window-container.potato-mode .win-btn {
+  color: var(--color-text-secondary) !important;
+}
+
+.window-container.potato-mode .win-btn:hover {
+  background: var(--surface-control-hover) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.window-container.potato-mode .win-btn.close:hover {
+  background: var(--color-status-danger) !important;
+  color: #ffffff !important;
+}
+
+.window-container.potato-mode .sidebar {
+  background: linear-gradient(180deg, var(--surface-level-1) 0%, rgba(255, 255, 255, 0.05) 100%) !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: var(--shadow-card) !important;
+  border-radius: var(--radius-lg) !important;
+  padding: 8px 6px;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.window-container.potato-mode .sidebar-toggle-btn {
+  color: var(--color-text-secondary) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.window-container.potato-mode .sidebar-toggle-btn:hover {
+  color: var(--color-text-primary) !important;
+  background: var(--surface-control-hover) !important;
+}
+
+.window-container.potato-mode .nav-item {
+  color: var(--color-text-secondary) !important;
+  background: transparent !important;
+  border-radius: var(--radius-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.window-container.potato-mode .nav-item:hover {
+  background: var(--surface-control-hover) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.window-container.potato-mode .nav-item.active {
+  color: var(--color-text-primary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  font-weight: var(--font-weight-semibold);
+}
+
+.window-container.potato-mode .nav-item.active svg {
+  color: var(--color-brand-primary) !important;
+}
+
+/* Content Pane - Optical Frosted Glass */
+.window-container.potato-mode .content-pane {
+  background: linear-gradient(180deg, var(--surface-level-2) 0%, rgba(255, 255, 255, 0.06) 100%) !important;
+  border-radius: var(--radius-lg) !important;
+  overflow: hidden !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: 0 16px 40px -8px rgba(10, 15, 30, 0.14) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Studio Glass Bento Elevation (Active when not in Efficiency Mode) */
+:not(.potato-mode) .omnibar-card,
+:not(.potato-mode) .telemetry-ribbon,
+:not(.potato-mode) .pipeline-card,
+:not(.potato-mode) .recent-captures-card,
+:not(.potato-mode) .storage-gauge-card,
+:not(.potato-mode) .media-grid-card,
+:not(.potato-mode) .settings-card-group,
+:not(.potato-mode) .library-filter-bar,
+:not(.potato-mode) .library-search-card,
+:not(.potato-mode) .pipeline-empty-state {
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+}
+
+/* Master Frosted Bento Cards (Zero Nested GPU Blurs in Potato Mode) */
+.window-container.potato-mode .omnibar-card,
+.window-container.potato-mode .telemetry-ribbon,
+.window-container.potato-mode .pipeline-card,
+.window-container.potato-mode .recent-captures-card,
+.window-container.potato-mode .storage-gauge-card,
+.window-container.potato-mode .media-grid-card,
+.window-container.potato-mode .media-card,
+.window-container.potato-mode .settings-card-group,
+.window-container.potato-mode .library-filter-bar,
+.window-container.potato-mode .library-search-card,
+.window-container.potato-mode .pipeline-empty-state {
+  background: var(--surface-level-3) !important;
+  border: 1px solid var(--border-normal) !important;
+  border-top: 1.5px solid var(--border-specular-top) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-card) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.window-container.potato-mode .omnibar-card:focus-within {
+  background: var(--surface-level-3-hover) !important;
+  border-color: color-mix(in srgb, var(--color-brand-primary, #4f46e5) 60%, var(--border-normal)) !important;
+  border-top-color: color-mix(in srgb, var(--border-specular-top) 60%, var(--color-brand-primary, #4f46e5)) !important;
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px color-mix(in srgb, var(--color-brand-primary, #4f46e5) 24%, transparent) !important;
+}
+
+.window-container.potato-mode .omnibar-input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding-left: 0 !important;
+  color: var(--color-text-primary) !important;
+  outline: none !important;
+}
+
+.window-container.potato-mode .omnibar-input::placeholder {
+  color: var(--color-text-disabled) !important;
+}
+
+.window-container.potato-mode .omnibar-icon-prefix {
+  color: var(--color-text-tertiary) !important;
+}
+
+.window-container.potato-mode .omnibar-clear-btn {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.window-container.potato-mode .omnibar-clear-btn:hover {
+  background: var(--surface-control-hover) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.window-container.potato-mode .omnibar-clipboard-chip {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-top: 1px solid var(--border-specular-top) !important;
+}
+
+.window-container.potato-mode .clipboard-chip-button {
+  color: var(--color-text-secondary) !important;
+}
+
+.window-container.potato-mode .clipboard-chip-badge {
+  background: rgba(37, 99, 235, 0.12) !important;
+  color: var(--color-brand-primary) !important;
+  border: 1px solid rgba(37, 99, 235, 0.20) !important;
+}
+
+.window-container.potato-mode .glass-select-trigger {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-top: 1px solid var(--border-specular-top) !important;
+  color: var(--color-text-primary) !important;
+  box-shadow:
+    var(--shadow-inset-subtle),
+    0 1px 3px rgba(15, 23, 42, 0.04) !important;
+}
+
+.window-container.potato-mode .glass-select-trigger:hover {
+  background: var(--surface-control-hover) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.window-container.potato-mode .glass-select-trigger.is-open {
+  background: var(--surface-control-active) !important;
+  border-color: rgba(99, 102, 241, 0.40) !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15) !important;
+}
+
+.window-container.potato-mode .glass-select-menu {
+  background: var(--surface-overlay) !important;
+  border: 1px solid var(--border-normal) !important;
+  box-shadow: var(--shadow-elevated) !important;
+}
+
+.window-container.potato-mode .glass-select-item {
+  color: var(--color-text-secondary) !important;
+}
+
+.window-container.potato-mode .glass-select-item:hover {
+  background: var(--surface-control-hover) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.window-container.potato-mode .glass-select-item.is-selected {
+  background: rgba(99, 102, 241, 0.10) !important;
+  color: #4f46e5 !important;
+  font-weight: 600;
+}
+
+.window-container.potato-mode .omnibar-submit-btn {
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.40) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.85) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 4px 14px rgba(99, 102, 241, 0.28),
+    inset 0 1px 1px rgba(255, 255, 255, 0.75) !important;
+  font-weight: 600;
+}
+
+.window-container.potato-mode .omnibar-submit-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+  box-shadow:
+    0 6px 18px rgba(99, 102, 241, 0.38),
+    inset 0 1px 1px #ffffff !important;
+}
+
+.window-container.potato-mode .omnibar-submit-btn:disabled {
+  background: rgba(255, 255, 255, 0.30) !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  color: #94a3b8 !important;
+  box-shadow: none !important;
+  opacity: 0.65 !important;
+}
+
+/* Typography Hierarchy */
+.window-container.potato-mode .pipeline-title,
+.window-container.potato-mode .recent-name,
+.window-container.potato-mode .media-card-title,
+.window-container.potato-mode .settings-title,
+.window-container.potato-mode .settings-row-label,
+.window-container.potato-mode .section-title,
+.window-container.potato-mode .telemetry-num,
+.window-container.potato-mode .storage-gauge-title {
+  color: var(--color-text-primary) !important;
+  font-weight: var(--font-weight-semibold);
+}
+
+.window-container.potato-mode .pipeline-meta-line,
+.window-container.potato-mode .recent-sub,
+.window-container.potato-mode .media-card-meta-line,
+.window-container.potato-mode .settings-subtitle,
+.window-container.potato-mode .settings-row-desc,
+.window-container.potato-mode .telemetry-seg-label,
+.window-container.potato-mode .telemetry-meta-muted,
+.window-container.potato-mode .telemetry-unit,
+.window-container.potato-mode .telemetry-sub,
+.window-container.potato-mode .storage-gauge-sub {
+  color: var(--color-text-secondary) !important;
+  font-weight: var(--font-weight-medium);
+}
+
+.window-container.potato-mode .telemetry-seg-icon,
+.window-container.potato-mode .storage-gauge-icon,
+.window-container.potato-mode .pipeline-thumbnail {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-tertiary) !important;
+}
+
+.window-container.potato-mode .telemetry-divider {
+  background: var(--border-subtle) !important;
+}
+
+.window-container.potato-mode .telemetry-status-pill {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border: 1px solid rgba(16, 185, 129, 0.25) !important;
+  color: var(--color-status-success) !important;
+}
+
+.window-container.potato-mode .section-badge-count,
+.window-container.potato-mode .storage-gauge-badge,
+.window-container.potato-mode .pipeline-codec-pill,
+.window-container.potato-mode .pipeline-type-badge,
+.window-container.potato-mode .settings-badge-static {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-secondary) !important;
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-sm);
+}
+
+/* Recent Items & Pipeline */
+.window-container.potato-mode .recent-item {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-top: 1px solid var(--border-specular-top) !important;
+  border-radius: var(--radius-md);
+}
+
+.window-container.potato-mode .recent-item:hover {
+  background: var(--surface-control-hover) !important;
+  border-color: var(--border-normal) !important;
+}
+
+.window-container.potato-mode .recent-action-btn,
+.window-container.potato-mode .recent-action-icon-btn,
+.window-container.potato-mode .pipeline-action-btn,
+.window-container.potato-mode .storage-folder-btn {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-top: 1px solid var(--border-specular-top) !important;
+  color: var(--color-text-secondary) !important;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.window-container.potato-mode .recent-action-btn:hover,
+.window-container.potato-mode .recent-action-icon-btn:hover,
+.window-container.potato-mode .pipeline-action-btn:hover,
+.window-container.potato-mode .storage-folder-btn:hover {
+  background: var(--surface-level-3-active) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--border-normal) !important;
+}
+
+.window-container.potato-mode .recent-icon-badge {
+  background: rgba(37, 99, 235, 0.10) !important;
+  border: 1px solid rgba(37, 99, 235, 0.20) !important;
+  color: #2563eb !important;
+}
+
+.window-container.potato-mode .dropzone-icon-circle {
+  background: rgba(255, 255, 255, 0.60) !important;
+  border: 1px solid rgba(255, 255, 255, 0.80) !important;
+  color: #475569 !important;
+}
+
+.window-container.potato-mode .pipeline-progress-track,
+.window-container.potato-mode .storage-gauge-track {
+  background: rgba(0, 0, 0, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.60) !important;
+}
+
+.window-container.potato-mode .pipeline-progress-bar {
+  background: linear-gradient(90deg, #6366f1 0%, #3b82f6 100%) !important;
+}
+
+.window-container.potato-mode .manifest-dropzone {
+  background: var(--surface-control) !important;
+  border: 1.5px dashed var(--border-normal) !important;
+}
+
+.window-container.potato-mode .manifest-dropzone:hover {
+  background: var(--surface-control-hover) !important;
+  border-color: var(--color-brand-primary) !important;
+}
+
+.window-container.potato-mode .dropzone-title,
+.window-container.potato-mode .dropzone-text-primary {
+  color: var(--color-text-primary) !important;
+  font-weight: 600;
+}
+
+.window-container.potato-mode .dropzone-sub,
+.window-container.potato-mode .dropzone-text-secondary {
+  color: var(--color-text-secondary) !important;
+}
+
+/* Media Library Filters & Pills */
+.window-container.potato-mode .library-cat-pill {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.window-container.potato-mode .library-cat-pill:hover {
+  background: var(--surface-control-hover) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.window-container.potato-mode .library-cat-pill.active {
+  background: var(--color-brand-primary) !important;
+  border-color: var(--color-brand-primary) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.32) !important;
+}
+
+.window-container.potato-mode .view-mode-pill,
+.window-container.potato-mode .library-select {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.window-container.potato-mode .view-mode-btn {
+  color: var(--color-text-tertiary) !important;
+}
+
+.window-container.potato-mode .view-mode-btn.active {
+  background: var(--surface-level-3-active) !important;
+  color: var(--color-text-primary) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.10) !important;
+}
+
+.window-container.potato-mode .media-ghost-play-btn,
+.window-container.potato-mode .media-icon-ghost-btn {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.window-container.potato-mode .media-ghost-play-btn:hover,
+.window-container.potato-mode .media-icon-ghost-btn:hover {
+  background: var(--color-brand-primary) !important;
+  color: #ffffff !important;
+  border-color: var(--color-brand-primary) !important;
+}
+
+/* Settings Controls */
+.window-container.potato-mode .settings-nav-pills,
+.window-container.potato-mode .settings-toggle-group {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+}
+
+.window-container.potato-mode .settings-pill-btn,
+.window-container.potato-mode .settings-toggle-btn {
+  color: var(--color-text-secondary) !important;
+  font-weight: 550;
+  background: transparent !important;
+}
+
+.window-container.potato-mode .settings-pill-btn:hover:not(.active),
+.window-container.potato-mode .settings-toggle-btn:hover:not(.active) {
+  color: var(--color-text-primary) !important;
+  background: var(--surface-control-hover) !important;
+}
+
+.window-container.potato-mode .settings-pill-btn.active,
+.window-container.potato-mode .settings-toggle-btn.active {
+  background: var(--surface-level-3-active) !important;
+  color: var(--color-text-primary) !important;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08) !important;
+}
+
+.window-container.potato-mode .settings-row {
+  border-bottom: 1px solid var(--border-normal) !important;
+}
+
+.window-container.potato-mode .settings-wallpaper-card {
+  background: var(--surface-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+}
+
+.window-container.potato-mode .settings-wallpaper-card.is-active {
+  border-color: var(--color-brand-primary) !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35) !important;
+}
+
+.window-container.potato-mode .settings-wallpaper-label {
+  color: var(--color-text-primary) !important;
+}
+
+.window-container.potato-mode .telemetry-pulse-dot {
+  animation: none !important;
+}
+
+.window-container.potato-mode .pipeline-progress-bar::after {
+  display: none !important;
+}
+
+.window-container.potato-mode * {
+  transition-duration: 0.12s !important;
+}
+
+.window-container.bloom-disabled .app-shell {
+  box-shadow: 0 8px 24px -6px rgba(15, 23, 42, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.40) !important;
+}
+
+
+
+.app-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 65%),
+    var(--surface-level-1);
+  transform: translateZ(0);
+  border: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border-specular-top);
+  border-left: 1px solid var(--env-specular-side, rgba(255, 255, 255, 0.40));
+  box-shadow:
+    inset 0 1px 1px 0 var(--border-specular-top),
+    0 25px 60px -15px var(--env-shadow-ambient, rgba(10, 15, 30, 0.30));
+  border-radius: 12px;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  grid-template-rows: 36px 1fr;
+  padding: 8px;
+  column-gap: 8px;
+  row-gap: 6px;
+  transition:
+    grid-template-columns 420ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    column-gap 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: grid-template-columns;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 0px 1fr;
+  column-gap: 0px;
+}
+
+/* Chrome-like Full-Bleed Edge-to-Edge Browser Mode (When sidebar is collapsed in browser) */
+.app-shell.browser-fullbleed {
+  padding: 0 !important;
+  column-gap: 0 !important;
+  row-gap: 0 !important;
+  border: none !important;
+  border-radius: var(--radius-window, 12px) !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.window-container.is-maximized .app-shell.browser-fullbleed {
+  border-radius: 0 !important;
+}
+
+.app-shell.browser-fullbleed .topbar {
+  padding: 2px 8px 0 8px !important;
+  height: 36px;
+  background: var(--surface-level-1) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+
+.app-shell.browser-fullbleed .content-pane {
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+/* In full-bleed browser mode, let the omnibar stretch comfortably across the toolbar like Chrome */
+.app-shell.browser-fullbleed .browser-omnibar-form {
+  max-width: none !important;
+}
+
+.app-shell.browser-fullbleed .browser-toolbar {
+  padding: 6px 14px !important;
+}
+
+.window-container.potato-mode .app-shell.browser-fullbleed {
+  padding: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.window-container.potato-mode .app-shell.browser-fullbleed .content-pane {
+  padding: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+}
+
+/* Topbar */
+.topbar {
+  grid-column: 1 / -1;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 0 8px;
+  user-select: none;
+}
+
+/* Linear / Notion style header: brand on left, collapse button on right edge of sidebar */
+.topbar-sidebar-area {
+  width: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 4px;
+  box-sizing: border-box;
+  transition: width 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: width;
+}
+
+.topbar-sidebar-area.closed {
+  width: 154px;
+}
+
+.topbar-drag-spacer {
+  flex: 1;
+  height: 100%;
+  min-width: 20px;
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+  padding: 0;
+}
+
+.app-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: var(--tracking-snug);
+}
+
+.topbar-logo {
+  width: 18px;
+  height: 18px;
+  color: var(--color-brand-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-toggle-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  user-select: none;
+}
+
+.sidebar-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--color-text-primary);
+  transform: scale(1.06);
+}
+
+.sidebar-toggle-btn:active {
+  transform: scale(0.88);
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.sidebar-toggle-svg {
+  display: block;
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  gap: 1px;
+}
+
+.win-btn {
+  width: 46px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  padding: 0;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.win-btn svg {
+  display: block;
+}
+
+.win-btn:hover {
+  background: var(--surface-control-hover);
+  color: var(--color-text-primary);
+}
+
+.win-btn:active {
+  background: var(--surface-control-active);
+}
+
+.win-btn.close:hover {
+  background: #e81123 !important;
+  color: #ffffff !important;
+}
+
+.win-btn.close:active {
+  background: #c42b1c !important;
+  color: #ffffff !important;
+}
+
+/* Sidebar - Optical Frosted Glass column (matches content-pane card elevation) */
+.sidebar {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  background: linear-gradient(180deg, var(--surface-level-1) 0%, rgba(255, 255, 255, 0.06) 100%);
+  backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 130%)) brightness(var(--env-backdrop-brightness, 102%));
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 130%)) brightness(var(--env-backdrop-brightness, 102%));
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  user-select: none;
+  transition:
+    opacity 320ms ease,
+    padding 420ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform, opacity, padding;
+}
+
+.app-shell.sidebar-collapsed .sidebar {
+  opacity: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-right-color: transparent;
+  transform: translate3d(-24px, 0, 0) scale(0.96);
+  pointer-events: none;
+}
+
+/* Primary navigation rail: 3 items (Hub, Library, Settings), 36px height + 4px gap = 40px step */
+.sidebar-nav-items {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-jelly-indicator {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  right: 0px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-top: 1px solid #ffffff;
+  box-shadow:
+    0 4px 12px -2px rgba(15, 23, 42, 0.08),
+    0 1px 3px 0 rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 #ffffff;
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
+}
+
+.nav-item {
+  position: relative;
+  z-index: 1;
+  height: 36px;
+  box-sizing: border-box;
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+  line-height: 20px;
+  font-weight: 450;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  white-space: nowrap;
+  transition: color 0.18s ease, transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nav-item:hover:not(.active) {
+  background: var(--surface-control-hover);
+  color: var(--color-text-primary);
+}
+
+.nav-item:active {
+  transform: scale(0.97);
+}
+
+.nav-item.active {
+  font-weight: 550;
+  color: var(--color-text-primary);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.nav-item-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  transition: color 0.18s ease;
+}
+
+.nav-item.active .nav-item-icon {
+  color: var(--color-brand-primary);
+}
+
+/* Content Pane - Optical Frosted Glass (Level 2 Elevation) */
+.content-pane {
+  background: linear-gradient(180deg, var(--surface-level-2) 0%, rgba(255, 255, 255, 0.08) 100%);
+  backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%));
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%));
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  contain: paint;
+}
+
+.hub-view-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content-inner {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.jelly-content {
+  animation: jellyPop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  will-change: transform, opacity;
+}
+
+@keyframes jellyPop {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.94);
+  }
+  55% {
+    opacity: 1;
+    transform: translate3d(0, -3px, 0) scale(1.02);
+  }
+  78% {
+    transform: translate3d(0, 1px, 0) scale(0.995);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.content-heading {
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 34px;
+  font-weight: 600;
+  color: #1e293b;
+  letter-spacing: -0.02em;
+}
+
+.content-body {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  color: #94a3b8;
+}
+
+/* =========================================================
+   VISUAL REFINEMENT PASS — Depth, Contrast & Hierarchy
+   Appended layer: wins the cascade at equal specificity.
+   (Potato-mode !important rules keep their baked values.)
+========================================================= */
+
+
+
+
+.nav-item {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-md);
+  height: var(--control-height-lg);
+}
+
+.nav-item:hover:not(.active) {
+  background: var(--surface-control-hover);
+  color: var(--color-text-primary);
+}
+
+.nav-item.active {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.nav-item-icon {
+  color: var(--color-text-tertiary);
+}
+
+.nav-item.active .nav-item-icon {
+  color: var(--color-brand-primary);
+}
+
+/* --- Window controls & sidebar toggle --- */
+.win-btn:hover {
+  background: var(--surface-control-hover);
+  color: var(--color-text-primary);
+}
+
+.sidebar-toggle-btn:hover {
+  background: var(--surface-control-hover);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-brand-primary);
+}
+
+/* --- Empty-state copy contrast --- */
+.content-heading {
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+}
+
+.content-body {
+  color: var(--color-text-secondary);
+}
+
+.window-container.potato-mode .settings-subtitle {
+  color: var(--color-text-secondary) !important;
+  font-weight: var(--font-weight-medium);
+}
+
+/* =========================================================
+   Adaptive Dark Environment (Neon Waves & Dark Themes)
+   ========================================================= */
+.window-container[data-wallpaper-theme="dark"] .app-title,
+[data-wallpaper-theme="dark"] .app-title {
+  color: #ffffff !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .topbar-brand,
+[data-wallpaper-theme="dark"] .topbar-brand {
+  color: #ffffff !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .win-btn,
+[data-wallpaper-theme="dark"] .win-btn {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .win-btn:hover,
+[data-wallpaper-theme="dark"] .win-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .sidebar-toggle-btn,
+[data-wallpaper-theme="dark"] .sidebar-toggle-btn {
+  color: rgba(255, 255, 255, 0.80) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .sidebar-toggle-btn:hover,
+[data-wallpaper-theme="dark"] .sidebar-toggle-btn:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  border: none !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .nav-item,
+[data-wallpaper-theme="dark"] .nav-item {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .nav-item:hover:not(.active),
+[data-wallpaper-theme="dark"] .nav-item:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.10) !important;
+  color: #ffffff !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .nav-item.active,
+[data-wallpaper-theme="dark"] .nav-item.active {
+  color: #ffffff !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .nav-item-icon,
+[data-wallpaper-theme="dark"] .nav-item-icon {
+  color: rgba(255, 255, 255, 0.60) !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .nav-item.active .nav-item-icon,
+[data-wallpaper-theme="dark"] .nav-item.active .nav-item-icon {
+  color: #818cf8 !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .nav-jelly-indicator,
+[data-wallpaper-theme="dark"] .nav-jelly-indicator {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.40) !important;
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+.window-container[data-wallpaper-theme="dark"].potato-mode .nav-item.active,
+[data-wallpaper-theme="dark"].potato-mode .nav-item.active {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .sidebar,
+[data-wallpaper-theme="dark"] .sidebar {
+  background: linear-gradient(180deg, var(--surface-level-1) 0%, rgba(14, 18, 30, 0.40) 100%) !important;
+  backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 130%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 130%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.window-container[data-wallpaper-theme="dark"].potato-mode .sidebar,
+[data-wallpaper-theme="dark"].potato-mode .sidebar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: linear-gradient(180deg, var(--surface-level-1) 0%, rgba(14, 18, 30, 0.35) 100%) !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .content-pane,
+[data-wallpaper-theme="dark"] .content-pane {
+  background: linear-gradient(180deg, var(--surface-level-2) 0%, rgba(14, 18, 30, 0.50) 100%) !important;
+  backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.window-container[data-wallpaper-theme="dark"].potato-mode .content-pane,
+[data-wallpaper-theme="dark"].potato-mode .content-pane {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: linear-gradient(180deg, var(--surface-level-2) 0%, rgba(14, 18, 30, 0.45) 100%) !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .content-heading,
+[data-wallpaper-theme="dark"] .content-heading {
+  color: #ffffff !important;
+}
+
+.window-container[data-wallpaper-theme="dark"] .content-body,
+[data-wallpaper-theme="dark"] .content-body {
+  color: rgba(255, 255, 255, 0.70) !important;
+}
+
+/* In-App Browser View Container */
+.browser-view-wrapper {
+  padding: 0 !important;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.engine-badge {
+  color: #4f46e5;
+  font-weight: 600;
+}
+
+.fps-badge {
+  color: #059669;
+  font-weight: 700;
+}
+
+.sidebar-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  font-size: 11px;
+  color: #475569;
+}
+
+.status-beacon-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: beaconPulse 2s infinite ease-in-out;
+}
+
+@keyframes beaconPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.status-beacon-text {
+  font-weight: 500;
+}
+
+
+.app-shell.sidebar-collapsed .sidebar {
+  opacity: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-right-color: transparent;
+  transform: translate3d(-24px, 0, 0) scale(0.96);
+  pointer-events: none;
+}
+
+.sidebar-nav-items {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-jelly-indicator {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  right: 0px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-top: 1px solid #ffffff;
+  box-shadow:
+    0 4px 12px -2px rgba(15, 23, 42, 0.08),
+    0 1px 3px 0 rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 #ffffff;
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
+}
+
+.nav-item {
+  position: relative;
+  z-index: 1;
+  height: 36px;
+  box-sizing: border-box;
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+  line-height: 20px;
+  font-weight: 450;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #475569;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  white-space: nowrap;
+  transition: color 0.18s ease, transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nav-item:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.25);
+  color: #0f172a;
+}

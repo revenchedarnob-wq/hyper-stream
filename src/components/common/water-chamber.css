@@ -1,0 +1,202 @@
+/* =========================================================
+   Liquid Water Chamber — Optical Fluid Meniscus & Caustics
+   Zero-cost GPU-compositor fluid simulation.
+========================================================= */
+
+:root {
+  --water-wave-top: rgba(186, 230, 253, 0.32);
+  --water-wave-mid: rgba(56, 189, 248, 0.18);
+  --water-wave-bottom: rgba(14, 165, 233, 0.08);
+  --water-wave-back: rgba(56, 189, 248, 0.12);
+  --water-caustic-color: rgba(56, 189, 248, 0.14);
+  --water-bubble-shadow: rgba(56, 189, 248, 0.35);
+}
+
+[data-wallpaper-theme="light"] {
+  --water-wave-top: rgba(125, 211, 252, 0.25);
+  --water-wave-mid: rgba(56, 189, 248, 0.14);
+  --water-wave-bottom: rgba(14, 165, 233, 0.06);
+  --water-wave-back: rgba(56, 189, 248, 0.08);
+  --water-caustic-color: rgba(56, 189, 248, 0.10);
+  --water-bubble-shadow: rgba(56, 189, 248, 0.25);
+}
+
+[data-wallpaper-theme="dark"] {
+  --water-wave-top: rgba(186, 230, 253, 0.38);
+  --water-wave-mid: rgba(56, 189, 248, 0.22);
+  --water-wave-bottom: rgba(14, 165, 233, 0.10);
+  --water-wave-back: rgba(56, 189, 248, 0.16);
+  --water-caustic-color: rgba(56, 189, 248, 0.18);
+  --water-bubble-shadow: rgba(56, 189, 248, 0.45);
+}
+
+/* Base chamber container */
+.liquid-water-chamber {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: inherit;
+  contain: layout paint;
+}
+
+/* Ambient swimming pool caustics */
+.water-ambient-caustics {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 50% at 30% 70%, rgba(255, 255, 255, 0.16) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 75% 85%, var(--water-wave-top) 0%, transparent 50%),
+    radial-gradient(ellipse 90% 60% at 50% 100%, var(--water-caustic-color) 0%, transparent 70%);
+  mix-blend-mode: overlay;
+  animation: causticsGentlePulse 6s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes causticsGentlePulse {
+  0% {
+    opacity: 0.60;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 0.95;
+    transform: scale(1.02);
+  }
+}
+
+/* Undulating fluid SVG wave */
+.liquid-wave-svg {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 200%;
+  pointer-events: none;
+  animation: waterSlosh 9s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite alternate;
+  transform-origin: 30% 90%;
+  will-change: transform;
+}
+
+.wave-pipeline {
+  animation-duration: 8.5s;
+}
+
+.wave-omni {
+  animation-duration: 11s;
+}
+
+.wave-telem {
+  animation-duration: 12s;
+}
+
+.wave-recent {
+  animation-duration: 9.5s;
+}
+
+.wave-dropzone {
+  animation-duration: 7.5s;
+}
+
+.wave-layer-front {
+  animation: waveCrestBreathe 5s ease-in-out infinite alternate;
+}
+
+.wave-layer-back {
+  animation: waveCrestBreatheBack 7s ease-in-out infinite alternate;
+  fill: var(--water-wave-back);
+}
+
+@keyframes waterSlosh {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scaleY(1);
+  }
+  35% {
+    transform: translate3d(-12%, -3px, 0) rotate(0.9deg) scaleY(1.04);
+  }
+  70% {
+    transform: translate3d(-24%, 3px, 0) rotate(-0.7deg) scaleY(0.97);
+  }
+  100% {
+    transform: translate3d(-35%, 1px, 0) rotate(0.4deg) scaleY(1.02);
+  }
+}
+
+@keyframes waveCrestBreathe {
+  0% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0.78;
+  }
+}
+
+@keyframes waveCrestBreatheBack {
+  0% {
+    opacity: 0.65;
+    transform: translate3d(0, 2px, 0);
+  }
+  100% {
+    opacity: 0.40;
+    transform: translate3d(-10px, -2px, 0);
+  }
+}
+
+/* Bottom Caustic Reflection Pool */
+.water-bottom-caustic-pool {
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  right: 10%;
+  height: 18px;
+  background: radial-gradient(ellipse at center bottom, var(--water-wave-top) 0%, var(--water-caustic-color) 50%, transparent 80%);
+  pointer-events: none;
+  filter: blur(2px);
+}
+
+/* Floating Micro-bubbles */
+.water-floating-bubble {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.85) 0%, var(--water-wave-top) 50%, transparent 80%);
+  box-shadow: inset 0 0 1.5px rgba(255, 255, 255, 0.9), 0 0 4px var(--water-bubble-shadow);
+  pointer-events: none;
+  opacity: 0.75;
+  animation: bubbleFloat 10s ease-in-out infinite;
+}
+
+.water-floating-bubble.b1 {
+  width: 5px;
+  height: 5px;
+  bottom: 20%;
+  left: 22%;
+  animation-duration: 8s;
+  animation-delay: 1s;
+}
+
+.water-floating-bubble.b2 {
+  width: 3.5px;
+  height: 3.5px;
+  bottom: 30%;
+  right: 32%;
+  animation-duration: 11s;
+  animation-delay: 3.5s;
+}
+
+@keyframes bubbleFloat {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(8px, -12px, 0);
+  }
+}
+
+/* Card Hover Dynamic Slosh */
+.pipeline-card:hover .liquid-wave-svg,
+.omnibar-card:focus-within .liquid-wave-svg,
+.recent-captures-card:hover .liquid-wave-svg,
+.manifest-dropzone:hover .liquid-wave-svg {
+  animation-duration: 4.5s;
+  transform: translate3d(-15%, -5px, 0) scaleY(1.10) rotate(1.2deg);
+  transition: transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}

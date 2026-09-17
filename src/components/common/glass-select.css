@@ -1,0 +1,165 @@
+/**
+ * HyperStream Frosted Glass Select Component
+ * Replaces native OS select dropdowns with theme-native optical frosted glass menus.
+ */
+
+.glass-select-wrapper {
+  position: relative;
+  display: inline-block;
+  user-select: none;
+}
+
+.glass-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  height: var(--control-height-md);
+  padding: 0 10px;
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border-specular-top);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    background-color var(--duration-normal) ease,
+    border-color var(--duration-normal) ease,
+    box-shadow var(--duration-normal) ease,
+    transform var(--duration-normal) ease;
+  outline: none;
+  white-space: nowrap;
+}
+
+.glass-select-trigger:hover {
+  background: var(--surface-control-hover);
+  border-color: var(--border-normal);
+  color: var(--color-text-primary);
+}
+
+.glass-select-trigger.is-open {
+  background: var(--surface-level-3-active);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--border-focus);
+}
+
+.glass-select-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.glass-select-chevron {
+  color: var(--color-text-tertiary);
+  transition: transform var(--duration-normal) var(--ease-out);
+  display: flex;
+  align-items: center;
+}
+
+.glass-select-trigger.is-open .glass-select-chevron {
+  transform: rotate(180deg);
+  color: var(--color-text-primary);
+}
+
+.glass-select-wrapper.is-open {
+  z-index: 1000;
+}
+
+/* Floating Glass Dropdown Menu — High Opacity Frosted Glass */
+.glass-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 135px;
+  background: var(--surface-overlay);
+  backdrop-filter: blur(32px) saturate(190%);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  border: 1px solid var(--border-normal);
+  border-top: 1px solid var(--border-specular-top);
+  border-radius: var(--radius-lg);
+  padding: 5px;
+  box-shadow: var(--shadow-elevated);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: glassDropdownFadeIn var(--duration-normal) var(--ease-out) both;
+  transform-origin: top right;
+}
+
+.glass-select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color var(--duration-instant) ease, color var(--duration-instant) ease;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.glass-select-item:hover {
+  background: var(--surface-control-hover);
+  color: var(--color-text-primary);
+}
+
+.glass-select-item.is-selected {
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--color-brand-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.glass-select-item.is-selected:hover {
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.glass-select-check-icon {
+  color: var(--color-brand-primary);
+  flex-shrink: 0;
+}
+
+/* Potato Mode Fallback */
+.potato-mode .glass-select-menu {
+  background: var(--surface-overlay) !important;
+  border: 1px solid var(--border-normal) !important;
+  border-top: 1px solid var(--border-specular-top) !important;
+  box-shadow: var(--shadow-card) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.potato-mode .glass-select-item {
+  color: var(--color-text-secondary) !important;
+}
+
+.potato-mode .glass-select-item:hover {
+  background: var(--surface-control-hover) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.potato-mode .glass-select-item.is-selected {
+  background: rgba(99, 102, 241, 0.08) !important;
+  color: var(--color-brand-primary) !important;
+  font-weight: var(--font-weight-semibold);
+}
+
+@keyframes glassDropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

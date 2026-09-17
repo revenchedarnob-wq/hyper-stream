@@ -1,0 +1,382 @@
+/* Analytics View - Optical Glass Aesthetics */
+.analytics-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 28px;
+  box-sizing: border-box;
+  overflow: hidden;
+  user-select: none;
+}
+
+.analytics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+
+.analytics-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.analytics-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.analytics-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Time Range Selector */
+.analytics-range-selector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  padding: 3px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.50);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.60);
+}
+
+.analytics-range-btn {
+  background: transparent;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.analytics-range-btn:hover:not(.active) {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.analytics-range-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+/* Scrollable Body */
+.analytics-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-top: 18px;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.analytics-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.analytics-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 9999px;
+}
+
+/* Frosted Glass Analytics Cards */
+.analytics-card {
+  background: rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-top: 1px solid rgba(255, 255, 255, 0.90);
+  border-radius: 14px;
+  padding: 16px 20px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 4px 16px -4px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(20px);
+}
+
+/* Throughput Waveform Section */
+.throughput-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card-top-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.telemetry-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.30);
+  color: #047857;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.live-indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: telemetryPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes telemetryPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.bandwidth-stat-chips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stat-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.chip-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.chip-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+/* SVG Chart */
+.chart-wrapper {
+  position: relative;
+  width: 100%;
+  height: 150px;
+  display: flex;
+  flex-direction: column;
+}
+
+.throughput-svg {
+  width: 100%;
+  height: 130px;
+  overflow: visible;
+}
+
+.chart-time-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: #94a3b8;
+  font-weight: 500;
+  padding-top: 4px;
+}
+
+/* Dual Grid */
+.analytics-dual-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.card-header-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.card-header-badge {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 550;
+  background: rgba(255, 255, 255, 0.50);
+  border: 1px solid rgba(255, 255, 255, 0.80);
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+
+/* Storage Segmented Bar */
+.storage-segmented-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.70);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  margin-bottom: 16px;
+}
+
+.seg-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.seg-video { background: #3b82f6; }
+.seg-audio { background: #8b5cf6; }
+.seg-temp { background: #06b6d4; }
+.seg-free { background: rgba(255, 255, 255, 0.50); }
+
+.storage-legend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-video { background: #3b82f6; }
+.dot-audio { background: #8b5cf6; }
+.dot-temp { background: #06b6d4; }
+.dot-free { background: #cbd5e1; }
+
+.legend-name {
+  color: #475569;
+  flex: 1;
+}
+
+.legend-val {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* Codec Breakdown */
+.codec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.codec-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.codec-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+}
+
+.codec-name {
+  color: #334155;
+  font-weight: 550;
+}
+
+.codec-pct {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.codec-bar-track {
+  height: 5px;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.codec-bar-fill {
+  height: 100%;
+  border-radius: 9999px;
+}
+
+.codec-bar-fill.av1 { background: #3b82f6; }
+.codec-bar-fill.hevc { background: #10b981; }
+.codec-bar-fill.h264 { background: #f59e0b; }
+.codec-bar-fill.audio-codec { background: #8b5cf6; }
+
+/* Hardware Acceleration Strip */
+.hardware-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+}
+
+.hw-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hw-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+}
+
+.hw-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.hw-value.status-active {
+  color: #047857;
+}
+
+.hw-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.35);
+}

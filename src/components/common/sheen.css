@@ -1,0 +1,60 @@
+/**
+ * HyperStream Dynamic Specular Cursor Sheen
+ * 120 FPS GPU-accelerated cursor lighting for chamfered glass edges.
+ */
+
+.sheen-card {
+  position: relative;
+  --sheen-x: -1000px;
+  --sheen-y: -1000px;
+}
+
+/* 1px Specular Chamfer Edge Sheen */
+.sheen-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(
+    320px circle at var(--sheen-x) var(--sheen-y),
+    rgba(255, 255, 255, 0.90),
+    rgba(255, 255, 255, 0.20) 40%,
+    transparent 70%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 2;
+}
+
+/* Soft Ambient Surface Sheen */
+.sheen-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    380px circle at var(--sheen-x) var(--sheen-y),
+    rgba(255, 255, 255, 0.08),
+    transparent 75%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 1;
+}
+
+.sheen-card:hover::before,
+.sheen-card:hover::after {
+  opacity: 1;
+}
+
+/* Zero compute in Eco Fast Mode */
+.eco-mode .sheen-card::before,
+.eco-mode .sheen-card::after {
+  display: none !important;
+}

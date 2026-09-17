@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-ssr
+*.local
+src-tauri/target
+.DS_Store
+*.log
+*.tsbuildinfo
