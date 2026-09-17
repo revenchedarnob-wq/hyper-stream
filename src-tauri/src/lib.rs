@@ -1,5 +1,11 @@
 use tauri::Manager;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(serde::Serialize)]
 pub struct SystemVitals {
     throughput: f64,
@@ -71,13 +77,14 @@ fn get_windows_accent_color() -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        let output = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "(Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\DWM' -Name 'AccentColor' -ErrorAction SilentlyContinue).AccentColor",
-            ])
-            .output();
+        let mut cmd = Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-Command",
+            "(Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\DWM' -Name 'AccentColor' -ErrorAction SilentlyContinue).AccentColor",
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd.output();
         if let Ok(out) = output {
             let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if let Ok(color_num) = s.parse::<u32>() {
@@ -96,12 +103,14 @@ fn pick_storage_folder() -> Result<Option<String>, String> {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        let output = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select HyperStream Media Storage Directory'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
-            ])
+        let mut cmd = Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-Command",
+            "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select HyperStream Media Storage Directory'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd
             .output()
             .map_err(|e| e.to_string())?;
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -143,15 +152,16 @@ fn cleanup_orphaned_webviews() {
     // can hold exclusive locks on EBWebView directory causing HRESULT 0x800700AA.
     // Clean them up before initializing WebView2.
     use std::process::Command;
-    let _ = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            "Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | Where-Object { $_.CommandLine -like '*com.hyperstream.desktop*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-        ])
-        .output();
+    let mut cmd = Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-WindowStyle",
+        "Hidden",
+        "-Command",
+        "Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | Where-Object { $_.CommandLine -like '*com.hyperstream.desktop*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+    ]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let _ = cmd.output();
 }
 
 #[tauri::command]
@@ -255,8 +265,11 @@ fn install_browser_extension(extension_id: String, download_url: String) -> Resu
         dest = target_dir.to_string_lossy().replace('\\', "\\\\")
     );
 
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", &ps_script])
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-Command", &ps_script]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -297,8 +310,11 @@ fn load_unpacked_extension(source_path: String) -> Result<String, String> {
         src = src.to_string_lossy().replace('\\', "\\\\"),
         dest = dest.to_string_lossy().replace('\\', "\\\\")
     );
-    let _ = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", &ps_script])
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-Command", &ps_script]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let _ = cmd
         .output()
         .map_err(|e| e.to_string())?;
 
