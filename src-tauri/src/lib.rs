@@ -1,4 +1,18 @@
 use tauri::Manager;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+pub static ACTIVE_TRANSFERS: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(target_os = "windows")]
+pub fn trim_working_set_if_idle() {
+    if ACTIVE_TRANSFERS.load(Ordering::Relaxed) == 0 {
+        use windows_sys::Win32::System::ProcessStatus::EmptyWorkingSet;
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        unsafe {
+            EmptyWorkingSet(GetCurrentProcess());
+        }
+    }
+}
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -73,51 +87,66 @@ fn get_system_vitals() -> Result<SystemVitals, String> {
 }
 
 #[tauri::command]
-fn get_windows_accent_color() -> Result<String, String> {
+async fn get_windows_accent_color() -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        let mut cmd = Command::new("powershell");
-        cmd.args([
-            "-NoProfile",
-            "-Command",
-            "(Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\DWM' -Name 'AccentColor' -ErrorAction SilentlyContinue).AccentColor",
-        ]);
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let output = cmd.output();
-        if let Ok(out) = output {
-            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if let Ok(color_num) = s.parse::<u32>() {
-                let r = (color_num & 0xFF) as u8;
-                let g = ((color_num >> 8) & 0xFF) as u8;
-                let b = ((color_num >> 16) & 0xFF) as u8;
-                return Ok(format!("#{:02x}{:02x}{:02x}", r, g, b));
+        tauri::async_runtime::spawn_blocking(|| {
+            use std::process::Command;
+            let mut cmd = Command::new("powershell");
+            cmd.args([
+                "-NoProfile",
+                "-Command",
+                "(Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\DWM' -Name 'AccentColor' -ErrorAction SilentlyContinue).AccentColor",
+            ]);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let output = cmd.output();
+            if let Ok(out) = output {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if let Ok(color_num) = s.parse::<u32>() {
+                    let r = (color_num & 0xFF) as u8;
+                    let g = ((color_num >> 8) & 0xFF) as u8;
+                    let b = ((color_num >> 16) & 0xFF) as u8;
+                    return format!("#{:02x}{:02x}{:02x}", r, g, b);
+                }
             }
-        }
+            "#3b82f6".to_string()
+        })
+        .await
+        .map_err(|e| e.to_string())
     }
+
+    #[cfg(not(target_os = "windows"))]
     Ok("#3b82f6".to_string())
 }
 
 #[tauri::command]
-fn pick_storage_folder() -> Result<Option<String>, String> {
+async fn pick_storage_folder() -> Result<Option<String>, String> {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        let mut cmd = Command::new("powershell");
-        cmd.args([
-            "-NoProfile",
-            "-Command",
-            "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select HyperStream Media Storage Directory'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
-        ]);
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let output = cmd
-            .output()
-            .map_err(|e| e.to_string())?;
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !path.is_empty() {
-            return Ok(Some(path));
-        }
+        tauri::async_runtime::spawn_blocking(|| {
+            use std::process::Command;
+            let mut cmd = Command::new("powershell");
+            cmd.args([
+                "-NoProfile",
+                "-Command",
+                "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select HyperStream Media Storage Directory'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }",
+            ]);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let output = cmd
+                .output()
+                .map_err(|e| e.to_string())?;
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                Ok(Some(path))
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
+
+    #[cfg(not(target_os = "windows"))]
     Ok(None)
 }
 
@@ -351,11 +380,7 @@ fn set_browser_visibility(app: tauri::AppHandle, visible: bool) -> Result<(), St
             let _ = webview.eval("try { document.querySelectorAll('video, audio').forEach(el => el.pause()); } catch(e) {}");
             let _ = webview.hide();
             #[cfg(target_os = "windows")]
-            unsafe {
-                use windows_sys::Win32::System::ProcessStatus::EmptyWorkingSet;
-                use windows_sys::Win32::System::Threading::GetCurrentProcess;
-                EmptyWorkingSet(GetCurrentProcess());
-            }
+            trim_working_set_if_idle();
         }
     }
     Ok(())
@@ -600,11 +625,7 @@ pub fn run() {
             match event {
                 #[cfg(target_os = "windows")]
                 tauri::WindowEvent::Focused(false) => {
-                    use windows_sys::Win32::System::ProcessStatus::EmptyWorkingSet;
-                    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-                    unsafe {
-                        EmptyWorkingSet(GetCurrentProcess());
-                    }
+                    trim_working_set_if_idle();
                 }
                 tauri::WindowEvent::Resized(_) => {
                     use tauri::Emitter;
