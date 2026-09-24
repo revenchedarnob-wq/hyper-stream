@@ -31,6 +31,8 @@ tauri-plugin-log = "2"
 tauri-plugin-single-instance = "2.4"
 window-vibrancy = "0.5"
 windows-sys = { version = "0.59", features = ["Win32_System_JobObjects", "Win32_System_Threading", "Win32_Foundation", "Win32_Security", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus"] }
+tokio = { version = "1.40", features = ["full"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
 
 [profile.release]
 opt-level = 3

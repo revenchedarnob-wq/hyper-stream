@@ -1,3 +1,5 @@
+pub mod downloader;
+
 use tauri::Manager;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -598,6 +600,25 @@ fn browser_set_shields_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(
     Ok(())
 }
 
+#[tauri::command]
+async fn get_engine_binary_status() -> Result<downloader::EngineBinariesReport, String> {
+    tauri::async_runtime::spawn_blocking(downloader::BinaryManager::get_status)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ensure_engine_binaries() -> Result<downloader::EngineBinariesReport, String> {
+    let status = downloader::BinaryManager::get_status();
+    if !status.ytdlp.available {
+        let _ = downloader::BinaryManager::download_yt_dlp().await?;
+    }
+    if !status.aria2c.available {
+        let _ = downloader::BinaryManager::download_aria2c().await?;
+    }
+    Ok(downloader::BinaryManager::get_status())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -675,7 +696,9 @@ pub fn run() {
             get_installed_extensions,
             install_browser_extension,
             uninstall_browser_extension,
-            load_unpacked_extension
+            load_unpacked_extension,
+            get_engine_binary_status,
+            ensure_engine_binaries
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
