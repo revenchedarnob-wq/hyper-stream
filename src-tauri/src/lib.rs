@@ -619,6 +619,31 @@ async fn ensure_engine_binaries() -> Result<downloader::EngineBinariesReport, St
     Ok(downloader::BinaryManager::get_status())
 }
 
+#[tauri::command]
+async fn query_crunchyroll_stream(url: String, access_token: String) -> Result<downloader::PlaybackSession, String> {
+    let engine = downloader::CrunchyrollEngine::new();
+    let guid = downloader::CrunchyrollEngine::extract_guid(&url);
+    engine.acquire_playback_session(&guid, &access_token).await
+}
+
+#[tauri::command]
+async fn refresh_crunchyroll_token(etp_rt: String) -> Result<String, String> {
+    let engine = downloader::CrunchyrollEngine::new();
+    engine.refresh_access_token(&etp_rt).await
+}
+
+#[tauri::command]
+fn get_cached_keys_count() -> Result<usize, String> {
+    let store = downloader::KeyStore::new();
+    Ok(store.key_count())
+}
+
+#[tauri::command]
+fn inspect_media_container(path: String) -> Result<bool, String> {
+    let p = std::path::PathBuf::from(&path);
+    Ok(downloader::FastAtomInspector::verify_file(&p))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -698,7 +723,11 @@ pub fn run() {
             uninstall_browser_extension,
             load_unpacked_extension,
             get_engine_binary_status,
-            ensure_engine_binaries
+            ensure_engine_binaries,
+            query_crunchyroll_stream,
+            refresh_crunchyroll_token,
+            get_cached_keys_count,
+            inspect_media_container
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
