@@ -85,6 +85,7 @@ dependencies = [
  "hex",
  "log",
  "quick-xml",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

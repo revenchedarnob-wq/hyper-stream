@@ -653,6 +653,30 @@ async fn query_media_info(url: String, cookies: Option<String>) -> Result<downlo
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn start_universal_download(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, downloader::DownloadOrchestrator>,
+    options: downloader::DownloadOptions,
+) -> Result<String, String> {
+    state.start_download(app, options).await
+}
+
+#[tauri::command]
+fn cancel_download(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+    task_id: String,
+) -> Result<(), String> {
+    state.cancel_task(&task_id)
+}
+
+#[tauri::command]
+fn get_active_downloads(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+) -> Result<Vec<downloader::DownloadProgress>, String> {
+    Ok(state.get_tasks())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -703,6 +727,7 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(BrowserState::default());
+            app.manage(downloader::DownloadOrchestrator::new());
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(target_os = "windows")]
                 {
@@ -737,7 +762,10 @@ pub fn run() {
             refresh_crunchyroll_token,
             get_cached_keys_count,
             inspect_media_container,
-            query_media_info
+            query_media_info,
+            start_universal_download,
+            cancel_download,
+            get_active_downloads
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
