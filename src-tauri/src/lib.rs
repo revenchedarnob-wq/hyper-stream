@@ -644,6 +644,15 @@ fn inspect_media_container(path: String) -> Result<bool, String> {
     Ok(downloader::FastAtomInspector::verify_file(&p))
 }
 
+#[tauri::command]
+async fn query_media_info(url: String, cookies: Option<String>) -> Result<downloader::MediaMetadata, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        downloader::UniversalExtractor::query_info(&url, cookies.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -727,7 +736,8 @@ pub fn run() {
             query_crunchyroll_stream,
             refresh_crunchyroll_token,
             get_cached_keys_count,
-            inspect_media_container
+            inspect_media_container,
+            query_media_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
