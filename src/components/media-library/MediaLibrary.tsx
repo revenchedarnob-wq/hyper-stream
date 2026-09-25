@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import './media-library.css'
 import { INITIAL_MEDIA_ITEMS } from './mock-media-data'
 import type { MediaItem, EpisodeItem } from './mock-media-data'
@@ -62,6 +62,17 @@ export const MediaLibrary: React.FC = () => {
       return next
     })
   }
+
+  useEffect(() => {
+    const handleMediaAdded = (e: Event) => {
+      const customEvent = e as CustomEvent<MediaItem>
+      if (customEvent.detail) {
+        setItems((prev) => [customEvent.detail, ...prev.filter((i) => i.id !== customEvent.detail.id)])
+      }
+    }
+    window.addEventListener('hyperstream:media-added', handleMediaAdded)
+    return () => window.removeEventListener('hyperstream:media-added', handleMediaAdded)
+  }, [])
 
   const showNotification = (msg: string) => {
     setNotification(msg)

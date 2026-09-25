@@ -757,7 +757,10 @@ export default function App() {
         <main className="content-pane">
           {activeNav === 'hub' && (
             <div key="hub" className="hub-view-container jelly-content">
-              <StreamHub />
+              <StreamHub
+                initialUrl={browserHandoffUrl}
+                onUrlConsumed={() => setBrowserHandoffUrl('')}
+              />
             </div>
           )}
           {activeNav === 'library' && (

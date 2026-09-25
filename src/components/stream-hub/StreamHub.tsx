@@ -597,7 +597,12 @@ const INITIAL_RECENTS: RecentItem[] = [
   },
 ]
 
-export const StreamHub: React.FC = () => {
+export interface StreamHubProps {
+  initialUrl?: string
+  onUrlConsumed?: () => void
+}
+
+export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed }) => {
   const [downloads, setDownloads] = useState<DownloadItem[]>(INITIAL_DOWNLOADS)
   const [recents] = useState<RecentItem[]>(INITIAL_RECENTS)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -684,6 +689,32 @@ export const StreamHub: React.FC = () => {
             item.id === p.task_id ? { ...item, progress: 100, status: 'completed' } : item
           )
         )
+
+        try {
+          const totalMb = p.total_bytes ? `${(p.total_bytes / (1024 * 1024)).toFixed(1)} MB` : '1.2 GB'
+          const newMedia = {
+            id: `media-${p.task_id || Date.now()}`,
+            title: p.title || 'Downloaded Media Asset',
+            category: 'stream',
+            source: 'Universal Ingestion',
+            quality: '1080p Master',
+            codec: 'HEVC / MKV',
+            duration: 'Completed',
+            size: totalMb,
+            timestamp: 'Just now',
+            audioTracks: ['Multi-Track Audio'],
+            gradient: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+            bitrate: 'Master Direct',
+          }
+
+          const currentRaw = localStorage.getItem('hyperstream_media_items')
+          const currentList = currentRaw ? JSON.parse(currentRaw) : []
+          const updated = [newMedia, ...currentList.filter((m: any) => m.id !== newMedia.id)]
+          localStorage.setItem('hyperstream_media_items', JSON.stringify(updated))
+          window.dispatchEvent(new CustomEvent('hyperstream:media-added', { detail: newMedia }))
+        } catch {
+          // Ignore local storage write error
+        }
       })
 
       unlistenError = await listen<NativeDownloadProgress>('download-error', (event) => {
@@ -758,6 +789,13 @@ export const StreamHub: React.FC = () => {
       subtitles: [],
     })
   }
+
+  useEffect(() => {
+    if (initialUrl && initialUrl.trim()) {
+      handleAnalyze(initialUrl.trim(), 'Best')
+      onUrlConsumed?.()
+    }
+  }, [initialUrl])
 
   const handleConfirmDownload = async (opts: {
     formatId?: string
