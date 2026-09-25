@@ -56,4 +56,11 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     frostedUrl: '/wallpapers/bg-violet-discs-frosted.webp',
     theme: 'light',
   },
+  {
+    id: 'unsplash-nocturne',
+    name: 'Nocturne Horizon',
+    url: '/wallpapers/bg-unsplash.jpg',
+    frostedUrl: '/wallpapers/bg-unsplash-frosted.webp',
+    theme: 'dark',
+  },
 ]
