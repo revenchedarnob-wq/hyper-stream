@@ -207,6 +207,11 @@ impl DownloadOrchestrator {
         cmd.arg("--merge-output-format");
         cmd.arg("mkv");
 
+        if let Some(ffmpeg_path) = BinaryManager::find_binary("ffmpeg") {
+            cmd.arg("--ffmpeg-location");
+            cmd.arg(ffmpeg_path);
+        }
+
         // Multi-socket acceleration with aria2c if available
         if BinaryManager::find_binary("aria2c").is_some() {
             cmd.arg("--downloader");
@@ -236,6 +241,23 @@ impl DownloadOrchestrator {
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
         let stdout = child.stdout.take().ok_or_else(|| "Failed to capture child stdout".to_string())?;
 
+        let stderr = child.stderr.take();
+        let stderr_log = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let stderr_log_clone = Arc::clone(&stderr_log);
+
+        let err_thread = std::thread::spawn(move || {
+            if let Some(err_pipe) = stderr {
+                let err_reader = BufReader::new(err_pipe);
+                for line in err_reader.lines().flatten() {
+                    let mut lock = stderr_log_clone.lock().unwrap();
+                    if lock.len() > 50 {
+                        lock.remove(0);
+                    }
+                    lock.push(line);
+                }
+            }
+        });
+
         let re_progress = Regex::new(r"\[download\]\s+([0-9.]+)%\s+of\s+(?:~\s*)?([0-9.]+)([KMG]iB)(?:\s+at\s+([0-9.]+)([KMG]iB/s))?").unwrap();
         let re_dest = Regex::new(r"\[(?:Merger|download)\]\s+(?:Merging formats into|Destination:)\s+(.+)").unwrap();
 
@@ -246,6 +268,7 @@ impl DownloadOrchestrator {
             // Check cancellation signal
             if abort_rx.try_recv().is_ok() {
                 let _ = child.kill();
+                let _ = err_thread.join();
                 if let Some(cf) = temp_cookie {
                     let _ = std::fs::remove_file(cf);
                 }
@@ -294,12 +317,28 @@ impl DownloadOrchestrator {
         }
 
         let status = child.wait().map_err(|e| format!("Wait failed: {}", e))?;
+        let _ = err_thread.join();
+
         if let Some(cf) = temp_cookie {
             let _ = std::fs::remove_file(cf);
         }
 
         if !status.success() {
-            return Err("Download process exited with non-zero status code".to_string());
+            let error_details = {
+                let lock = stderr_log.lock().unwrap();
+                let filtered: Vec<String> = lock.iter()
+                    .filter(|l| l.contains("ERROR:") || l.contains("error:") || l.contains("Failed to") || l.contains("Unable to"))
+                    .cloned()
+                    .collect();
+                if !filtered.is_empty() {
+                    filtered.join("; ")
+                } else if let Some(last) = lock.last() {
+                    last.clone()
+                } else {
+                    "Download process exited with non-zero status code".to_string()
+                }
+            };
+            return Err(error_details);
         }
 
         let final_file = detected_output_file.unwrap_or_else(|| {

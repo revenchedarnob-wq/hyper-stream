@@ -65,9 +65,7 @@ export const Omnibar: React.FC<OmnibarProps> = ({ onAnalyze, isAnalyzing }) => {
   const [quality, setQuality] = useState<QualityTier>('Best')
   const [audioTrack, setAudioTrack] = useState('JPN 5.1')
   const [subtitleTrack, setSubtitleTrack] = useState('ENG')
-  const [clipboardPrompt, setClipboardPrompt] = useState<string | null>(
-    'https://stream-cdn.animex.net/hls/frieren-ep29/master.m3u8'
-  )
+  const [clipboardPrompt, setClipboardPrompt] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isShaking, setIsShaking] = useState(false)
   const [captureStatus, setCaptureStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
@@ -776,8 +774,14 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
           return
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Analysis error:', err)
+      if (isTauri()) {
+        setIsAnalyzing(false)
+        const errMsg = typeof err === 'string' ? err : err?.message || 'Unable to resolve media metadata'
+        showNotification(`Stream analysis failed: ${errMsg}`)
+        return
+      }
     }
 
     setIsAnalyzing(false)

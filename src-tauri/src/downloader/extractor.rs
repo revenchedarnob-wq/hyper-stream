@@ -46,6 +46,11 @@ impl UniversalExtractor {
         cmd.arg("--no-playlist");
         cmd.arg("--skip-download");
 
+        if let Some(ffmpeg_path) = BinaryManager::find_binary("ffmpeg") {
+            cmd.arg("--ffmpeg-location");
+            cmd.arg(ffmpeg_path);
+        }
+
         let mut temp_cookie_path = None;
         if let Some(cookies) = cookies_content {
             if !cookies.trim().is_empty() {
