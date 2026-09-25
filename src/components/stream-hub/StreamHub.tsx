@@ -22,8 +22,11 @@ import {
   queryMediaInfo,
   startUniversalDownload,
   cancelDownload,
+  getActiveDownloads,
+  getSystemVitals,
   isTauri,
   type NativeDownloadProgress,
+  type SystemVitalsData,
 } from '@/lib/tauri-bridge'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
@@ -309,291 +312,48 @@ export const Omnibar: React.FC<OmnibarProps> = ({ onAnalyze, isAnalyzing }) => {
 }
 
 
-const INITIAL_DOWNLOADS: DownloadItem[] = [
-  {
-    id: 'dl-1',
-    title: "Frieren: Beyond Journey's End · Season 1",
-    sourceType: 'anime',
-    quality: '1080p',
-    codec: 'HEVC',
-    audioLang: 'Dual Audio',
-    progress: 28,
-    downloadedSize: '9.36 GB',
-    totalSize: '37.4 GB',
-    speed: '28.4 MB/s',
-    eta: '16m 25s',
-    status: 'downloading',
-    batch: {
-      seriesTitle: "Frieren: Beyond Journey's End",
-      seasonNumber: 1,
-      totalEpisodes: 24,
-      completedEpisodes: 6,
-      overallProgress: 28,
-      aggregateSpeed: '28.4 MB/s',
-      timeRemaining: '16m 25s',
-      isExpanded: false,
-      episodes: [
-        {
-          id: 'dl-1-ep-1',
-          episodeNumber: 1,
-          title: "Ep 01: The Journey's End",
-          size: '1.56 GB',
-          status: 'completed',
-          progress: 100,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-2',
-          episodeNumber: 2,
-          title: "Ep 02: It Didn't Have to Be Magic...",
-          size: '1.52 GB',
-          status: 'completed',
-          progress: 100,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-3',
-          episodeNumber: 3,
-          title: 'Ep 03: Killing Magic',
-          size: '1.55 GB',
-          status: 'completed',
-          progress: 100,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-4',
-          episodeNumber: 4,
-          title: 'Ep 04: The Land Where Souls Rest',
-          size: '1.54 GB',
-          status: 'completed',
-          progress: 100,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-5',
-          episodeNumber: 5,
-          title: 'Ep 05: Phantoms of the Dead',
-          size: '1.58 GB',
-          status: 'completed',
-          progress: 100,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-6',
-          episodeNumber: 6,
-          title: 'Ep 06: The Hero of the Village',
-          size: '1.53 GB',
-          status: 'completed',
-          progress: 100,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-7',
-          episodeNumber: 7,
-          title: 'Ep 07: Like a Fairy Tale',
-          size: '1.55 GB',
-          status: 'ingesting',
-          progress: 68,
-          speed: '28.4 MB/s',
-        },
-        {
-          id: 'dl-1-ep-8',
-          episodeNumber: 8,
-          title: 'Ep 08: Frieren the Slayer',
-          size: '1.60 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-9',
-          episodeNumber: 9,
-          title: 'Ep 09: Aura the Guillotine',
-          size: '1.62 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-10',
-          episodeNumber: 10,
-          title: 'Ep 10: A Powerful Mage',
-          size: '1.56 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-11',
-          episodeNumber: 11,
-          title: 'Ep 11: Winter in the Northern Lands',
-          size: '1.51 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-12',
-          episodeNumber: 12,
-          title: 'Ep 12: A Real Hero',
-          size: '1.57 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-13',
-          episodeNumber: 13,
-          title: "Ep 13: Aversion to One's Own Kind",
-          size: '1.53 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-14',
-          episodeNumber: 14,
-          title: 'Ep 14: Privilege of the Young',
-          size: '1.58 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-15',
-          episodeNumber: 15,
-          title: 'Ep 15: Smells of Trouble',
-          size: '1.52 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-16',
-          episodeNumber: 16,
-          title: 'Ep 16: Long-Lived Friends',
-          size: '1.54 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-17',
-          episodeNumber: 17,
-          title: 'Ep 17: Take Care',
-          size: '1.55 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-18',
-          episodeNumber: 18,
-          title: 'Ep 18: First-Class Mage Exam',
-          size: '1.61 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-19',
-          episodeNumber: 19,
-          title: 'Ep 19: Well-Laid Plans',
-          size: '1.56 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-20',
-          episodeNumber: 20,
-          title: 'Ep 20: Necessary Killing',
-          size: '1.59 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-21',
-          episodeNumber: 21,
-          title: 'Ep 21: The World of Magic',
-          size: '1.57 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-22',
-          episodeNumber: 22,
-          title: 'Ep 22: Future Enemies',
-          size: '1.53 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-23',
-          episodeNumber: 23,
-          title: 'Ep 23: Conquering the Labyrinth',
-          size: '1.60 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-        {
-          id: 'dl-1-ep-24',
-          episodeNumber: 24,
-          title: 'Ep 24: Perfect Replicas',
-          size: '1.63 GB',
-          status: 'queued',
-          progress: 0,
-          speed: '0 MB/s',
-        },
-      ],
-    },
-  },
-  {
-    id: 'dl-2',
-    title: 'The Primeagen · Stream Catchup',
-    sourceType: 'stream',
-    quality: '1440p',
-    codec: 'AV1',
-    audioLang: 'Stereo',
-    progress: 42,
-    downloadedSize: '4.10 GB',
-    totalSize: '9.80 GB',
-    speed: '14.4 MB/s',
-    eta: '1m 40s',
-    status: 'downloading',
-  },
-]
+function loadPersistedRecents(): RecentItem[] {
+  try {
+    const raw = localStorage.getItem('hyperstream_media_items')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.slice(0, 10).map((m: any) => ({
+          id: m.id || `rec-${Math.random().toString(36).slice(2, 7)}`,
+          title: m.title || 'Untitled Stream',
+          quality: m.quality || 'Master',
+          size: m.size || 'Unknown',
+          duration: m.duration || 'Completed',
+          timestamp: m.timestamp || 'Recent',
+        }))
+      }
+    }
+  } catch {
+    // Ignore storage read error
+  }
+  return []
+}
 
-const INITIAL_RECENTS: RecentItem[] = [
-  {
-    id: 'rec-1',
-    title: 'Jujutsu Kaisen S2 · Ep 23',
-    quality: '1080p',
-    size: '1.45 GB',
-    duration: '23:40',
-    timestamp: '12m ago',
-  },
-  {
-    id: 'rec-2',
-    title: 'GDC 2026 Keynote',
-    quality: '4K',
-    size: '5.80 GB',
-    duration: '1h 14m',
-    timestamp: '2h ago',
-  },
-  {
-    id: 'rec-3',
-    title: 'Cyberpunk Edgerunners OST',
-    quality: 'FLAC',
-    size: '420 MB',
-    duration: '42:15',
-    timestamp: 'Yesterday',
-  },
-]
+function mapNativeProgressToDownloadItem(p: NativeDownloadProgress): DownloadItem {
+  const speedFormatted = `${(p.speed_bytes_per_sec / (1024 * 1024)).toFixed(1)} MB/s`
+  const downloadedMb = `${(p.downloaded_bytes / (1024 * 1024)).toFixed(1)} MB`
+  const totalMb = p.total_bytes ? `${(p.total_bytes / (1024 * 1024)).toFixed(1)} MB` : undefined
+
+  return {
+    id: p.task_id,
+    title: p.title,
+    sourceType: 'stream',
+    quality: 'Master',
+    codec: 'Lossless MKV',
+    audioLang: 'Multi-Track',
+    progress: Math.round(p.progress_percent),
+    downloadedSize: downloadedMb,
+    totalSize: totalMb || 'Dynamic Stream',
+    speed: speedFormatted,
+    eta: p.eta_seconds ? `${p.eta_seconds}s` : 'Calculating...',
+    status: p.state === 'remuxing' ? 'processing' : p.state === 'completed' ? 'completed' : p.state === 'failed' ? 'failed' : p.state === 'paused' ? 'paused' : 'downloading',
+  }
+}
 
 export interface StreamHubProps {
   initialUrl?: string
@@ -601,8 +361,9 @@ export interface StreamHubProps {
 }
 
 export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed }) => {
-  const [downloads, setDownloads] = useState<DownloadItem[]>(INITIAL_DOWNLOADS)
-  const [recents] = useState<RecentItem[]>(INITIAL_RECENTS)
+  const [downloads, setDownloads] = useState<DownloadItem[]>([])
+  const [recents, setRecents] = useState<RecentItem[]>(() => loadPersistedRecents())
+  const [vitals, setVitals] = useState<SystemVitalsData | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [notification, setNotification] = useState<string | null>(null)
 
@@ -630,13 +391,45 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
     subtitles: [],
   })
 
-  // Listen to live native download telemetry
+  // Listen to live native download telemetry and poll vitals
   useEffect(() => {
     let unlistenProgress: (() => void) | undefined
     let unlistenComplete: (() => void) | undefined
     let unlistenError: (() => void) | undefined
+    let pollTimer: ReturnType<typeof setInterval> | undefined
 
     const setupListeners = async () => {
+      // 1. Initial hydration from native backend
+      if (isTauri()) {
+        try {
+          const initialTasks = await getActiveDownloads()
+          if (Array.isArray(initialTasks) && initialTasks.length > 0) {
+            setDownloads(initialTasks.map(mapNativeProgressToDownloadItem))
+          }
+        } catch (err) {
+          console.warn('Failed to load initial active downloads:', err)
+        }
+
+        try {
+          const initialVitals = await getSystemVitals()
+          if (initialVitals) {
+            setVitals(initialVitals)
+          }
+        } catch (err) {
+          console.warn('Failed to load initial vitals:', err)
+        }
+
+        // Periodic vitals sync (every 3 seconds)
+        pollTimer = setInterval(async () => {
+          try {
+            const v = await getSystemVitals()
+            if (v) setVitals(v)
+          } catch {
+            // Ignore background poll errors
+          }
+        }, 3000)
+      }
+
       if (!isTauri()) return
 
       unlistenProgress = await listen<NativeDownloadProgress>('download-progress', (event) => {
@@ -709,9 +502,17 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
           const currentList = currentRaw ? JSON.parse(currentRaw) : []
           const updated = [newMedia, ...currentList.filter((m: any) => m.id !== newMedia.id)]
           localStorage.setItem('hyperstream_media_items', JSON.stringify(updated))
+          setRecents(loadPersistedRecents())
           window.dispatchEvent(new CustomEvent('hyperstream:media-added', { detail: newMedia }))
         } catch {
           // Ignore local storage write error
+        }
+
+        // Refresh vitals immediately upon completion
+        if (isTauri()) {
+          getSystemVitals().then((v) => {
+            if (v) setVitals(v)
+          })
         }
       })
 
@@ -726,12 +527,19 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
       })
     }
 
+    const handleMediaAdded = () => {
+      setRecents(loadPersistedRecents())
+    }
+    window.addEventListener('hyperstream:media-added', handleMediaAdded)
+
     setupListeners()
 
     return () => {
       unlistenProgress?.()
       unlistenComplete?.()
       unlistenError?.()
+      if (pollTimer) clearInterval(pollTimer)
+      window.removeEventListener('hyperstream:media-added', handleMediaAdded)
     }
   }, [])
 
@@ -866,7 +674,26 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
   }
 
   const handleOpenFolder = (item: RecentItem) => {
-    revealInExplorer(`C:\\Users\\arnob\\Downloads\\${item.title}.mp4`)
+    try {
+      const raw = localStorage.getItem('hyperstream_media_items')
+      if (raw) {
+        const items = JSON.parse(raw)
+        const found = items.find((m: any) => m.id === item.id || m.title === item.title)
+        if (found?.filePath) {
+          revealInExplorer(found.filePath)
+          showNotification(`Revealed in Explorer: ${item.title}`)
+          return
+        }
+      }
+    } catch {
+      // Ignore local storage read errors
+    }
+    const downloadDir = localStorage.getItem('hyperstream_download_dir') || ''
+    if (downloadDir) {
+      revealInExplorer(`${downloadDir}\\${item.title}`)
+    } else {
+      revealInExplorer(item.title)
+    }
     showNotification(`Revealed in Explorer: ${item.title}`)
   }
 
@@ -952,7 +779,7 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
               {liveThroughput > 0 ? `${liveThroughput.toFixed(1)} MB/s Ingesting` : 'Engine Ready'}
             </span>
             <span className="meta-dot">·</span>
-            <span className="hub-status-engine">NVENC Turbo</span>
+            <span className="hub-status-engine">{vitals?.engineStatus || 'Direct Pipeline'}</span>
           </div>
         </div>
 
@@ -965,9 +792,12 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
 
         {/* 2. Engine & Throughput Vitals */}
         <TelemetryVitals
-          throughput={liveThroughput || 0}
-          activeCount={downloads.filter((d) => d.status === 'downloading' || d.status === 'ingesting').length}
+          throughput={liveThroughput > 0 ? liveThroughput : (vitals?.throughput || 0)}
+          activeCount={vitals?.activeTransfers ?? downloads.filter((d) => d.status === 'downloading' || d.status === 'ingesting').length}
           queuedCount={downloads.filter((d) => d.status === 'paused' || d.status === 'queued').length}
+          storageFreeTb={vitals?.nvmeFreeTb || 0}
+          storagePercentage={vitals?.nvmePercentage || 0}
+          engineStatus={vitals?.engineStatus || 'Hardware Acceleration'}
         />
 
         {/* 3 & 4. Bento Split Area: Active Pipeline (Left) & Recents/Dropzone (Right) */}

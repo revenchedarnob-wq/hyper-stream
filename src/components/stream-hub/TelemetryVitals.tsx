@@ -1,23 +1,25 @@
 import React from 'react'
 import { IconActivity, IconLayers, IconHardDrive, IconCpu } from './Icons'
 
-interface TelemetryVitalsProps {
+
+
+export interface TelemetryVitalsProps {
   throughput?: number
   activeCount?: number
   queuedCount?: number
-  storageFreeGb?: number
-  totalStorageGb?: number
+  storageFreeTb?: number
+  storagePercentage?: number
+  engineStatus?: string
 }
 
 export const TelemetryVitals: React.FC<TelemetryVitalsProps> = React.memo(({
-  throughput = 42.8,
-  activeCount = 2,
-  queuedCount = 1,
-  storageFreeGb = 1420,
-  totalStorageGb = 2000,
+  throughput = 0,
+  activeCount = 0,
+  queuedCount = 0,
+  storageFreeTb = 0,
+  storagePercentage = 0,
+  engineStatus = 'Hardware Acceleration',
 }) => {
-  const storagePercentage = Math.round((storageFreeGb / totalStorageGb) * 100)
-
   return (
     <div className="telemetry-ribbon" role="region" aria-label="System ingestion vitals">
       {/* 1. Live Throughput */}
@@ -28,7 +30,14 @@ export const TelemetryVitals: React.FC<TelemetryVitalsProps> = React.memo(({
         <div className="telemetry-seg-content">
           <div className="telemetry-seg-label">Throughput</div>
           <div className="telemetry-seg-value">
-            <span className="telemetry-pulse-dot" aria-hidden="true" />
+            <span
+              className="telemetry-pulse-dot"
+              style={{
+                background: throughput > 0 ? '#10b981' : 'rgba(255, 255, 255, 0.35)',
+                boxShadow: throughput > 0 ? '0 0 0 2px rgba(16, 185, 129, 0.25)' : 'none',
+              }}
+              aria-hidden="true"
+            />
             <span className="telemetry-num">{throughput.toFixed(1)}</span>
             <span className="telemetry-unit">MB/s</span>
           </div>
@@ -60,11 +69,11 @@ export const TelemetryVitals: React.FC<TelemetryVitalsProps> = React.memo(({
           <IconHardDrive size={14} />
         </div>
         <div className="telemetry-seg-content">
-          <div className="telemetry-seg-label">NVMe Cache</div>
+          <div className="telemetry-seg-label">Storage Cache</div>
           <div className="telemetry-seg-value">
-            <span className="telemetry-num">{(storageFreeGb / 1000).toFixed(2)}</span>
+            <span className="telemetry-num">{storageFreeTb > 0 ? storageFreeTb.toFixed(2) : '0.00'}</span>
             <span className="telemetry-unit">TB</span>
-            <span className="telemetry-meta-muted">{storagePercentage}% free</span>
+            <span className="telemetry-meta-muted">{storagePercentage > 0 ? `${storagePercentage}% free` : 'Ready'}</span>
           </div>
         </div>
       </div>
@@ -79,7 +88,7 @@ export const TelemetryVitals: React.FC<TelemetryVitalsProps> = React.memo(({
         <div className="telemetry-seg-content">
           <div className="telemetry-seg-label">Pipeline Engine</div>
           <div className="telemetry-seg-value">
-            <span className="telemetry-status-pill">NVENC Turbo</span>
+            <span className="telemetry-status-pill">{engineStatus}</span>
           </div>
         </div>
       </div>

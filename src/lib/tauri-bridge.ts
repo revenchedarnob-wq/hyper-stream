@@ -73,19 +73,30 @@ export async function revealInExplorer(filePath: string): Promise<void> {
   }
 }
 
-/**
- * Query real system storage and hardware vitals from Rust backend.
- */
-export async function getSystemVitals(): Promise<{
+export interface SystemVitalsData {
   throughput: number
   activeTransfers: number
   nvmeFreeTb: number
   nvmePercentage: number
   engineStatus: string
-} | null> {
+}
+
+/**
+ * Query real system storage and hardware vitals from Rust backend.
+ */
+export async function getSystemVitals(): Promise<SystemVitalsData | null> {
   if (isTauri()) {
     try {
-      return await invoke('get_system_vitals')
+      const raw = await invoke<any>('get_system_vitals')
+      if (raw) {
+        return {
+          throughput: typeof raw.throughput === 'number' ? raw.throughput : Number(raw.throughput || 0),
+          activeTransfers: typeof raw.activeTransfers === 'number' ? raw.activeTransfers : Number(raw.active_transfers || 0),
+          nvmeFreeTb: typeof raw.nvmeFreeTb === 'number' ? raw.nvmeFreeTb : Number(raw.nvme_free_tb || 0),
+          nvmePercentage: typeof raw.nvmePercentage === 'number' ? raw.nvmePercentage : Number(raw.nvme_percentage || 0),
+          engineStatus: raw.engineStatus || raw.engine_status || 'Hardware Acceleration',
+        }
+      }
     } catch (err) {
       console.warn('Tauri get_system_vitals error:', err)
     }

@@ -32,7 +32,20 @@ export const RecentCaptures: React.FC<RecentCapturesProps> = React.memo(({
       </div>
 
       <div className="recent-items-list">
-        {items.map((item) => (
+        {items.length === 0 ? (
+          <div
+            style={{
+              padding: '24px 12px',
+              textAlign: 'center',
+              color: 'var(--color-text-tertiary, rgba(255, 255, 255, 0.45))',
+              fontSize: '12px',
+              lineHeight: '1.5',
+            }}
+          >
+            No recent captures yet. Completed transfers will appear here.
+          </div>
+        ) : (
+          items.map((item) => (
           <div key={item.id} className="recent-item">
             <div className="recent-item-left">
               <div className="recent-icon-badge" aria-hidden="true">
@@ -81,7 +94,7 @@ export const RecentCaptures: React.FC<RecentCapturesProps> = React.memo(({
               </button>
             </div>
           </div>
-        ))}
+        )))}
       </div>
     </div>
   )

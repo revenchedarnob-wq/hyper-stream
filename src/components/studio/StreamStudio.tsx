@@ -33,6 +33,7 @@ import {
   IconZap,
 } from '../stream-hub/Icons'
 import { playHapticClick, playHapticGlass, playHapticPop } from '@/lib/sound'
+import { getSystemVitals } from '@/lib/tauri-bridge'
 import { TimelineScrubber } from './TimelineScrubber'
 
 export const StreamStudio: React.FC<StreamStudioProps> = ({
@@ -43,6 +44,13 @@ export const StreamStudio: React.FC<StreamStudioProps> = ({
   // 1. Ingestion & Preset State
   const defaultPreset = DEFAULT_STREAM_PRESETS[0]
   const [streamUrl, setStreamUrl] = useState<string>(initialUrl || defaultPreset.url)
+  const [engineStatus, setEngineStatus] = useState<string>('Hardware Acceleration')
+
+  useEffect(() => {
+    getSystemVitals().then((v) => {
+      if (v?.engineStatus) setEngineStatus(v.engineStatus)
+    })
+  }, [])
   const [activePresetId, setActivePresetId] = useState<string>(
     initialUrl ? '' : defaultPreset.id
   )
@@ -468,7 +476,7 @@ export const StreamStudio: React.FC<StreamStudioProps> = ({
               </span>
             </div>
             <div className="studio-engine-pill">
-              <span>NVENC Turbo</span>
+              <span>{engineStatus}</span>
             </div>
           </div>
         </div>

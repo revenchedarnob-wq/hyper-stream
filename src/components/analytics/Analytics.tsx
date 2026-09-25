@@ -1,9 +1,23 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './analytics.css'
 import { playHapticClick } from '@/lib/sound'
+import { getSystemVitals, type SystemVitalsData } from '@/lib/tauri-bridge'
 
 export function Analytics() {
   const [timeRange, setTimeRange] = useState<'1h' | '24h' | '7d' | '30d'>('24h')
+  const [vitals, setVitals] = useState<SystemVitalsData | null>(null)
+
+  useEffect(() => {
+    getSystemVitals().then((data) => {
+      if (data) setVitals(data)
+    })
+    const timer = setInterval(() => {
+      getSystemVitals().then((data) => {
+        if (data) setVitals(data)
+      })
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [])
 
   return (
     <div className="analytics-view">
@@ -44,7 +58,7 @@ export function Analytics() {
               <span className="card-title">Ingestion Bandwidth</span>
               <span className="telemetry-live-pill">
                 <span className="live-indicator-dot" />
-                <span>42.8 MB/s Live</span>
+                <span>{vitals?.throughput ? `${vitals.throughput.toFixed(1)} MB/s Live` : 'Idle / Ready'}</span>
               </span>
             </div>
             <div className="bandwidth-stat-chips">
@@ -157,7 +171,7 @@ export function Analytics() {
               <div className="legend-item">
                 <span className="legend-dot dot-free" />
                 <span className="legend-name">Available</span>
-                <span className="legend-val">1.42 TB</span>
+                <span className="legend-val">{vitals?.nvmeFreeTb ? `${vitals.nvmeFreeTb.toFixed(2)} TB` : 'Ready'}</span>
               </div>
             </div>
           </section>
@@ -217,7 +231,7 @@ export function Analytics() {
         <section className="analytics-card hardware-strip">
           <div className="hw-item">
             <span className="hw-label">PIPELINE ACCELERATOR</span>
-            <span className="hw-value">NVIDIA NVENC Turbo</span>
+            <span className="hw-value">{vitals?.engineStatus || 'Direct3D 12 Accelerator'}</span>
           </div>
           <div className="hw-divider" />
           <div className="hw-item">

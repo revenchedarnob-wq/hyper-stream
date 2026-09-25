@@ -22,13 +22,46 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemVitals {
-    throughput: f64,
-    active_transfers: u32,
-    nvme_free_tb: f64,
-    nvme_percentage: u32,
-    engine_status: String,
+    pub throughput: f64,
+    pub active_transfers: u32,
+    pub nvme_free_tb: f64,
+    pub nvme_percentage: u32,
+    pub engine_status: String,
+}
+
+fn detect_hardware_engine() -> &'static str {
+    static ENGINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ENGINE.get_or_init(|| {
+        #[cfg(target_os = "windows")]
+        {
+            use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, DISPLAY_DEVICEW};
+            let mut device: DISPLAY_DEVICEW = unsafe { std::mem::zeroed() };
+            device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+            let mut dev_idx = 0;
+            while unsafe { EnumDisplayDevicesW(std::ptr::null(), dev_idx, &mut device, 0) } != 0 {
+                let name = String::from_utf16_lossy(&device.DeviceString);
+                let name = name.trim_matches(char::from(0)).to_lowercase();
+                if name.contains("nvidia") || name.contains("geforce") || name.contains("rtx") || name.contains("gtx") {
+                    return "NVENC Turbo (D3D12)".to_string();
+                } else if name.contains("amd") || name.contains("radeon") {
+                    return "AMD AMF Turbo (D3D12)".to_string();
+                } else if name.contains("intel") || name.contains("arc") || name.contains("iris") {
+                    return "Intel QSV Turbo (D3D12)".to_string();
+                }
+                dev_idx += 1;
+                device = unsafe { std::mem::zeroed() };
+                device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+            }
+            "D3D12 Direct Pipeline".to_string()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            "Hardware Acceleration".to_string()
+        }
+    })
 }
 
 #[tauri::command]
@@ -45,17 +78,48 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_system_vitals() -> Result<SystemVitals, String> {
+fn get_system_vitals(
+    state: tauri::State<'_, downloader::DownloadOrchestrator>,
+) -> Result<SystemVitals, String> {
+    let tasks = state.get_tasks();
+    let mut total_speed_bps = 0u64;
+    let mut active_count = 0u32;
+    for task in &tasks {
+        match task.state {
+            downloader::DownloadState::Downloading | downloader::DownloadState::Remuxing => {
+                active_count += 1;
+                total_speed_bps = total_speed_bps.saturating_add(task.speed_bytes_per_sec);
+            }
+            _ => {}
+        }
+    }
+    let throughput_mb = (total_speed_bps as f64) / (1024.0 * 1024.0);
+    let throughput_rounded = (throughput_mb * 10.0).round() / 10.0;
+
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
         let mut free_bytes: u64 = 0;
         let mut total_bytes: u64 = 0;
         let mut total_free: u64 = 0;
-        let root: Vec<u16> = "C:\\\0".encode_utf16().collect();
+
+        let download_path = if let Ok(profile) = std::env::var("USERPROFILE") {
+            let p = std::path::PathBuf::from(profile).join("Downloads");
+            if p.exists() {
+                let s = p.to_string_lossy().to_string();
+                let mut v: Vec<u16> = s.encode_utf16().collect();
+                v.push(0);
+                v
+            } else {
+                "C:\\\0".encode_utf16().collect()
+            }
+        } else {
+            "C:\\\0".encode_utf16().collect()
+        };
+
         let success = unsafe {
             GetDiskFreeSpaceExW(
-                root.as_ptr(),
+                download_path.as_ptr(),
                 &mut free_bytes,
                 &mut total_bytes,
                 &mut total_free,
@@ -66,25 +130,25 @@ fn get_system_vitals() -> Result<SystemVitals, String> {
             let pct = ((free_bytes as f64) / (total_bytes as f64) * 100.0) as u32;
             (free_tb, pct)
         } else {
-            (1.42, 71)
+            (0.0, 0)
         };
 
         return Ok(SystemVitals {
-            throughput: 42.8,
-            active_transfers: 2,
+            throughput: throughput_rounded,
+            active_transfers: active_count,
             nvme_free_tb: (free_tb * 100.0).round() / 100.0,
             nvme_percentage: percentage,
-            engine_status: "NVENC Turbo (D3D12)".to_string(),
+            engine_status: detect_hardware_engine().to_string(),
         });
     }
 
     #[cfg(not(target_os = "windows"))]
     Ok(SystemVitals {
-        throughput: 42.8,
-        active_transfers: 2,
-        nvme_free_tb: 1.42,
-        nvme_percentage: 71,
-        engine_status: "NVENC Turbo".to_string(),
+        throughput: throughput_rounded,
+        active_transfers: active_count,
+        nvme_free_tb: 0.0,
+        nvme_percentage: 0,
+        engine_status: detect_hardware_engine().to_string(),
     })
 }
 

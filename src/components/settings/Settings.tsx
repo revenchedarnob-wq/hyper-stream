@@ -6,7 +6,7 @@ import {
   playHapticPop,
   playHapticSwoosh,
 } from '@/lib/sound'
-import { pickStorageFolder } from '@/lib/tauri-bridge'
+import { pickStorageFolder, getSystemVitals } from '@/lib/tauri-bridge'
 import { detectHardwareProfile, formatGpuName } from '@/lib/hardware-profiler'
 import {
   IconZap,
@@ -74,7 +74,14 @@ export function Settings({
   })
   const [showAdvancedSpecs, setShowAdvancedSpecs] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'appearance' | 'audio' | 'engine' | 'automations'>('appearance')
+  const [engineName, setEngineName] = React.useState<string>('Direct3D 12 and Hardware Video Pipeline')
   const hardwareProfile = React.useMemo(() => detectHardwareProfile(), [])
+
+  React.useEffect(() => {
+    getSystemVitals().then((v) => {
+      if (v?.engineStatus) setEngineName(`${v.engineStatus} direct video muxing`)
+    })
+  }, [])
 
   const handlePickDirectory = async () => {
     playHapticClick()
@@ -585,7 +592,7 @@ export function Settings({
                   <div className="settings-row-text">
                     <div className="settings-row-label">Hardware Acceleration</div>
                     <div className="settings-row-desc">
-                      Direct3D 12 and NVIDIA NVENC Turbo video muxing
+                      {engineName}
                     </div>
                   </div>
                   <div className="settings-row-action">

@@ -31,4 +31,15 @@ describe('Tauri Bridge Native Window & Move Listeners', () => {
     const pos = await getWindowPosition()
     expect(pos).toBeNull()
   })
+
+  it('safely handles getSystemVitals in browser environment returning null', async () => {
+    const vitals = await import('./tauri-bridge').then((m) => m.getSystemVitals())
+    expect(vitals).toBeNull()
+  })
+
+  it('safely handles getActiveDownloads in browser environment returning empty array', async () => {
+    const downloads = await import('./tauri-bridge').then((m) => m.getActiveDownloads())
+    expect(Array.isArray(downloads)).toBe(true)
+    expect(downloads.length).toBe(0)
+  })
 })
