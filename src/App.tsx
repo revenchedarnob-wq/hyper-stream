@@ -62,18 +62,13 @@ export default function App() {
   })
 
   const [prevWallpaper, setPrevWallpaper] = useState<string | null>(null)
-  const [prevFrostedUrl, setPrevFrostedUrl] = useState<string | null>(null)
   const [isTransitioningWallpaper, setIsTransitioningWallpaper] = useState(false)
   const wallpaperTransitionTimerRef = useRef<number | null>(null)
 
   const handleSelectWallpaper = (newUrl: string) => {
     if (newUrl === browserWallpaper) return
 
-    const oldWallpaperObj = SIMULATOR_WALLPAPERS.find((w) => w.url === browserWallpaper)
-    const oldFrosted = oldWallpaperObj?.frostedUrl || '/wallpapers/bg-neon-waves-frosted.webp'
-
     setPrevWallpaper(browserWallpaper)
-    setPrevFrostedUrl(oldFrosted)
     setIsTransitioningWallpaper(true)
     setBrowserWallpaper(newUrl)
 
@@ -88,7 +83,6 @@ export default function App() {
     wallpaperTransitionTimerRef.current = window.setTimeout(() => {
       setIsTransitioningWallpaper(false)
       setPrevWallpaper(null)
-      setPrevFrostedUrl(null)
       wallpaperTransitionTimerRef.current = null
     }, 550)
   }
@@ -533,32 +527,29 @@ export default function App() {
   const activeIndex = Math.max(0, NAV_ITEMS.findIndex((item) => item.id === activeNav))
 
   const currentWallpaperObj = SIMULATOR_WALLPAPERS.find((w) => w.url === browserWallpaper)
-  const activeFrostedUrl = currentWallpaperObj?.frostedUrl || '/wallpapers/bg-ghibli-frosted.webp'
 
   return (
     <div className="hyperstream-root-wrapper">
-      {/* Explicit DOM-level Desktop Wallpaper — bulletproof across all browsers & displays */}
-      {!isNative && (
-        <div className="browser-simulator-backdrop-container" aria-hidden="true">
-          {prevWallpaper && isTransitioningWallpaper && (
-            <div
-              className="browser-simulator-backdrop prev"
-              style={{
-                backgroundImage: `url("${prevWallpaper}")`,
-              }}
-              aria-hidden="true"
-            />
-          )}
+      {/* Explicit DOM-level Desktop Wallpaper — Crisp 2K master across all environments */}
+      <div className="hyperstream-wallpaper-container" aria-hidden="true">
+        {prevWallpaper && isTransitioningWallpaper && (
           <div
-            key={browserWallpaper}
-            className={`browser-simulator-backdrop ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
+            className="hyperstream-wallpaper-backdrop prev"
             style={{
-              backgroundImage: `url("${browserWallpaper}")`,
+              backgroundImage: `url("${prevWallpaper}")`,
             }}
             aria-hidden="true"
           />
-        </div>
-      )}
+        )}
+        <div
+          key={browserWallpaper}
+          className={`hyperstream-wallpaper-backdrop ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
+          style={{
+            backgroundImage: `url("${browserWallpaper}")`,
+          }}
+          aria-hidden="true"
+        />
+      </div>
 
       <div
         ref={windowContainerRef}
@@ -569,7 +560,7 @@ export default function App() {
           transform: !isNative && !isMaximized && (windowPos.x !== 0 || windowPos.y !== 0)
             ? `translate3d(${windowPos.x}px, ${windowPos.y}px, 0)`
             : undefined,
-          ['--potato-bg-url' as string]: `url("${activeFrostedUrl}")`,
+          ['--potato-bg-url' as string]: `url("${browserWallpaper}")`,
           ...(!isNative ? {
             ['--bg-parallax-x' as string]: `${computeNormalizedParallax(windowPos.x, windowPos.y, true).parallaxX}px`,
             ['--bg-parallax-y' as string]: `${computeNormalizedParallax(windowPos.x, windowPos.y, true).parallaxY}px`,
@@ -578,42 +569,8 @@ export default function App() {
           } : {}),
         }}
       >
-        {isPotatoMode ? (
-          /* Efficiency Mode: Pre-baked frosted webp texture with drag parallax, 0 GPU blur passes */
-          <div className="window-backdrop-layer" aria-hidden="true">
-            {prevFrostedUrl && isTransitioningWallpaper && (
-              <div
-                className="potato-parallax-bg potato-parallax-prev"
-                style={{ ['--potato-bg-url' as string]: `url("${prevFrostedUrl}")` }}
-                aria-hidden="true"
-              />
-            )}
-            <div
-              key={activeFrostedUrl}
-              className={`potato-parallax-bg ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
-              style={{ ['--potato-bg-url' as string]: `url("${activeFrostedUrl}")` }}
-              aria-hidden="true"
-            />
-          </div>
-        ) : (
-          /* Studio Glass Mode: Pure transparent window with optical glass refraction when active,
-             cross-fading to pre-baked frosted wallpaper when idle/unfocused to eliminate total flat gray */
-          <div className="window-backdrop-layer" aria-hidden="true">
-            {prevFrostedUrl && isTransitioningWallpaper && (
-              <div
-                className={`studio-idle-wallpaper studio-idle-prev ${!isWindowFocused ? 'is-idle' : ''}`}
-                style={{ ['--potato-bg-url' as string]: `url("${prevFrostedUrl}")` }}
-                aria-hidden="true"
-              />
-            )}
-            <div
-              key={activeFrostedUrl}
-              className={`studio-idle-wallpaper ${!isWindowFocused ? 'is-idle' : ''} ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
-              style={{ ['--potato-bg-url' as string]: `url("${activeFrostedUrl}")` }}
-              aria-hidden="true"
-            />
-          </div>
-        )}
+        {/* Optical Glass Base Layer — allows crisp 2K master wallpaper to shine through */}
+        <div className="window-backdrop-layer" aria-hidden="true" />
       <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''} ${activeNav === 'browser' && !sidebarOpen ? 'browser-fullbleed' : ''}`}>
         {/* Topbar with real-time 120 FPS pointer drag handler and smooth maximize toggle */}
         <header
@@ -814,9 +771,7 @@ export default function App() {
       </div>
     </div>
 
-    {/* Browser Dev Simulator Controls — strictly in web browser, completely inert/omitted in native Tauri */}
-    {!isNative && (
-      <aside className="browser-simulator-dock" aria-label="Localhost Simulator Controls">
+      <aside className="browser-simulator-dock" aria-label="Wallpaper and Display Controls">
         <span className="sim-tag">Wallpaper:</span>
         {SIMULATOR_WALLPAPERS.map((wp) => (
           <button
@@ -831,7 +786,7 @@ export default function App() {
             {wp.name}
           </button>
         ))}
-        {(windowPos.x !== 0 || windowPos.y !== 0) && (
+        {!isNative && (windowPos.x !== 0 || windowPos.y !== 0) && (
           <button
             type="button"
             className="sim-btn"
@@ -844,28 +799,19 @@ export default function App() {
             Center
           </button>
         )}
-        <button
-          type="button"
-          className="sim-btn sim-btn-toggle"
-          onClick={() => {
-            playHapticClick()
-            setIsMaximized((prev) => !prev)
-          }}
-        >
-          {isMaximized ? 'Floating Window' : 'Full Screen'}
-        </button>
-        <button
-          type="button"
-          className="sim-btn sim-btn-toggle"
-          onClick={() => {
-            playHapticGlass()
-            handleTogglePotatoMode()
-          }}
-        >
-          {isPotatoMode ? 'Switch to Studio Glass' : 'Switch to Potato Mode'}
-        </button>
+        {!isNative && (
+          <button
+            type="button"
+            className="sim-btn sim-btn-toggle"
+            onClick={() => {
+              playHapticClick()
+              setIsMaximized((prev) => !prev)
+            }}
+          >
+            {isMaximized ? 'Floating Window' : 'Full Screen'}
+          </button>
+        )}
       </aside>
-    )}
   </div>
 )
 }

@@ -15,7 +15,8 @@
   overflow: hidden;
 }
 
-/* Bulletproof DOM-level Desktop Simulator Wallpaper & Smooth Cross-Fade */
+/* Bulletproof DOM-level Desktop Wallpaper & Smooth Cross-Fade */
+.hyperstream-wallpaper-container,
 .browser-simulator-backdrop-container {
   position: fixed;
   inset: 0;
@@ -25,6 +26,7 @@
   pointer-events: none;
 }
 
+.hyperstream-wallpaper-backdrop,
 .browser-simulator-backdrop {
   position: fixed;
   inset: 0;
@@ -36,10 +38,12 @@
   pointer-events: none;
 }
 
+.hyperstream-wallpaper-backdrop.prev,
 .browser-simulator-backdrop.prev {
   z-index: 0;
 }
 
+.hyperstream-wallpaper-backdrop:not(.prev),
 .browser-simulator-backdrop:not(.prev) {
   z-index: 1;
 }
@@ -238,8 +242,9 @@ body.is-browser-dragging * {
   border-radius: 12px;
   pointer-events: none;
   z-index: 0;
-  backdrop-filter: blur(var(--env-backdrop-blur, 36px)) saturate(var(--env-backdrop-saturate, 130%)) contrast(var(--env-backdrop-contrast, 102%)) brightness(var(--env-backdrop-brightness, 98%));
-  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 36px)) saturate(var(--env-backdrop-saturate, 130%)) contrast(var(--env-backdrop-contrast, 102%)) brightness(var(--env-backdrop-brightness, 98%));
+  background: rgba(10, 14, 24, 0.35);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
   transform: translateZ(0);
   will-change: transform;
 }
