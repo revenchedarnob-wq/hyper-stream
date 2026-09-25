@@ -17,7 +17,17 @@ import type { DownloadItem } from './ActivePipeline'
 import { RecentCaptures } from './RecentCaptures'
 import type { RecentItem } from './RecentCaptures'
 import { ManifestDropzone } from './ManifestDropzone'
-import { revealInExplorer } from '@/lib/tauri-bridge'
+import {
+  revealInExplorer,
+  queryMediaInfo,
+  startUniversalDownload,
+  cancelDownload,
+  isTauri,
+  type NativeDownloadProgress,
+} from '@/lib/tauri-bridge'
+import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
+import { FormatPickerModal } from './FormatPickerModal'
 
 export type QualityTier = 'Best' | '1080p' | '720p' | '480p' | 'Audio'
 
@@ -600,56 +610,194 @@ export const StreamHub: React.FC = () => {
     }, 3200)
   }
 
-  const handleAnalyze = (
+  const [formatModalData, setFormatModalData] = useState<{
+    isOpen: boolean
+    url: string
+    title: string
+    thumbnail?: string
+    duration?: number
+    formats: any[]
+    subtitles: any[]
+    crunchyrollVersions?: any[]
+  }>({
+    isOpen: false,
+    url: '',
+    title: '',
+    formats: [],
+    subtitles: [],
+  })
+
+  // Listen to live native download telemetry
+  useEffect(() => {
+    let unlistenProgress: (() => void) | undefined
+    let unlistenComplete: (() => void) | undefined
+    let unlistenError: (() => void) | undefined
+
+    const setupListeners = async () => {
+      if (!isTauri()) return
+
+      unlistenProgress = await listen<NativeDownloadProgress>('download-progress', (event) => {
+        const p = event.payload
+        setDownloads((prev) => {
+          const idx = prev.findIndex((item) => item.id === p.task_id)
+          const speedFormatted = `${(p.speed_bytes_per_sec / (1024 * 1024)).toFixed(1)} MB/s`
+          const downloadedMb = `${(p.downloaded_bytes / (1024 * 1024)).toFixed(1)} MB`
+          const totalMb = p.total_bytes ? `${(p.total_bytes / (1024 * 1024)).toFixed(1)} MB` : undefined
+
+          if (idx >= 0) {
+            const next = [...prev]
+            next[idx] = {
+              ...next[idx],
+              progress: Math.round(p.progress_percent),
+              speed: speedFormatted,
+              downloadedSize: downloadedMb,
+              totalSize: totalMb || next[idx].totalSize,
+              status: p.state === 'remuxing' ? 'processing' : p.state === 'completed' ? 'completed' : 'downloading',
+            }
+            return next
+          }
+
+          // If new download
+          const newItem: DownloadItem = {
+            id: p.task_id,
+            title: p.title,
+            sourceType: 'stream',
+            quality: 'Master',
+            codec: 'Lossless MKV',
+            audioLang: 'Multi-Track',
+            progress: Math.round(p.progress_percent),
+            downloadedSize: downloadedMb,
+            totalSize: totalMb || 'Dynamic Stream',
+            speed: speedFormatted,
+            eta: p.eta_seconds ? `${p.eta_seconds}s` : 'Calculating...',
+            status: 'downloading',
+          }
+          return [newItem, ...prev]
+        })
+      })
+
+      unlistenComplete = await listen<NativeDownloadProgress>('download-complete', (event) => {
+        const p = event.payload
+        showNotification(`Download completed: ${p.title}`)
+        setDownloads((prev) =>
+          prev.map((item) =>
+            item.id === p.task_id ? { ...item, progress: 100, status: 'completed' } : item
+          )
+        )
+      })
+
+      unlistenError = await listen<NativeDownloadProgress>('download-error', (event) => {
+        const p = event.payload
+        showNotification(`Download failed: ${p.error_message || p.title}`)
+        setDownloads((prev) =>
+          prev.map((item) =>
+            item.id === p.task_id ? { ...item, status: 'failed' } : item
+          )
+        )
+      })
+    }
+
+    setupListeners()
+
+    return () => {
+      unlistenProgress?.()
+      unlistenComplete?.()
+      unlistenError?.()
+    }
+  }, [])
+
+  const handleAnalyze = async (
     url: string,
-    preset: QualityTier,
-    audioTrack = 'JPN 5.1',
-    subtitleTrack = 'ENG'
+    _preset: QualityTier,
+    _audioTrack = 'JPN 5.1',
+    _subtitleTrack = 'ENG'
   ) => {
     setIsAnalyzing(true)
 
-    // Simulate probing stream metadata
-    setTimeout(() => {
-      setIsAnalyzing(false)
+    try {
+      if (isTauri()) {
+        const meta = await queryMediaInfo(url)
+        let crVersions: any[] = []
 
-      let title = 'Live Stream Capture'
-      if (url.includes('frieren')) title = 'Frieren - Special OAV Stream'
-      else if (url.includes('youtube') || url.includes('youtu.be')) title = 'YouTube 4K High-Bitrate Capture'
-      else if (url.includes('.m3u8')) title = 'HLS Live Ingestion Stream'
-      else if (url.includes('.mpd')) title = 'DASH Multi-Track Audio Master'
+        if (url.includes('crunchyroll.com')) {
+          try {
+            const session = await invoke<any>('query_crunchyroll_stream', { url, accessToken: '' })
+            if (session?.versions) {
+              crVersions = session.versions
+            }
+          } catch {
+            // Optional preview probing
+          }
+        }
 
-      const qualityMap: Record<QualityTier, string> = {
-        Best: 'Best (4K HDR)',
-        '1080p': '1080p HEVC',
-        '720p': '720p HD',
-        '480p': '480p SD',
-        Audio: 'Audio (Lossless)',
+        if (meta) {
+          setIsAnalyzing(false)
+          setFormatModalData({
+            isOpen: true,
+            url,
+            title: meta.title,
+            thumbnail: meta.thumbnail,
+            duration: meta.duration,
+            formats: meta.formats,
+            subtitles: meta.subtitles,
+            crunchyrollVersions: crVersions,
+          })
+          return
+        }
       }
+    } catch (err) {
+      console.warn('Analysis error:', err)
+    }
 
-      const quality = qualityMap[preset] || 'Best (4K HDR)'
-      const codec = preset === 'Audio' ? 'FLAC / AAC' : 'HEVC / AAC'
-      const audioLang = preset === 'Audio' ? 'Lossless FLAC' : `${audioTrack} · Subs: ${subtitleTrack}`
-
-      const newItem: DownloadItem = {
-        id: `dl-${Date.now()}`,
-        title,
-        sourceType: 'anime',
-        quality,
-        codec,
-        audioLang,
-        progress: 4,
-        downloadedSize: preset === 'Audio' ? '12 MB' : '84 MB',
-        totalSize: preset === 'Audio' ? '240 MB' : '2.10 GB',
-        speed: '36.2 MB/s',
-        eta: '54s',
-        status: 'downloading',
-      }
-
-      setDownloads((prev) => [newItem, ...prev])
-      showNotification(`Stream parsed successfully: ${title}`)
-    }, 750)
+    setIsAnalyzing(false)
+    setFormatModalData({
+      isOpen: true,
+      url,
+      title: 'Stream Ingestion Asset',
+      formats: [],
+      subtitles: [],
+    })
   }
 
+  const handleConfirmDownload = async (opts: {
+    formatId?: string
+    title: string
+    audioFormats: string[]
+    subtitles: string[]
+    outputDir?: string
+  }) => {
+    if (isTauri()) {
+      const taskId = await startUniversalDownload({
+        url: formatModalData.url,
+        title: opts.title,
+        format_id: opts.formatId,
+        output_dir: opts.outputDir,
+        audio_formats: opts.audioFormats,
+        subtitles: opts.subtitles,
+      })
+
+      if (taskId) {
+        showNotification(`Ingestion started: ${opts.title}`)
+      }
+    } else {
+      const newItem: DownloadItem = {
+        id: `dl-${Date.now()}`,
+        title: opts.title,
+        sourceType: 'stream',
+        quality: '1080p Master',
+        codec: 'HEVC / AAC',
+        audioLang: opts.audioFormats.join(', ') || 'Original',
+        progress: 10,
+        downloadedSize: '120 MB',
+        totalSize: '1.80 GB',
+        speed: '42.5 MB/s',
+        eta: '45s',
+        status: 'downloading',
+      }
+      setDownloads((prev) => [newItem, ...prev])
+      showNotification(`Ingestion started: ${opts.title}`)
+    }
+  }
 
   const handleTogglePause = (id: string) => {
     setDownloads((prev) =>
@@ -664,6 +812,9 @@ export const StreamHub: React.FC = () => {
   }
 
   const handleCancel = (id: string) => {
+    if (isTauri()) {
+      cancelDownload(id)
+    }
     setDownloads((prev) => prev.filter((item) => item.id !== id))
     showNotification('Download cancelled and staging cache cleared')
   }
@@ -797,6 +948,19 @@ export const StreamHub: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <FormatPickerModal
+        isOpen={formatModalData.isOpen}
+        onClose={() => setFormatModalData((prev) => ({ ...prev, isOpen: false }))}
+        url={formatModalData.url}
+        title={formatModalData.title}
+        thumbnail={formatModalData.thumbnail}
+        duration={formatModalData.duration}
+        formats={formatModalData.formats}
+        subtitles={formatModalData.subtitles}
+        crunchyrollVersions={formatModalData.crunchyrollVersions}
+        onConfirmDownload={handleConfirmDownload}
+      />
     </div>
   )
 }

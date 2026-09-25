@@ -219,4 +219,106 @@ export async function startDraggingWindow(): Promise<void> {
   }
 }
 
+export interface NativeMediaFormat {
+  format_id: string
+  extension: string
+  resolution?: string
+  width?: number
+  height?: number
+  fps?: number
+  vcodec?: string
+  acodec?: string
+  filesize?: number
+  tbr?: number
+  is_video: boolean
+  is_audio: boolean
+}
+
+export interface NativeSubtitleTrack {
+  language: string
+  url?: string
+  ext: string
+}
+
+export interface NativeMediaMetadata {
+  id: string
+  title: string
+  duration?: number
+  thumbnail?: string
+  webpage_url: string
+  formats: NativeMediaFormat[]
+  subtitles: NativeSubtitleTrack[]
+  is_live: boolean
+}
+
+export interface NativeDownloadOptions {
+  url: string
+  title: string
+  format_id?: string
+  output_dir?: string
+  audio_formats?: string[]
+  subtitles?: string[]
+  cookies?: string
+}
+
+export interface NativeDownloadProgress {
+  task_id: string
+  title: string
+  state: 'queued' | 'downloading' | 'paused' | 'remuxing' | 'completed' | 'failed' | 'cancelled'
+  progress_percent: number
+  speed_bytes_per_sec: number
+  downloaded_bytes: number
+  total_bytes?: number
+  eta_seconds?: number
+  stage: string
+  output_path?: string
+  error_message?: string
+}
+
+export async function queryMediaInfo(url: string, cookies?: string): Promise<NativeMediaMetadata | null> {
+  if (isTauri()) {
+    try {
+      return await invoke<NativeMediaMetadata>('query_media_info', { url, cookies })
+    } catch (err) {
+      console.warn('queryMediaInfo error:', err)
+      return null
+    }
+  }
+  return null
+}
+
+export async function startUniversalDownload(options: NativeDownloadOptions): Promise<string | null> {
+  if (isTauri()) {
+    try {
+      return await invoke<string>('start_universal_download', { options })
+    } catch (err) {
+      console.warn('startUniversalDownload error:', err)
+      return null
+    }
+  }
+  return null
+}
+
+export async function cancelDownload(taskId: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invoke('cancel_download', { taskId })
+    } catch (err) {
+      console.warn('cancelDownload error:', err)
+    }
+  }
+}
+
+export async function getActiveDownloads(): Promise<NativeDownloadProgress[]> {
+  if (isTauri()) {
+    try {
+      return await invoke<NativeDownloadProgress[]>('get_active_downloads')
+    } catch (err) {
+      console.warn('getActiveDownloads error:', err)
+      return []
+    }
+  }
+  return []
+}
+
 
