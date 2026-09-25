@@ -6,7 +6,7 @@ import { MediaGrid } from './MediaGrid'
 import { MediaList } from './MediaList'
 import { GlassPlayerModal } from './GlassPlayerModal'
 import { SeriesDetailView } from './SeriesDetailView'
-import { revealInExplorer } from '@/lib/tauri-bridge'
+import { revealInExplorer, getSystemVitals, type SystemVitalsData } from '@/lib/tauri-bridge'
 import { IconSearch, IconX, IconGrid, IconList, IconHardDrive, IconFolder } from '../stream-hub/Icons'
 import { GlassSelect } from '../common/GlassSelect'
 import { playHapticClick, playHapticGlass, playHapticPop } from '@/lib/sound'
@@ -45,6 +45,25 @@ export const MediaLibrary: React.FC = () => {
   const [playerItem, setPlayerItem] = useState<MediaItem | null>(null)
   const [selectedSeries, setSelectedSeries] = useState<MediaItem | null>(null)
   const [notification, setNotification] = useState<string | null>(null)
+  const [vitals, setVitals] = useState<SystemVitalsData | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    getSystemVitals().then((v) => {
+      if (mounted && v) setVitals(v)
+    }).catch(() => {})
+
+    const timer = setInterval(() => {
+      getSystemVitals().then((v) => {
+        if (mounted && v) setVitals(v)
+      }).catch(() => {})
+    }, 4000)
+
+    return () => {
+      mounted = false
+      clearInterval(timer)
+    }
+  }, [])
 
   const handleResetFilters = () => {
     setSearchQuery('')
@@ -99,6 +118,26 @@ export const MediaLibrary: React.FC = () => {
     { id: '4k', label: '4K Masters', count: counts['4k'] },
     { id: 'audio', label: 'Audio', count: counts.audio },
   ], [counts])
+
+  const totalUsedGb = useMemo(() => {
+    return items.reduce((acc, item) => {
+      if (typeof item.sizeBytes === 'number' && item.sizeBytes > 0) {
+        return acc + item.sizeBytes / (1024 * 1024 * 1024)
+      }
+      const match = (item.size || '').match(/([\d.]+)\s*(GB|MB|KB|TB)/i)
+      if (match) {
+        const val = parseFloat(match[1])
+        const unit = match[2].toUpperCase()
+        if (unit === 'GB') return acc + val
+        if (unit === 'MB') return acc + val / 1024
+        if (unit === 'KB') return acc + val / (1024 * 1024)
+        if (unit === 'TB') return acc + val * 1024
+      }
+      return acc
+    }, 0)
+  }, [items])
+
+  const freeGb = vitals?.storageFreeGb ?? (vitals?.nvmeFreeTb ? vitals.nvmeFreeTb * 1024 : 0)
 
   // Filtered & Sorted items
   const displayedItems = useMemo(() => {
@@ -313,7 +352,7 @@ export const MediaLibrary: React.FC = () => {
           <div className="library-storage-pill">
             <IconHardDrive size={13} className="storage-pill-icon" />
             <span className="storage-pill-text">
-              37.4 GB used <span className="meta-dot">·</span> 1.85 TB free
+              {totalUsedGb.toFixed(1)} GB used <span className="meta-dot">·</span> {freeGb > 0 ? `${freeGb.toFixed(1)} GB free` : 'Ready'}
             </span>
             <button
               type="button"

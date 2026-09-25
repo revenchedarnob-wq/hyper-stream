@@ -76,9 +76,12 @@ export async function revealInExplorer(filePath: string): Promise<void> {
 export interface SystemVitalsData {
   throughput: number
   activeTransfers: number
-  nvmeFreeTb: number
-  nvmePercentage: number
+  storageFreeGb: number
+  storageTotalGb: number
+  storagePercentage: number
   engineStatus: string
+  nvmeFreeTb?: number
+  nvmePercentage?: number
 }
 
 /**
@@ -89,12 +92,27 @@ export async function getSystemVitals(): Promise<SystemVitalsData | null> {
     try {
       const raw = await invoke<any>('get_system_vitals')
       if (raw) {
+        const freeGb = typeof raw.storageFreeGb === 'number'
+          ? raw.storageFreeGb
+          : (typeof raw.storage_free_gb === 'number'
+              ? raw.storage_free_gb
+              : ((raw.nvmeFreeTb ?? raw.nvme_free_tb ?? 0) * 1024))
+        const totalGb = typeof raw.storageTotalGb === 'number'
+          ? raw.storageTotalGb
+          : (typeof raw.storage_total_gb === 'number' ? raw.storage_total_gb : 0)
+        const percentage = typeof raw.storagePercentage === 'number'
+          ? raw.storagePercentage
+          : (raw.storage_percentage ?? raw.nvmePercentage ?? raw.nvme_percentage ?? 0)
+
         return {
           throughput: typeof raw.throughput === 'number' ? raw.throughput : Number(raw.throughput || 0),
           activeTransfers: typeof raw.activeTransfers === 'number' ? raw.activeTransfers : Number(raw.active_transfers || 0),
-          nvmeFreeTb: typeof raw.nvmeFreeTb === 'number' ? raw.nvmeFreeTb : Number(raw.nvme_free_tb || 0),
-          nvmePercentage: typeof raw.nvmePercentage === 'number' ? raw.nvmePercentage : Number(raw.nvme_percentage || 0),
+          storageFreeGb: Math.round(freeGb * 10) / 10,
+          storageTotalGb: Math.round(totalGb * 10) / 10,
+          storagePercentage: percentage,
           engineStatus: raw.engineStatus || raw.engine_status || 'Hardware Acceleration',
+          nvmeFreeTb: Math.round((freeGb / 1024) * 100) / 100,
+          nvmePercentage: percentage,
         }
       }
     } catch (err) {

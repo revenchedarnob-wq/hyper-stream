@@ -3,11 +3,15 @@ import { IconHardDrive, IconFolder } from '../stream-hub/Icons'
 
 interface LibraryStorageGaugeProps {
   totalCount: number
+  storageFreeGb?: number
+  usedGb?: number
   onOpenFolder?: () => void
 }
 
 export const LibraryStorageGauge: React.FC<LibraryStorageGaugeProps> = React.memo(({
   totalCount,
+  storageFreeGb,
+  usedGb,
   onOpenFolder,
 }) => {
   return (
@@ -29,9 +33,9 @@ export const LibraryStorageGauge: React.FC<LibraryStorageGaugeProps> = React.mem
           </div>
         </div>
         <div className="storage-gauge-sub">
-          <span>37.4 GB used</span>
+          <span>{typeof usedGb === 'number' ? `${usedGb.toFixed(1)} GB used` : 'Library Ready'}</span>
           <span className="meta-dot">·</span>
-          <span>1.85 TB free (E:)</span>
+          <span>{typeof storageFreeGb === 'number' && storageFreeGb > 0 ? `${storageFreeGb.toFixed(1)} GB free` : 'Storage Ready'}</span>
         </div>
       </div>
 

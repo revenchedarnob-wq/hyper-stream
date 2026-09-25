@@ -795,8 +795,8 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
           throughput={liveThroughput > 0 ? liveThroughput : (vitals?.throughput || 0)}
           activeCount={vitals?.activeTransfers ?? downloads.filter((d) => d.status === 'downloading' || d.status === 'ingesting').length}
           queuedCount={downloads.filter((d) => d.status === 'paused' || d.status === 'queued').length}
-          storageFreeTb={vitals?.nvmeFreeTb || 0}
-          storagePercentage={vitals?.nvmePercentage || 0}
+          storageFreeGb={vitals?.storageFreeGb ?? (vitals?.nvmeFreeTb ? vitals.nvmeFreeTb * 1024 : 0)}
+          storagePercentage={vitals?.storagePercentage || vitals?.nvmePercentage || 0}
           engineStatus={vitals?.engineStatus || 'Hardware Acceleration'}
         />
 

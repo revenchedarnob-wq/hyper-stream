@@ -27,9 +27,12 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 pub struct SystemVitals {
     pub throughput: f64,
     pub active_transfers: u32,
+    pub storage_free_gb: f64,
+    pub storage_total_gb: f64,
+    pub storage_percentage: u32,
+    pub engine_status: String,
     pub nvme_free_tb: f64,
     pub nvme_percentage: u32,
-    pub engine_status: String,
 }
 
 fn detect_hardware_engine() -> &'static str {
@@ -106,7 +109,10 @@ fn get_system_vitals(
         let download_path = if let Ok(profile) = std::env::var("USERPROFILE") {
             let p = std::path::PathBuf::from(profile).join("Downloads");
             if p.exists() {
-                let s = p.to_string_lossy().to_string();
+                let mut s = p.to_string_lossy().to_string();
+                if !s.ends_with('\\') {
+                    s.push('\\');
+                }
                 let mut v: Vec<u16> = s.encode_utf16().collect();
                 v.push(0);
                 v
@@ -125,20 +131,24 @@ fn get_system_vitals(
                 &mut total_free,
             )
         };
-        let (free_tb, percentage) = if success != 0 && total_bytes > 0 {
-            let free_tb = (free_bytes as f64) / (1024.0 * 1024.0 * 1024.0 * 1024.0);
+        let (free_gb, total_gb, percentage) = if success != 0 && total_bytes > 0 {
+            let free_gb = (free_bytes as f64) / (1024.0 * 1024.0 * 1024.0);
+            let total_gb = (total_bytes as f64) / (1024.0 * 1024.0 * 1024.0);
             let pct = ((free_bytes as f64) / (total_bytes as f64) * 100.0) as u32;
-            (free_tb, pct)
+            (free_gb, total_gb, pct)
         } else {
-            (0.0, 0)
+            (0.0, 0.0, 0)
         };
 
         return Ok(SystemVitals {
             throughput: throughput_rounded,
             active_transfers: active_count,
-            nvme_free_tb: (free_tb * 100.0).round() / 100.0,
-            nvme_percentage: percentage,
+            storage_free_gb: (free_gb * 10.0).round() / 10.0,
+            storage_total_gb: (total_gb * 10.0).round() / 10.0,
+            storage_percentage: percentage,
             engine_status: detect_hardware_engine().to_string(),
+            nvme_free_tb: ((free_gb / 1024.0) * 100.0).round() / 100.0,
+            nvme_percentage: percentage,
         });
     }
 
@@ -146,9 +156,12 @@ fn get_system_vitals(
     Ok(SystemVitals {
         throughput: throughput_rounded,
         active_transfers: active_count,
+        storage_free_gb: 0.0,
+        storage_total_gb: 0.0,
+        storage_percentage: 0,
+        engine_status: detect_hardware_engine().to_string(),
         nvme_free_tb: 0.0,
         nvme_percentage: 0,
-        engine_status: detect_hardware_engine().to_string(),
     })
 }
 

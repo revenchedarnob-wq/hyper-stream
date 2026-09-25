@@ -28,6 +28,7 @@ export interface MediaItem {
   codec: string
   duration: string
   size: string
+  sizeBytes?: number
   timestamp: string
   audioTracks: string[]
   gradient: string

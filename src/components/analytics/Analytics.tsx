@@ -19,6 +19,9 @@ export function Analytics() {
     return () => clearInterval(timer)
   }, [])
 
+  const freeGb = vitals?.storageFreeGb ?? (vitals?.nvmeFreeTb ? vitals.nvmeFreeTb * 1024 : 0)
+  const freeLabel = freeGb > 0 ? `${freeGb.toFixed(1)} GB Free` : 'Storage Ready'
+
   return (
     <div className="analytics-view">
       {/* Header */}
@@ -140,7 +143,7 @@ export function Analytics() {
           <section className="analytics-card">
             <div className="card-header-compact">
               <span className="card-title">NVMe Cache Allocation</span>
-              <span className="card-header-badge">PCIe Gen4 · 1.42 TB Free</span>
+              <span className="card-header-badge">PCIe Gen4 · {freeLabel}</span>
             </div>
 
             {/* Segmented Bar */}
@@ -148,7 +151,7 @@ export function Analytics() {
               <div className="seg-segment seg-video" style={{ width: '22%' }} title="Video Masters: 440 GB" />
               <div className="seg-segment seg-audio" style={{ width: '8%' }} title="Lossless Audio: 160 GB" />
               <div className="seg-segment seg-temp" style={{ width: '4%' }} title="Live Ring Buffers: 80 GB" />
-              <div className="seg-segment seg-free" style={{ width: '66%' }} title="Free Space: 1.42 TB" />
+              <div className="seg-segment seg-free" style={{ width: '66%' }} title={`Free Space: ${freeLabel}`} />
             </div>
 
             {/* Legend */}
@@ -171,7 +174,7 @@ export function Analytics() {
               <div className="legend-item">
                 <span className="legend-dot dot-free" />
                 <span className="legend-name">Available</span>
-                <span className="legend-val">{vitals?.nvmeFreeTb ? `${vitals.nvmeFreeTb.toFixed(2)} TB` : 'Ready'}</span>
+                <span className="legend-val">{freeGb > 0 ? `${freeGb.toFixed(1)} GB` : 'Ready'}</span>
               </div>
             </div>
           </section>

@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import './series-detail-view.css'
 import type { MediaItem, EpisodeItem } from './mock-media-data'
 import { IconArrowLeft, IconPlay, IconFolder, IconCheck } from '../stream-hub/Icons'
 import { playHapticClick, playHapticGlass } from '@/lib/sound'
@@ -12,6 +13,8 @@ export interface SeriesDetailViewProps {
 }
 
 const SERIES_SYNOPSIS: Record<string, string> = {
+  'media-1': "After a 10-year quest with the Hero's Party, elven mage Frieren embarks on a journey to the land where souls rest, reflecting on the fleeting lives of mortals and the passage of time.",
+  'media-2': "On Halloween night in Shibuya, a massive veil descends, trapping civilians inside. Satoru Gojo and Jujutsu sorcerers engage in a decisive catastrophe against ancient curses.",
   'med-1': "After a 10-year quest with the Hero's Party, elven mage Frieren embarks on a journey to the land where souls rest, reflecting on the fleeting lives of mortals and the passage of time.",
   'med-2': "On Halloween night in Shibuya, a massive veil descends, trapping civilians inside. Satoru Gojo and Jujutsu sorcerers engage in a decisive catastrophe against ancient curses.",
 }
