@@ -10,6 +10,9 @@ import {
   IconRefreshCw,
   IconCpu,
   IconCheckCircle,
+  IconChevronUp,
+  IconChevronDown,
+  IconTrash,
 } from './Icons'
 import { playHapticClick } from '@/lib/sound'
 import { BatchTransferCard } from './BatchTransferCard'
@@ -72,6 +75,13 @@ interface ActivePipelineProps {
   onTogglePause: (id: string) => void
   onCancel: (id: string) => void
   onRetry?: (id: string) => void
+  queueOrder?: string[]
+  maxConcurrent?: number
+  onMaxConcurrentChange?: (limit: number) => void
+  onReorder?: (id: string, direction: 'up' | 'down') => void
+  onPauseAll?: () => void
+  onResumeAll?: () => void
+  onClearFinished?: () => void
 }
 
 export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
@@ -79,8 +89,15 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
   onTogglePause,
   onCancel,
   onRetry,
+  queueOrder = [],
+  maxConcurrent = 3,
+  onMaxConcurrentChange,
+  onReorder,
+  onPauseAll,
+  onResumeAll,
+  onClearFinished,
 }) => {
-  const renderStatusBadge = (status: TransferStatus) => {
+  const renderStatusBadge = (status: TransferStatus, queueIndex: number) => {
     switch (status) {
       case 'downloading':
       case 'ingesting':
@@ -101,7 +118,7 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
         return (
           <span className="meta-status queued">
             <IconClock size={11} />
-            Queued
+            {queueIndex >= 0 ? `#${queueIndex + 1} in Queue` : 'Queued'}
           </span>
         )
       case 'connecting':
@@ -156,6 +173,10 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
   const isCompleted = (status: TransferStatus) => status === 'completed'
   const isQueued = (status: TransferStatus) => status === 'queued'
 
+  const hasFinished = items.some((i) => i.status === 'completed' || i.status === 'failed' || i.status === 'cancelled')
+  const hasActive = items.some((i) => i.status === 'downloading' || i.status === 'ingesting' || i.status === 'queued')
+  const hasPaused = items.some((i) => i.status === 'paused')
+
   return (
     <div className="pipeline-section">
       <div className="section-header">
@@ -163,6 +184,75 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
           <span>Active Transfers</span>
           <span className="section-badge-count">{items.length}</span>
         </h2>
+
+        {/* Global Queue Controls */}
+        <div className="pipeline-header-controls">
+          {onMaxConcurrentChange && (
+            <div className="pipeline-concurrency-wrap" title="Maximum concurrent active downloads">
+              <span className="pipeline-control-label">Limit:</span>
+              <select
+                className="pipeline-concurrency-select"
+                value={maxConcurrent}
+                onChange={(e) => {
+                  playHapticClick()
+                  onMaxConcurrentChange(Number(e.target.value))
+                }}
+                aria-label="Max concurrent downloads"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <option key={n} value={n}>
+                    {n} Parallel
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {hasActive && onPauseAll && (
+            <button
+              type="button"
+              className="pipeline-header-btn"
+              onClick={() => {
+                playHapticClick()
+                onPauseAll()
+              }}
+              title="Pause all transfers"
+            >
+              <IconPause size={12} />
+              <span>Pause All</span>
+            </button>
+          )}
+
+          {hasPaused && onResumeAll && (
+            <button
+              type="button"
+              className="pipeline-header-btn"
+              onClick={() => {
+                playHapticClick()
+                onResumeAll()
+              }}
+              title="Resume all transfers"
+            >
+              <IconPlay size={12} />
+              <span>Resume All</span>
+            </button>
+          )}
+
+          {hasFinished && onClearFinished && (
+            <button
+              type="button"
+              className="pipeline-header-btn clear-btn"
+              onClick={() => {
+                playHapticClick()
+                onClearFinished()
+              }}
+              title="Clear finished and cancelled tasks"
+            >
+              <IconTrash size={12} />
+              <span>Clear Finished</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="pipeline-cards-list">
@@ -187,6 +277,10 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
             const failed = isFailed(item.status)
             const completed = isCompleted(item.status)
             const queued = isQueued(item.status)
+
+            const queueIndex = queueOrder.indexOf(item.id)
+            const canMoveUp = queued && queueIndex > 0
+            const canMoveDown = queued && queueIndex >= 0 && queueIndex < queueOrder.length - 1
 
             return (
               <div key={item.id} className={`pipeline-card state-${item.status}`}>
@@ -217,11 +311,43 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
                       <span className="meta-dot">·</span>
                       <span className="meta-audio">{item.audioLang}</span>
                       <span className="meta-dot">·</span>
-                      {renderStatusBadge(item.status)}
+                      {renderStatusBadge(item.status, queueIndex)}
                     </div>
                   </div>
 
                   <div className="pipeline-controls">
+                    {/* Reorder controls for queued items */}
+                    {queued && onReorder && (
+                      <div className="pipeline-order-controls">
+                        <button
+                          type="button"
+                          className="pipeline-reorder-btn"
+                          disabled={!canMoveUp}
+                          onClick={() => {
+                            playHapticClick()
+                            onReorder(item.id, 'up')
+                          }}
+                          title="Move up in queue"
+                          aria-label="Move up in queue"
+                        >
+                          <IconChevronUp size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="pipeline-reorder-btn"
+                          disabled={!canMoveDown}
+                          onClick={() => {
+                            playHapticClick()
+                            onReorder(item.id, 'down')
+                          }}
+                          title="Move down in queue"
+                          aria-label="Move down in queue"
+                        >
+                          <IconChevronDown size={13} />
+                        </button>
+                      </div>
+                    )}
+
                     {failed ? (
                       <button
                         type="button"
@@ -281,10 +407,10 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
                       {item.downloadedSize} of {item.totalSize}
                     </span>
                     <span className={`pipeline-speed-badge ${paused ? 'is-paused' : ''}`}>
-                      {paused ? 'Paused' : queued ? 'In Queue' : failed ? 'Failed' : item.speed}
+                      {paused ? 'Paused' : queued ? (queueIndex >= 0 ? `#${queueIndex + 1} in Queue` : 'In Queue') : failed ? 'Failed' : item.speed}
                     </span>
                     <span className="pipeline-progress-eta">
-                      {paused ? 'Suspended' : failed ? (item.errorReason || 'Network error') : queued ? 'Waiting' : completed ? '100%' : `${item.eta} left`}
+                      {paused ? 'Suspended' : failed ? (item.errorReason || 'Network error') : queued ? 'Waiting for slot' : completed ? '100%' : `${item.eta} left`}
                     </span>
                   </div>
                 </div>
@@ -295,4 +421,4 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
       </div>
     </div>
   )
-})
+})

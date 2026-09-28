@@ -13,7 +13,7 @@ import { playHapticClick, playHapticPop } from '@/lib/sound'
 import { GlassSelect } from '../common/GlassSelect'
 import { TelemetryVitals } from './TelemetryVitals'
 import { ActivePipeline } from './ActivePipeline'
-import type { DownloadItem } from './ActivePipeline'
+import type { DownloadItem, TransferStatus } from './ActivePipeline'
 import { RecentCaptures } from './RecentCaptures'
 import type { RecentItem } from './RecentCaptures'
 import { ManifestDropzone } from './ManifestDropzone'
@@ -25,7 +25,16 @@ import {
   getActiveDownloads,
   getSystemVitals,
   isTauri,
+  pauseDownload,
+  resumeDownload,
+  reorderDownload,
+  getQueueConfig,
+  setQueueConfig,
+  pauseAll,
+  resumeAll,
+  clearFinished,
   type NativeDownloadProgress,
+  type NativeQueueChangedPayload,
   type SystemVitalsData,
 } from '@/lib/tauri-bridge'
 import { listen } from '@tauri-apps/api/event'
@@ -391,11 +400,15 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
     subtitles: [],
   })
 
+  const [queueOrder, setQueueOrder] = useState<string[]>([])
+  const [maxConcurrent, setMaxConcurrent] = useState<number>(3)
+
   // Listen to live native download telemetry and poll vitals
   useEffect(() => {
     let unlistenProgress: (() => void) | undefined
     let unlistenComplete: (() => void) | undefined
     let unlistenError: (() => void) | undefined
+    let unlistenQueue: (() => void) | undefined
     let pollTimer: ReturnType<typeof setInterval> | undefined
 
     const setupListeners = async () => {
@@ -408,6 +421,15 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
           }
         } catch (err) {
           console.warn('Failed to load initial active downloads:', err)
+        }
+
+        try {
+          const cfg = await getQueueConfig()
+          if (cfg && typeof cfg.max_concurrent === 'number') {
+            setMaxConcurrent(cfg.max_concurrent)
+          }
+        } catch (err) {
+          console.warn('Failed to load queue config:', err)
         }
 
         try {
@@ -432,11 +454,30 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
 
       if (!isTauri()) return
 
+      unlistenQueue = await listen<NativeQueueChangedPayload>('download-queue-changed', (event) => {
+        const p = event.payload
+        if (Array.isArray(p.order)) {
+          setQueueOrder(p.order)
+        }
+        if (typeof p.max_concurrent === 'number') {
+          setMaxConcurrent(p.max_concurrent)
+        }
+      })
+
       unlistenProgress = await listen<NativeDownloadProgress>('download-progress', (event) => {
         const p = event.payload
+        const mappedStatus: TransferStatus =
+          p.state === 'paused' ? 'paused' :
+          p.state === 'queued' ? 'queued' :
+          p.state === 'remuxing' ? 'processing' :
+          p.state === 'completed' ? 'completed' :
+          p.state === 'failed' ? 'failed' :
+          p.state === 'cancelled' ? 'cancelled' :
+          'downloading'
+
         setDownloads((prev) => {
           const idx = prev.findIndex((item) => item.id === p.task_id)
-          const speedFormatted = `${(p.speed_bytes_per_sec / (1024 * 1024)).toFixed(1)} MB/s`
+          const speedFormatted = p.state === 'paused' ? 'Paused' : `${(p.speed_bytes_per_sec / (1024 * 1024)).toFixed(1)} MB/s`
           const downloadedMb = `${(p.downloaded_bytes / (1024 * 1024)).toFixed(1)} MB`
           const totalMb = p.total_bytes ? `${(p.total_bytes / (1024 * 1024)).toFixed(1)} MB` : undefined
 
@@ -448,7 +489,8 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
               speed: speedFormatted,
               downloadedSize: downloadedMb,
               totalSize: totalMb || next[idx].totalSize,
-              status: p.state === 'remuxing' ? 'processing' : p.state === 'completed' ? 'completed' : 'downloading',
+              status: mappedStatus,
+              errorReason: p.error_message || next[idx].errorReason,
             }
             return next
           }
@@ -466,7 +508,8 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
             totalSize: totalMb || 'Dynamic Stream',
             speed: speedFormatted,
             eta: p.eta_seconds ? `${p.eta_seconds}s` : 'Calculating...',
-            status: 'downloading',
+            status: mappedStatus,
+            errorReason: p.error_message,
           }
           return [newItem, ...prev]
         })
@@ -538,6 +581,7 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
       unlistenProgress?.()
       unlistenComplete?.()
       unlistenError?.()
+      unlistenQueue?.()
       if (pollTimer) clearInterval(pollTimer)
       window.removeEventListener('hyperstream:media-added', handleMediaAdded)
     }
@@ -649,16 +693,96 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
     }
   }
 
-  const handleTogglePause = (id: string) => {
-    setDownloads((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          const nextStatus = item.status === 'paused' ? 'downloading' : 'paused'
-          return { ...item, status: nextStatus }
-        }
-        return item
+  const handleTogglePause = async (id: string) => {
+    const item = downloads.find((d) => d.id === id)
+    if (!item) return
+
+    if (item.status === 'paused') {
+      if (isTauri()) {
+        await resumeDownload(id)
+      }
+      setDownloads((prev) =>
+        prev.map((d) => (d.id === id ? { ...d, status: 'queued', speed: 'Resuming' } : d))
+      )
+      showNotification(`Resumed: ${item.title}`)
+    } else {
+      if (isTauri()) {
+        await pauseDownload(id)
+      }
+      setDownloads((prev) =>
+        prev.map((d) => (d.id === id ? { ...d, status: 'paused', speed: 'Paused' } : d))
+      )
+      showNotification(`Paused: ${item.title}`)
+    }
+  }
+
+  const handleReorder = async (id: string, direction: 'up' | 'down') => {
+    const idx = queueOrder.indexOf(id)
+    if (idx < 0) return
+
+    const newPriority = direction === 'up' ? 10 + (queueOrder.length - idx) : -10
+    if (isTauri()) {
+      await reorderDownload(id, newPriority)
+    }
+
+    setQueueOrder((prev) => {
+      const next = [...prev]
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+      if (targetIdx >= 0 && targetIdx < next.length) {
+        const temp = next[idx]
+        next[idx] = next[targetIdx]
+        next[targetIdx] = temp
+      }
+      return next
+    })
+  }
+
+  const handleMaxConcurrentChange = async (limit: number) => {
+    setMaxConcurrent(limit)
+    if (isTauri()) {
+      await setQueueConfig({
+        max_concurrent: limit,
+        max_retries: 2,
+        retry_backoff_ms: 5000,
       })
+    }
+    showNotification(`Active concurrency limit set to ${limit}`)
+  }
+
+  const handlePauseAll = async () => {
+    if (isTauri()) {
+      await pauseAll()
+    }
+    setDownloads((prev) =>
+      prev.map((d) =>
+        d.status === 'downloading' || d.status === 'queued' || d.status === 'ingesting'
+          ? { ...d, status: 'paused', speed: 'Paused' }
+          : d
+      )
     )
+    showNotification('All active transfers paused')
+  }
+
+  const handleResumeAll = async () => {
+    if (isTauri()) {
+      await resumeAll()
+    }
+    setDownloads((prev) =>
+      prev.map((d) => (d.status === 'paused' ? { ...d, status: 'queued', speed: 'Resuming' } : d))
+    )
+    showNotification('All paused transfers resumed')
+  }
+
+  const handleClearFinished = async () => {
+    if (isTauri()) {
+      await clearFinished()
+    }
+    setDownloads((prev) =>
+      prev.filter(
+        (d) => d.status !== 'completed' && d.status !== 'failed' && d.status !== 'cancelled'
+      )
+    )
+    showNotification('Cleared finished and cancelled transfers')
   }
 
   const handleCancel = (id: string) => {
@@ -807,6 +931,13 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed 
             onTogglePause={handleTogglePause}
             onCancel={handleCancel}
             onRetry={handleRetry}
+            queueOrder={queueOrder}
+            maxConcurrent={maxConcurrent}
+            onMaxConcurrentChange={handleMaxConcurrentChange}
+            onReorder={handleReorder}
+            onPauseAll={handlePauseAll}
+            onResumeAll={handleResumeAll}
+            onClearFinished={handleClearFinished}
           />
 
           <div className="hub-sidebar-aux">

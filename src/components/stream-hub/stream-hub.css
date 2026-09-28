@@ -2638,4 +2638,112 @@
 .format-picker-confirm-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(56, 189, 248, 0.5);
+}
+
+/* ==========================================================================
+   Queue Engine & Concurrency Controls
+   ========================================================================== */
+.pipeline-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pipeline-concurrency-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  border-top-color: var(--border-specular-top);
+  border-radius: 6px;
+  padding: 2px 6px 2px 8px;
+}
+
+.pipeline-control-label {
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pipeline-concurrency-select {
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  padding: 2px 4px;
+}
+
+.pipeline-concurrency-select option {
+  background: #111422;
+  color: #f8fafc;
+}
+
+.pipeline-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 550;
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  border-top-color: var(--border-specular-top);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pipeline-header-btn:hover {
+  background: var(--surface-control-hover);
+  color: var(--color-text-primary);
+  border-color: var(--border-normal);
+  transform: translateY(-0.5px);
+}
+
+.pipeline-header-btn.clear-btn:hover {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.pipeline-order-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 1px;
+  border: 1px solid var(--border-subtle);
+}
+
+.pipeline-reorder-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pipeline-reorder-btn:hover:not(:disabled) {
+  background: var(--surface-control-hover);
+  color: var(--color-brand-primary);
+}
+
+.pipeline-reorder-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
 }

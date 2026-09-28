@@ -304,6 +304,18 @@ export interface NativeDownloadProgress {
   error_message?: string
 }
 
+export interface NativeQueueConfig {
+  max_concurrent: number
+  max_retries: number
+  retry_backoff_ms: number
+}
+
+export interface NativeQueueChangedPayload {
+  order: string[]
+  running: number
+  max_concurrent: number
+}
+
 export async function queryMediaInfo(url: string, cookies?: string): Promise<NativeMediaMetadata | null> {
   if (isTauri()) {
     try {
@@ -316,10 +328,10 @@ export async function queryMediaInfo(url: string, cookies?: string): Promise<Nat
   return null
 }
 
-export async function startUniversalDownload(options: NativeDownloadOptions): Promise<string | null> {
+export async function startUniversalDownload(options: NativeDownloadOptions, priority?: number): Promise<string | null> {
   if (isTauri()) {
     try {
-      return await invoke<string>('start_universal_download', { options })
+      return await invoke<string>('start_universal_download', { options, priority })
     } catch (err) {
       console.warn('startUniversalDownload error:', err)
       return null
@@ -348,6 +360,92 @@ export async function getActiveDownloads(): Promise<NativeDownloadProgress[]> {
     }
   }
   return []
+}
+
+export async function pauseDownload(taskId: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invoke('pause_download', { taskId })
+    } catch (err) {
+      console.warn('pauseDownload error:', err)
+    }
+  }
+}
+
+export async function resumeDownload(taskId: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invoke('resume_download', { taskId })
+    } catch (err) {
+      console.warn('resumeDownload error:', err)
+    }
+  }
+}
+
+export async function reorderDownload(taskId: string, priority: number): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invoke('reorder_download', { taskId, priority })
+    } catch (err) {
+      console.warn('reorderDownload error:', err)
+    }
+  }
+}
+
+export async function getQueueConfig(): Promise<NativeQueueConfig | null> {
+  if (isTauri()) {
+    try {
+      return await invoke<NativeQueueConfig>('get_queue_config')
+    } catch (err) {
+      console.warn('getQueueConfig error:', err)
+      return null
+    }
+  }
+  return null
+}
+
+export async function setQueueConfig(config: NativeQueueConfig): Promise<NativeQueueConfig | null> {
+  if (isTauri()) {
+    try {
+      return await invoke<NativeQueueConfig>('set_queue_config', { config })
+    } catch (err) {
+      console.warn('setQueueConfig error:', err)
+      return null
+    }
+  }
+  return null
+}
+
+export async function pauseAll(): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invoke('pause_all')
+    } catch (err) {
+      console.warn('pauseAll error:', err)
+    }
+  }
+}
+
+export async function resumeAll(): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invoke('resume_all')
+    } catch (err) {
+      console.warn('resumeAll error:', err)
+    }
+  }
+}
+
+export async function clearFinished(): Promise<number> {
+  if (isTauri()) {
+    try {
+      return await invoke<number>('clear_finished')
+    } catch (err) {
+      console.warn('clearFinished error:', err)
+      return 0
+    }
+  }
+  return 0
 }
 
 

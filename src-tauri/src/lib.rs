@@ -738,8 +738,9 @@ async fn start_universal_download(
     app: tauri::AppHandle,
     state: tauri::State<'_, downloader::DownloadOrchestrator>,
     options: downloader::DownloadOptions,
+    priority: Option<i32>,
 ) -> Result<String, String> {
-    state.start_download(app, options).await
+    state.start_download(app, options, priority).await
 }
 
 #[tauri::command]
@@ -755,6 +756,67 @@ fn get_active_downloads(
     state: tauri::State<downloader::DownloadOrchestrator>,
 ) -> Result<Vec<downloader::DownloadProgress>, String> {
     Ok(state.get_tasks())
+}
+
+#[tauri::command]
+fn pause_download(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+    task_id: String,
+) -> Result<(), String> {
+    state.pause_task(&task_id)
+}
+
+#[tauri::command]
+fn resume_download(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+    task_id: String,
+) -> Result<(), String> {
+    state.resume_task(&task_id)
+}
+
+#[tauri::command]
+fn reorder_download(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+    task_id: String,
+    priority: i32,
+) -> Result<(), String> {
+    state.reorder_task(&task_id, priority)
+}
+
+#[tauri::command]
+fn get_queue_config(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+) -> Result<downloader::QueueConfig, String> {
+    Ok(state.get_config())
+}
+
+#[tauri::command]
+fn set_queue_config(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+    config: downloader::QueueConfig,
+) -> Result<downloader::QueueConfig, String> {
+    state.set_config(config)
+}
+
+#[tauri::command]
+fn pause_all(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+) -> Result<(), String> {
+    state.pause_all()
+}
+
+#[tauri::command]
+fn resume_all(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+) -> Result<(), String> {
+    state.resume_all()
+}
+
+#[tauri::command]
+fn clear_finished(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+) -> Result<usize, String> {
+    Ok(state.clear_finished())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -807,7 +869,9 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(BrowserState::default());
-            app.manage(downloader::DownloadOrchestrator::new());
+            let orchestrator = downloader::DownloadOrchestrator::new();
+            orchestrator.attach_app(app.handle().clone());
+            app.manage(orchestrator);
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(target_os = "windows")]
                 {
@@ -848,7 +912,15 @@ pub fn run() {
             query_media_info,
             start_universal_download,
             cancel_download,
-            get_active_downloads
+            get_active_downloads,
+            pause_download,
+            resume_download,
+            reorder_download,
+            get_queue_config,
+            set_queue_config,
+            pause_all,
+            resume_all,
+            clear_finished
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
