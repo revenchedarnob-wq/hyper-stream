@@ -195,6 +195,18 @@ impl DownloadOrchestrator {
         cmd.arg("--newline");
         cmd.arg("--no-playlist");
 
+        // Resume an interrupted transfer instead of restarting at 0%.
+        cmd.arg("--continue");
+        // Network resilience: retry transient failures with linear backoff.
+        cmd.arg("--retries");
+        cmd.arg("10");
+        cmd.arg("--fragment-retries");
+        cmd.arg("10");
+        cmd.arg("--retry-sleep");
+        cmd.arg("linear=1::5");
+        cmd.arg("--socket-timeout");
+        cmd.arg("30");
+
         if let Some(fid) = &options.format_id {
             cmd.arg("-f");
             cmd.arg(fid);
@@ -338,14 +350,56 @@ impl DownloadOrchestrator {
                     "Download process exited with non-zero status code".to_string()
                 }
             };
-            return Err(error_details);
+            return Err(crate::downloader::classify_download_error(&error_details));
         }
 
         let final_file = detected_output_file.unwrap_or_else(|| {
             target_dir.join(format!("{}.mkv", safe_title)).to_string_lossy().to_string()
         });
 
+        Self::verify_output_integrity(task_id, &final_file, tasks_ref, app)?;
+
         Ok(final_file)
+    }
+
+    /// Post-download integrity check: file exists, is non-empty, and (for ISO
+    /// base-media containers) passes fast box-header validation. Emits a
+    /// "Verifying file integrity..." stage to the UI.
+    fn verify_output_integrity(
+        task_id: &str,
+        final_file: &str,
+        tasks_ref: &Arc<RwLock<HashMap<String, DownloadProgress>>>,
+        app: &AppHandle,
+    ) -> Result<(), String> {
+        {
+            let mut tasks = tasks_ref.write().unwrap();
+            if let Some(t) = tasks.get_mut(task_id) {
+                t.stage = "Verifying file integrity...".to_string();
+                let _ = app.emit("download-progress", &t.clone());
+            }
+        }
+
+        let path = std::path::Path::new(final_file);
+
+        let metadata = std::fs::metadata(path)
+            .map_err(|_| "Output file was not produced on disk.".to_string())?;
+        if metadata.len() == 0 {
+            return Err("Output file is empty (0 bytes) — the download did not complete.".to_string());
+        }
+
+        // Deep box-header validation only applies to ISO/MP4-family containers.
+        // MKV (Matroska) and audio-only outputs skip this check.
+        let is_iso = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| matches!(e.to_ascii_lowercase().as_str(), "mp4" | "m4v" | "m4a" | "mov"))
+            .unwrap_or(false);
+
+        if is_iso && !crate::downloader::FastAtomInspector::verify_file(path) {
+            return Err("Output file failed container validation — it may be corrupted.".to_string());
+        }
+
+        Ok(())
     }
 }
 
