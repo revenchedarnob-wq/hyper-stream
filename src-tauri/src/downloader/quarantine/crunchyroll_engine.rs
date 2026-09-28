@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::RwLock;
 
 use aes::Aes128;
@@ -81,7 +81,6 @@ impl KeyStore {
             map.insert(clean_kid.clone(), key_arr);
         }
 
-        // Append to keys.txt
         if let Some(parent) = self.key_file.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -100,7 +99,7 @@ impl KeyStore {
     }
 }
 
-// 2. Hardware-Accelerated AES-128-CTR Decryptor
+// 2. AES-128-CTR Decryptor
 pub struct StreamDecryptor;
 
 impl StreamDecryptor {
@@ -116,70 +115,7 @@ impl StreamDecryptor {
     }
 }
 
-// 3. Fast ISO Atom Inspector (Sub-millisecond validation)
-pub struct FastAtomInspector;
-
-impl FastAtomInspector {
-    const KNOWN_BOXES: &'static [&'static [u8; 4]] = &[
-        b"ftyp", b"moov", b"mdat", b"sidx", b"styp", b"moof", b"traf", b"trun",
-        b"free", b"skip", b"pdin", b"emsg", b"prft",
-    ];
-
-    pub fn verify_container_header(header: &[u8]) -> bool {
-        if header.len() < 8 {
-            return false;
-        }
-
-        let mut offset = 0;
-        while offset + 8 <= header.len() {
-            let box_type = &header[offset + 4..offset + 8];
-            for known in Self::KNOWN_BOXES {
-                if box_type == *known {
-                    return true;
-                }
-            }
-
-            let box_size = u32::from_be_bytes([
-                header[offset],
-                header[offset + 1],
-                header[offset + 2],
-                header[offset + 3],
-            ]) as usize;
-
-            if box_size < 8 {
-                break;
-            }
-            offset += box_size;
-            if offset > 4096 {
-                break;
-            }
-        }
-
-        // Secondary check: simple substring scan for ftyp/styp/moov/moof
-        for pattern in [b"ftyp", b"styp", b"moov", b"moof"] {
-            if header.windows(4).any(|window| window == pattern) {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    pub fn verify_file(path: &Path) -> bool {
-        use std::io::Read;
-        if let Ok(mut file) = std::fs::File::open(path) {
-            let mut buf = [0u8; 4096];
-            if let Ok(bytes_read) = file.read(&mut buf) {
-                if bytes_read >= 8 {
-                    return Self::verify_container_header(&buf[..bytes_read]);
-                }
-            }
-        }
-        false
-    }
-}
-
-// 4. Crunchyroll Models
+// 3. Crunchyroll Models
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AudioVersion {
     #[serde(rename = "audioLocale")]
@@ -264,7 +200,6 @@ impl CrunchyrollEngine {
         Ok(data.access_token)
     }
 
-    // Bulletproof "Fetch and Delete" Slot Release Flow
     pub async fn acquire_playback_session(&self, guid: &str, access_token: &str) -> Result<PlaybackSession, String> {
         let play_url = format!("https://www.crunchyroll.com/playback/v1/{}/web/chrome/play", guid);
 
@@ -319,7 +254,6 @@ impl CrunchyrollEngine {
             }
         }
 
-        // IMMEDIATE SLOT RELEASE HACK: Delete stream token to unlock server concurrency
         let mut slot_released = false;
         if let Some(ref token) = play_token {
             let delete_url = format!("https://www.crunchyroll.com/playback/v1/token/{}/{}", guid, token);
@@ -370,18 +304,6 @@ mod tests {
     }
 
     #[test]
-    fn test_keystore_load_and_lookup() {
-        let store = KeyStore::new();
-        // keys.txt contains 68 verified keys on this machine
-        let count = store.key_count();
-        assert!(count >= 60, "Expected at least 60 cached keys from keys.txt, got {}", count);
-
-        // Check known key from keys.txt line 1: bed388b93ea239458ddead8063ae14c7
-        let key = store.get_key("bed388b93ea239458ddead8063ae14c7");
-        assert!(key.is_some(), "Known key bed388b93ea239458ddead8063ae14c7 should be cached");
-    }
-
-    #[test]
     fn test_aes_128_ctr_hardware_decrypt() {
         let key = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10];
         let iv = [0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
@@ -390,20 +312,7 @@ mod tests {
         let encrypted = StreamDecryptor::decrypt_bytes(original_data, &key, &iv);
         assert_ne!(&encrypted[..], original_data);
 
-        // Decrypting again with same CTR keystream recovers original plaintext
         let decrypted = StreamDecryptor::decrypt_bytes(&encrypted, &key, &iv);
         assert_eq!(&decrypted[..], original_data);
-    }
-
-    #[test]
-    fn test_fast_atom_inspector() {
-        let valid_ftyp_header = [
-            0x00, 0x00, 0x00, 0x20, b'f', b't', b'y', b'p',
-            b'i', b's', b'o', b'm', 0x00, 0x00, 0x02, 0x00,
-        ];
-        assert!(FastAtomInspector::verify_container_header(&valid_ftyp_header));
-
-        let invalid_header = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0];
-        assert!(!FastAtomInspector::verify_container_header(&invalid_header));
     }
 }

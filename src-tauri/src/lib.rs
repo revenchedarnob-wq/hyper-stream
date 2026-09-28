@@ -696,6 +696,7 @@ async fn ensure_engine_binaries() -> Result<downloader::EngineBinariesReport, St
     Ok(downloader::BinaryManager::get_status())
 }
 
+#[cfg(feature = "experimental-drm")]
 #[tauri::command]
 async fn query_crunchyroll_stream(url: String, access_token: String) -> Result<downloader::PlaybackSession, String> {
     let engine = downloader::CrunchyrollEngine::new();
@@ -703,12 +704,14 @@ async fn query_crunchyroll_stream(url: String, access_token: String) -> Result<d
     engine.acquire_playback_session(&guid, &access_token).await
 }
 
+#[cfg(feature = "experimental-drm")]
 #[tauri::command]
 async fn refresh_crunchyroll_token(etp_rt: String) -> Result<String, String> {
     let engine = downloader::CrunchyrollEngine::new();
     engine.refresh_access_token(&etp_rt).await
 }
 
+#[cfg(feature = "experimental-drm")]
 #[tauri::command]
 fn get_cached_keys_count() -> Result<usize, String> {
     let store = downloader::KeyStore::new();
@@ -835,8 +838,11 @@ pub fn run() {
             load_unpacked_extension,
             get_engine_binary_status,
             ensure_engine_binaries,
+            #[cfg(feature = "experimental-drm")]
             query_crunchyroll_stream,
+            #[cfg(feature = "experimental-drm")]
             refresh_crunchyroll_token,
+            #[cfg(feature = "experimental-drm")]
             get_cached_keys_count,
             inspect_media_container,
             query_media_info,

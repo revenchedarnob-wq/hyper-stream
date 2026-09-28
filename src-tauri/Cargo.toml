@@ -33,12 +33,18 @@ window-vibrancy = "0.5"
 windows-sys = { version = "0.59", features = ["Win32_System_JobObjects", "Win32_System_Threading", "Win32_Foundation", "Win32_Security", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus"] }
 tokio = { version = "1.40", features = ["full"] }
 reqwest = { version = "0.13", features = ["json", "stream"] }
-aes = "0.8"
-ctr = "0.9"
-cipher = "0.4"
-hex = "0.4"
+aes = { version = "0.8", optional = true }
+ctr = { version = "0.9", optional = true }
+cipher = { version = "0.4", optional = true }
+hex = { version = "0.4", optional = true }
 quick-xml = "0.42"
 regex = "1.13"
+
+[features]
+default = []
+# Isolated, non-default subsystem. Off in all shipping builds.
+# Enable ONLY for local reference builds: cargo build --features experimental-drm
+experimental-drm = ["dep:aes", "dep:ctr", "dep:cipher", "dep:hex"]
 
 [profile.release]
 opt-level = 3
