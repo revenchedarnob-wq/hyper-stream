@@ -613,13 +613,13 @@ export default function App() {
           } : {}),
         }}
       >
-        {/* Optical Glass Base Layer with Interactive Drag Parallax & Cinema Depth */}
+        {/* Optical Glass Base Layer with Interactive Drag Parallax & Unified Blur */}
         <div className="window-backdrop-layer" aria-hidden="true">
           {prevWallpaper && isTransitioningWallpaper && (
             <div
               className="wallpaper-parallax-bg prev"
               style={{
-                backgroundImage: `url("${SIMULATOR_WALLPAPERS.find((w) => w.url === prevWallpaper)?.frostedUrl || prevWallpaper}")`,
+                backgroundImage: `url("${prevWallpaper}")`,
               }}
               aria-hidden="true"
             />
@@ -628,10 +628,12 @@ export default function App() {
             key={browserWallpaper}
             className={`wallpaper-parallax-bg ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
             style={{
-              backgroundImage: `url("${currentWallpaperObj?.frostedUrl || browserWallpaper}")`,
+              backgroundImage: `url("${browserWallpaper}")`,
             }}
             aria-hidden="true"
           />
+          {/* Unified, Window-Wide Beautiful Optical Frosted Glass Layer */}
+          <div className="window-glass-frosted-overlay" aria-hidden="true" />
         </div>
       <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''} ${activeNav === 'browser' && !sidebarOpen ? 'browser-fullbleed' : ''}`}>
         {/* Topbar with real-time 120 FPS pointer drag handler and smooth maximize toggle */}

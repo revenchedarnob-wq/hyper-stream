@@ -272,6 +272,25 @@ body.is-browser-dragging * {
   z-index: 1;
 }
 
+/* Unified, Window-Wide Beautiful Optical Frosted Glass Layer */
+.window-glass-frosted-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  backdrop-filter: blur(28px) saturate(125%) brightness(102%);
+  -webkit-backdrop-filter: blur(28px) saturate(125%) brightness(102%);
+  transition: background-color 300ms ease;
+}
+
+.window-container[data-wallpaper-theme="dark"] .window-glass-frosted-overlay {
+  background: rgba(10, 14, 25, 0.16);
+}
+
+.window-container[data-wallpaper-theme="light"] .window-glass-frosted-overlay {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .wallpaper-optical-frost {
   display: none !important;
 }
@@ -1485,9 +1504,9 @@ body.is-browser-dragging * {
 
 .window-container[data-wallpaper-theme="dark"] .sidebar,
 [data-wallpaper-theme="dark"] .sidebar {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
-  backdrop-filter: blur(24px) saturate(135%) brightness(102%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(135%) brightness(102%) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
   border-top: 1.5px solid rgba(255, 255, 255, 0.38) !important;
   border-left: 1px solid rgba(255, 255, 255, 0.22) !important;
@@ -1496,9 +1515,9 @@ body.is-browser-dragging * {
 
 .window-container[data-wallpaper-theme="dark"].potato-mode .sidebar,
 [data-wallpaper-theme="dark"].potato-mode .sidebar {
-  backdrop-filter: blur(18px) saturate(125%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(125%) !important;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.025) 100%) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
   border-top: 1.5px solid rgba(255, 255, 255, 0.38) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.20), 0 16px 40px -8px rgba(0, 0, 0, 0.35) !important;
@@ -1507,8 +1526,8 @@ body.is-browser-dragging * {
 .window-container[data-wallpaper-theme="dark"] .content-pane,
 [data-wallpaper-theme="dark"] .content-pane {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.015) 100%) !important;
-  backdrop-filter: blur(28px) saturate(135%) brightness(102%) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(135%) brightness(102%) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
   border-top: 1.5px solid rgba(255, 255, 255, 0.38) !important;
   border-left: 1px solid rgba(255, 255, 255, 0.22) !important;
@@ -1517,12 +1536,32 @@ body.is-browser-dragging * {
 
 .window-container[data-wallpaper-theme="dark"].potato-mode .content-pane,
 [data-wallpaper-theme="dark"].potato-mode .content-pane {
-  backdrop-filter: blur(18px) saturate(125%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(125%) !important;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.015) 100%) !important;
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
   border-top: 1.5px solid rgba(255, 255, 255, 0.38) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.20), 0 16px 40px -8px rgba(0, 0, 0, 0.35) !important;
+}
+
+.window-container[data-wallpaper-theme="light"] .sidebar,
+[data-wallpaper-theme="light"] .sidebar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.28) 100%) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border-top: 1.5px solid rgba(255, 255, 255, 0.85) !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 12px 35px -8px rgba(15, 23, 42, 0.08) !important;
+}
+
+.window-container[data-wallpaper-theme="light"] .content-pane,
+[data-wallpaper-theme="light"] .content-pane {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.25) 100%) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border-top: 1.5px solid rgba(255, 255, 255, 0.85) !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 12px 35px -8px rgba(15, 23, 42, 0.08) !important;
 }
 
 .window-container[data-wallpaper-theme="dark"] .content-heading,
