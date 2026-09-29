@@ -619,7 +619,7 @@ export default function App() {
             <div
               className="wallpaper-parallax-bg prev"
               style={{
-                backgroundImage: `url("${prevWallpaper}")`,
+                backgroundImage: `url("${SIMULATOR_WALLPAPERS.find((w) => w.url === prevWallpaper)?.frostedUrl || prevWallpaper}")`,
               }}
               aria-hidden="true"
             />
@@ -628,7 +628,7 @@ export default function App() {
             key={browserWallpaper}
             className={`wallpaper-parallax-bg ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
             style={{
-              backgroundImage: `url("${browserWallpaper}")`,
+              backgroundImage: `url("${currentWallpaperObj?.frostedUrl || browserWallpaper}")`,
             }}
             aria-hidden="true"
           />
