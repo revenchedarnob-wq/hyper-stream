@@ -1,17 +1,22 @@
-import { useState, useEffect, type FormEvent, type MouseEvent } from 'react'
-import type { ShieldsMetrics, SpeedDialItem } from './types'
+import { useState, useEffect, type CSSProperties, type FormEvent, type MouseEvent } from 'react'
+import type { SpeedDialItem } from './types'
 import {
-  IconBraveLion,
-  IconBraveShield,
-  IconDownloadCloud,
-  IconCpu,
   IconPlus,
   IconX,
 } from './Icons'
+import { IconSearch } from '../stream-hub/Icons'
 import { playHapticClick, playHapticGlass, playHapticPop } from '@/lib/sound'
 import { DEFAULT_SPEED_DIAL_PRESETS, renderSpeedDialIcon } from './speed-dial-presets'
+import { resolveBrowserNavigation } from './url-utils'
 import './browser.css'
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
 
 export interface SpeedDialTileProps {
   item: SpeedDialItem
@@ -40,23 +45,26 @@ export function SpeedDialTile({ item, onSelect, onRemove, isCustom = false }: Sp
       }
     : undefined
 
+  // The remove button sits beside the tile button (a button can't contain another button).
   return (
-    <button
-      type="button"
-      className="speed-dial-tile"
-      onClick={handleClick}
-      title={`${item.title} (${item.url})`}
-      data-testid={`speed-dial-tile-${item.id}`}
-    >
-      <div className="speed-dial-tile-icon" style={iconStyle}>
-        {renderSpeedDialIcon(item.iconKey, 20)}
-      </div>
+    <div className="speed-dial-tile-wrap">
+      <button
+        type="button"
+        className="speed-dial-tile"
+        onClick={handleClick}
+        title={`${item.title} (${item.url})`}
+        data-testid={`speed-dial-tile-${item.id}`}
+      >
+        <div className="speed-dial-tile-icon" style={iconStyle}>
+          {renderSpeedDialIcon(item.iconKey, 24)}
+        </div>
 
-      <div className="speed-dial-tile-info">
-        <span className="speed-dial-tile-title">{item.title}</span>
-        <span className="speed-dial-tile-url">{item.url.replace(/^https?:\/\//, '')}</span>
-        <span className="speed-dial-tile-category">{item.category}</span>
-      </div>
+        <div className="speed-dial-tile-info">
+          <span className="speed-dial-tile-title">{item.title}</span>
+          <span className="speed-dial-tile-url">{item.url.replace(/^https?:\/\//, '')}</span>
+          <span className="speed-dial-tile-category">{item.category}</span>
+        </div>
+      </button>
 
       {isCustom && onRemove && (
         <button
@@ -66,19 +74,18 @@ export function SpeedDialTile({ item, onSelect, onRemove, isCustom = false }: Sp
           title={`Remove ${item.title}`}
           aria-label={`Remove ${item.title}`}
         >
-          <IconX size={12} />
+          <IconX size={11} />
         </button>
       )}
-    </button>
+    </div>
   )
 }
 
 export interface SpeedDialProps {
-  shieldsStats: ShieldsMetrics
   onSelectUrl: (url: string) => void
 }
 
-export function SpeedDial({ shieldsStats, onSelectUrl }: SpeedDialProps) {
+export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
   const [customTiles, setCustomTiles] = useState<SpeedDialItem[]>(() => {
     if (typeof window === 'undefined') return []
     try {
@@ -95,6 +102,32 @@ export function SpeedDial({ shieldsStats, onSelectUrl }: SpeedDialProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newUrl, setNewUrl] = useState('')
+  const [query, setQuery] = useState('')
+  const [suggestHidden, setSuggestHidden] = useState(() => {
+    try {
+      return localStorage.getItem('hyperstream_speed_dial_hide_suggest') === '1'
+    } catch {
+      return false
+    }
+  })
+
+  const hideSuggestions = () => {
+    playHapticPop()
+    setSuggestHidden(true)
+    try {
+      localStorage.setItem('hyperstream_speed_dial_hide_suggest', '1')
+    } catch {
+      // Ignore storage write errors
+    }
+  }
+
+  const handleSearch = (e: FormEvent) => {
+    e.preventDefault()
+    const q = query.trim()
+    if (!q) return
+    playHapticClick()
+    onSelectUrl(resolveBrowserNavigation(q).url)
+  }
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -139,13 +172,16 @@ export function SpeedDial({ shieldsStats, onSelectUrl }: SpeedDialProps) {
       trimmedUrl = `https://${trimmedUrl}`
     }
 
+    let host = ''
+    try { host = new URL(trimmedUrl).hostname.replace(/^www\./, '') } catch { /* keep empty */ }
+    const known = DEFAULT_SPEED_DIAL_PRESETS.find((p) => host === new URL(p.url).hostname || host.endsWith(`.${new URL(p.url).hostname}`))
     const newBookmark: SpeedDialItem = {
       id: `custom-${Date.now()}`,
       title: trimmedTitle,
       url: trimmedUrl,
-      category: 'custom',
-      iconKey: 'custom',
-      accentColor: 'var(--color-brand-primary)',
+      category: known?.category ?? 'custom',
+      iconKey: known?.iconKey ?? 'custom',
+      accentColor: known?.accentColor ?? 'var(--color-brand-primary)',
     }
 
     playHapticGlass()
@@ -155,86 +191,43 @@ export function SpeedDial({ shieldsStats, onSelectUrl }: SpeedDialProps) {
     setIsAddModalOpen(false)
   }
 
+  const handleQuickAdd = (preset: SpeedDialItem) => {
+    playHapticGlass()
+    saveCustomTiles([...customTiles, { ...preset, id: `custom-${Date.now()}` }])
+  }
+
+  const addedHosts = new Set(customTiles.map((t) => hostOf(t.url)))
+  const suggestions = DEFAULT_SPEED_DIAL_PRESETS.filter((p) => !addedHosts.has(hostOf(p.url)))
+
   const handleRemoveCustomTile = (id: string) => {
     saveCustomTiles(customTiles.filter((tile) => tile.id !== id))
   }
 
-  const totalAdsAndTrackers = (
-    (shieldsStats?.adsBlocked || 0) + (shieldsStats?.trackersBlocked || 0)
-  ).toLocaleString()
-
-  const bandwidthSavedMb = `${(
-    (shieldsStats?.bandwidthSavedBytes || 0) /
-    (1024 * 1024)
-  ).toFixed(1)} MB`
-
-  const cpuCyclesPreserved = 'Hyper-Efficient'
-
   return (
-    <section className="speed-dial-container" aria-label="Speed Dial Portal">
-      {/* Header with Brave Privacy Workspace badge */}
+    <section className="speed-dial-container" aria-label="Start page">
       <header className="speed-dial-header">
-        <div className="speed-dial-badge">
-          <div className="speed-dial-badge-icon" aria-hidden="true">
-            <IconBraveLion size={15} />
-          </div>
-          <span>Brave Privacy Workspace</span>
-        </div>
-
-        <h1 className="speed-dial-title">Decentralized Streaming Gateway</h1>
+        <h1 className="speed-dial-title">Find something to download</h1>
         <p className="speed-dial-subtitle">
-          High-performance hardware-accelerated media portals protected with zero-telemetry shields
+          Open a video page, then press Download.
         </p>
       </header>
 
-      {/* Privacy Telemetry Ribbon */}
-      <div
-        className="speed-dial-ticker"
-        role="region"
-        aria-label="Privacy Telemetry Ribbon"
-        data-testid="privacy-telemetry-ribbon"
-      >
-        <div className="speed-dial-ticker-stat">
-          <div className="speed-dial-ticker-icon" aria-hidden="true">
-            <IconBraveShield size={18} />
-          </div>
-          <div className="speed-dial-ticker-meta">
-            <span className="speed-dial-ticker-value">{totalAdsAndTrackers}</span>
-            <span className="speed-dial-ticker-label">Total Ads & Trackers Blocked</span>
-          </div>
-        </div>
+      <form className="speed-dial-search" role="search" onSubmit={handleSearch}>
+        <IconSearch size={18} className="speed-dial-search-icon" aria-hidden="true" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search the web or type a link"
+          aria-label="Search the web or type a link"
+          autoComplete="off"
+          spellCheck={false}
+          data-testid="speed-dial-search"
+        />
+      </form>
 
-        <div className="speed-dial-ticker-stat">
-          <div className="speed-dial-ticker-icon" aria-hidden="true">
-            <IconDownloadCloud size={18} />
-          </div>
-          <div className="speed-dial-ticker-meta">
-            <span className="speed-dial-ticker-value">{bandwidthSavedMb}</span>
-            <span className="speed-dial-ticker-label">Bandwidth Saved</span>
-          </div>
-        </div>
-
-        <div className="speed-dial-ticker-stat">
-          <div className="speed-dial-ticker-icon" aria-hidden="true">
-            <IconCpu size={18} />
-          </div>
-          <div className="speed-dial-ticker-meta">
-            <span className="speed-dial-ticker-value">{cpuCyclesPreserved}</span>
-            <span className="speed-dial-ticker-label">CPU Cycles Preserved</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Streaming Portal Grid */}
-      <div className="speed-dial-grid" role="list" aria-label="Streaming Portals">
-        {DEFAULT_SPEED_DIAL_PRESETS.map((preset) => (
-          <SpeedDialTile
-            key={preset.id}
-            item={preset}
-            onSelect={onSelectUrl}
-          />
-        ))}
-
+      {/* Speed Dial Grid */}
+      <div className="speed-dial-grid" role="list" aria-label="Sites">
         {customTiles.map((custom) => (
           <SpeedDialTile
             key={custom.id}
@@ -250,13 +243,47 @@ export function SpeedDial({ shieldsStats, onSelectUrl }: SpeedDialProps) {
           type="button"
           className="speed-dial-add-tile"
           onClick={handleOpenAddModal}
-          aria-label="Add custom streaming portal bookmark"
+          aria-label="Add bookmark"
           data-testid="speed-dial-add-button"
         >
-          <IconPlus size={16} />
-          <span>Add Bookmark</span>
+          <div className="speed-dial-add-icon">
+            <IconPlus size={22} />
+          </div>
+          <span className="speed-dial-add-text">
+            {customTiles.length === 0 ? 'Add your first site' : 'Add site'}
+          </span>
         </button>
       </div>
+
+      {!suggestHidden && suggestions.length > 0 && (
+        <div className="speed-dial-suggest" aria-label="Suggested sites">
+          <span className="speed-dial-suggest-label">Quick add</span>
+          <div className="speed-dial-chips-wrap">
+            {suggestions.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="speed-dial-chip"
+                onClick={() => handleQuickAdd(p)}
+                title={`Add ${p.title}`}
+                style={{ '--chip-accent': p.accentColor } as CSSProperties}
+              >
+                {renderSpeedDialIcon(p.iconKey, 14)}
+                <span>{p.title}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="speed-dial-suggest-close"
+            onClick={hideSuggestions}
+            title="Hide Quick add"
+            aria-label="Hide Quick add"
+          >
+            <IconX size={12} />
+          </button>
+        </div>
+      )}
 
       {/* Add Bookmark Modal Dialog */}
       {isAddModalOpen && (
@@ -273,7 +300,7 @@ export function SpeedDial({ shieldsStats, onSelectUrl }: SpeedDialProps) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="speed-dial-modal-header">
-              <h2 className="speed-dial-modal-title">Add Streaming Portal</h2>
+              <h2 className="speed-dial-modal-title">Add Bookmark</h2>
               <button
                 type="button"
                 className="shields-close-btn"
@@ -287,7 +314,7 @@ export function SpeedDial({ shieldsStats, onSelectUrl }: SpeedDialProps) {
             <form onSubmit={handleAddBookmark} className="speed-dial-modal-form">
               <div className="speed-dial-form-group">
                 <label htmlFor="portal-title-input" className="speed-dial-form-label">
-                  Portal Title
+                  Name
                 </label>
                 <input
                   id="portal-title-input"
@@ -303,7 +330,7 @@ export function SpeedDial({ shieldsStats, onSelectUrl }: SpeedDialProps) {
 
               <div className="speed-dial-form-group">
                 <label htmlFor="portal-url-input" className="speed-dial-form-label">
-                  Destination URL
+                  Address
                 </label>
                 <input
                   id="portal-url-input"

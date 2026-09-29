@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderToString } from 'react-dom/server'
 import { SpeedDial, SpeedDialTile } from './SpeedDial'
+import { resolveBrowserNavigation } from './url-utils'
 import { DEFAULT_SPEED_DIAL_PRESETS, renderSpeedDialIcon } from './speed-dial-presets'
 
-import type { ShieldsMetrics, SpeedDialItem } from './types'
+import type { SpeedDialItem } from './types'
 import * as soundModule from '@/lib/sound'
 
 vi.mock('@/lib/sound', () => ({
@@ -13,98 +14,51 @@ vi.mock('@/lib/sound', () => ({
 }))
 
 describe('SpeedDial Component', () => {
-  const mockShieldsStats: ShieldsMetrics = {
-    adsBlocked: 340,
-    trackersBlocked: 180,
-    bandwidthSavedBytes: 33554432, // 32.0 MB
-    fingerprintingBlocked: 42,
-    isEnabled: true,
-  }
-
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('renders header badge with Brave Privacy Workspace and authentic lion logo', () => {
+  it('renders the start page header', () => {
     const html = renderToString(
       <SpeedDial
-        shieldsStats={mockShieldsStats}
         onSelectUrl={vi.fn()}
       />
     )
 
-    expect(html).toContain('Brave Privacy Workspace')
-    expect(html).toContain('speed-dial-badge')
-    expect(html).toContain('Decentralized Streaming Gateway')
+    expect(html).toContain('speed-dial-search')
+    expect(html).toContain('Find something to download')
+    expect(html).not.toContain('Brave')
   })
 
-  it('renders all 6 curated streaming presets with appropriate URLs and categories', () => {
-    const html = renderToString(
-      <SpeedDial
-        shieldsStats={mockShieldsStats}
-        onSelectUrl={vi.fn()}
-      />
-    )
-
-    // Verify all 6 preset titles exist
-    expect(html).toContain('Twitch')
+  it('starts empty: no site is added by default', () => {
+    const html = renderToString(<SpeedDial onSelectUrl={vi.fn()} />)
+    expect(html).not.toContain('speed-dial-tile-')
+    expect(html).toContain('Add your first site')
+    // Popular sites are offered as one-click suggestions instead.
+    expect(html).toContain('Quick add')
     expect(html).toContain('YouTube')
-    expect(html).toContain('Kick')
-    expect(html).toContain('Crunchyroll')
-    expect(html).toContain('AnimeFlix')
-    expect(html).toContain('SoundCloud')
-
-    // Verify preset URLs without protocol display
-    expect(html).toContain('twitch.tv')
-    expect(html).toContain('youtube.com')
-    expect(html).toContain('kick.com')
-    expect(html).toContain('crunchyroll.com')
-    expect(html).toContain('animeflix.live')
-    expect(html).toContain('soundcloud.com')
-
-    // Verify categories
-    expect(html).toContain('streaming')
-    expect(html).toContain('anime')
-    expect(html).toContain('music')
   })
 
-  it('renders privacy telemetry ribbon with calculated values', () => {
-    const html = renderToString(
-      <SpeedDial
-        shieldsStats={mockShieldsStats}
-        onSelectUrl={vi.fn()}
-      />
-    )
-
-    // Total blocked: 340 + 180 = 520
-    expect(html).toContain('520')
-    expect(html).toContain('Total Ads &amp; Trackers Blocked')
-
-    // Bandwidth saved: 32.0 MB
-    expect(html).toContain('32.0 MB')
-    expect(html).toContain('Bandwidth Saved')
-
-    // CPU efficiency
-    expect(html).toContain('Hyper-Efficient')
-    expect(html).toContain('CPU Cycles Preserved')
+  it('shows no made-up blocking statistics', () => {
+    const html = renderToString(<SpeedDial onSelectUrl={vi.fn()} />)
+    expect(html).not.toContain('Bandwidth Saved')
+    expect(html).not.toContain('CPU Cycles')
   })
 
   it('renders custom tile add button slot', () => {
     const html = renderToString(
       <SpeedDial
-        shieldsStats={mockShieldsStats}
         onSelectUrl={vi.fn()}
       />
     )
 
-    expect(html).toContain('Add Bookmark')
+    expect(html).toContain('Add your first site')
     expect(html).toContain('speed-dial-add-tile')
   })
 
   it('contains zero emojis in the entire rendered HTML', () => {
     const html = renderToString(
       <SpeedDial
-        shieldsStats={mockShieldsStats}
         onSelectUrl={vi.fn()}
       />
     )
@@ -150,8 +104,9 @@ describe('SpeedDialTile Component', () => {
       onSelect,
     })
 
-    // Simulate clicking the tile button
-    tileElement.props.onClick({} as React.MouseEvent<HTMLButtonElement>)
+    // The wrapper holds the tile button first, then the optional remove button.
+    const tileButton = tileElement.props.children[0]
+    tileButton.props.onClick({} as React.MouseEvent<HTMLButtonElement>)
 
     expect(soundModule.playHapticClick).toHaveBeenCalledTimes(1)
     expect(onSelect).toHaveBeenCalledTimes(1)
@@ -177,8 +132,8 @@ describe('SpeedDialTile Component', () => {
       isCustom: true,
     })
 
-    // Locate remove button from children
-    const removeBtn = tileElement.props.children[2]
+    // The remove button is a sibling of the tile button, never nested inside it
+    const removeBtn = tileElement.props.children[1]
     expect(removeBtn).toBeDefined()
 
     const stopPropagationMock = vi.fn()
@@ -199,22 +154,27 @@ describe('SpeedDial Presets & Icons', () => {
 
     const presetIds = DEFAULT_SPEED_DIAL_PRESETS.map((p) => p.id)
     expect(presetIds).toEqual([
-      'twitch',
       'youtube',
-      'kick',
+      'facebook',
+      'instagram',
       'crunchyroll',
-      'animeflix',
-      'soundcloud',
+      'x',
+      'netflix',
     ])
   })
 
   it('renders distinct vector icons for each preset iconKey', () => {
-    const keys = ['twitch', 'youtube', 'kick', 'crunchyroll', 'animeflix', 'soundcloud', 'custom']
+    const keys = ['twitch', 'youtube', 'kick', 'vimeo', 'dailymotion', 'soundcloud', 'custom']
     for (const key of keys) {
       const icon = renderSpeedDialIcon(key, 24)
       const html = renderToString(icon)
       expect(html).toContain('<svg')
       expect(html).toContain('viewBox="0 0 24 24"')
     }
+  })
+
+  it('turns search words into a web search link', () => {
+    expect(resolveBrowserNavigation('lofi music').url).toBe('https://search.brave.com/search?q=lofi+music')
+    expect(resolveBrowserNavigation('youtube.com').url).toBe('https://youtube.com')
   })
 })
