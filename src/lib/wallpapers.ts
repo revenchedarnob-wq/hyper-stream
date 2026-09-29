@@ -4,6 +4,7 @@ export interface WallpaperOption {
   url: string
   frostedUrl?: string
   theme?: 'light' | 'dark'
+  isCustom?: boolean
 }
 
 export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
@@ -63,11 +64,131 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     frostedUrl: '/wallpapers/bg-unsplash-frosted.webp',
     theme: 'dark',
   },
-  {
-    id: 'coral-dusk',
-    name: 'Coral Dusk',
-    url: '/wallpapers/bg-coral-dusk.jpg',
-    frostedUrl: '/wallpapers/bg-coral-dusk-frosted.webp',
-    theme: 'light',
-  },
 ]
+
+const CUSTOM_WALLPAPERS_KEY = 'hyperstream_custom_wallpapers'
+
+export function getCustomWallpapers(): WallpaperOption[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_WALLPAPERS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return parsed
+    }
+    return []
+  } catch {
+    return []
+  }
+}
+
+export function saveCustomWallpaper(wallpaper: WallpaperOption): void {
+  try {
+    const existing = getCustomWallpapers()
+    const filtered = existing.filter((w) => w.id !== wallpaper.id)
+    localStorage.setItem(CUSTOM_WALLPAPERS_KEY, JSON.stringify([wallpaper, ...filtered]))
+  } catch (err) {
+    console.warn('Failed to save custom wallpaper:', err)
+  }
+}
+
+export function deleteCustomWallpaper(id: string): void {
+  try {
+    const existing = getCustomWallpapers()
+    const filtered = existing.filter((w) => w.id !== id)
+    localStorage.setItem(CUSTOM_WALLPAPERS_KEY, JSON.stringify(filtered))
+  } catch (err) {
+    console.warn('Failed to delete custom wallpaper:', err)
+  }
+}
+
+export function getAllWallpapers(): WallpaperOption[] {
+  const custom = getCustomWallpapers()
+  return [...SIMULATOR_WALLPAPERS, ...custom]
+}
+
+/**
+ * Analyzes an image and automatically calculates its average perceived luminance.
+ * If average luminance > 135 -> 'light' theme
+ * Otherwise -> 'dark' theme
+ */
+export function analyzeImageTheme(dataUrl: string): Promise<'light' | 'dark'> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      return resolve('dark')
+    }
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = 32
+        canvas.height = 32
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return resolve('dark')
+        ctx.drawImage(img, 0, 0, 32, 32)
+        const data = ctx.getImageData(0, 0, 32, 32).data
+        let totalBrightness = 0
+        const sampleCount = 32 * 32
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i]
+          const g = data[i + 1]
+          const b = data[i + 2]
+          // Relative perceptual luminance (Rec. 601 standard)
+          totalBrightness += 0.299 * r + 0.587 * g + 0.114 * b
+        }
+        const avg = totalBrightness / sampleCount
+        resolve(avg > 135 ? 'light' : 'dark')
+      } catch {
+        resolve('dark')
+      }
+    }
+    img.onerror = () => resolve('dark')
+    img.src = dataUrl
+  })
+}
+
+/**
+ * Optimizes an uploaded user image:
+ * Scales down ultra-large images to max 2560px on longest side,
+ * encodes to high-quality JPEG (0.90) to fit cleanly in local storage.
+ */
+export function optimizeUploadedImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.onload = () => {
+      const result = reader.result as string
+      const img = new Image()
+      img.onerror = () => reject(new Error('Failed to load image'))
+      img.onload = () => {
+        try {
+          const maxDim = 2560
+          let width = img.width
+          let height = img.height
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width)
+              width = maxDim
+            } else {
+              width = Math.round((width * maxDim) / height)
+              height = maxDim
+            }
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return resolve(result)
+          ctx.drawImage(img, 0, 0, width, height)
+          const optimized = canvas.toDataURL('image/jpeg', 0.90)
+          resolve(optimized)
+        } catch {
+          resolve(result)
+        }
+      }
+      img.src = result
+    }
+    reader.readAsDataURL(file)
+  })
+}

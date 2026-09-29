@@ -35,7 +35,13 @@ import {
   isAppForeground,
 } from '@/lib/tauri-bridge'
 
-import { SIMULATOR_WALLPAPERS } from '@/lib/wallpapers'
+import {
+  SIMULATOR_WALLPAPERS,
+  getAllWallpapers,
+  saveCustomWallpaper,
+  deleteCustomWallpaper,
+  type WallpaperOption,
+} from '@/lib/wallpapers'
 
 const NAV_ITEMS = [
   { id: 'hub', label: 'Stream Hub', icon: IconSparkles },
@@ -52,10 +58,12 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMaximized, setIsMaximized] = useState(false)
   const [isWindowFocused, setIsWindowFocused] = useState(true)
+  const [wallpapersList, setWallpapersList] = useState<WallpaperOption[]>(() => getAllWallpapers())
   const [browserWallpaper, setBrowserWallpaper] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('hyperstream_browser_wallpaper')
-      if (saved && SIMULATOR_WALLPAPERS.some((w) => w.url === saved)) {
+      const all = getAllWallpapers()
+      if (saved && all.some((w) => w.url === saved)) {
         return saved
       }
       return '/wallpapers/bg-neon-waves.jpg'
@@ -88,6 +96,20 @@ export default function App() {
       setPrevWallpaper(null)
       wallpaperTransitionTimerRef.current = null
     }, 550)
+  }
+
+  const handleAddCustomWallpaper = (newWp: WallpaperOption) => {
+    saveCustomWallpaper(newWp)
+    setWallpapersList(getAllWallpapers())
+  }
+
+  const handleDeleteCustomWallpaper = (id: string) => {
+    deleteCustomWallpaper(id)
+    const updated = getAllWallpapers()
+    setWallpapersList(updated)
+    if (!updated.some((w) => w.url === browserWallpaper)) {
+      handleSelectWallpaper(SIMULATOR_WALLPAPERS[0].url)
+    }
   }
 
   useEffect(() => {
@@ -570,7 +592,7 @@ export default function App() {
 
   const activeIndex = Math.max(0, NAV_ITEMS.findIndex((item) => item.id === activeNav))
 
-  const currentWallpaperObj = SIMULATOR_WALLPAPERS.find((w) => w.url === browserWallpaper)
+  const currentWallpaperObj = wallpapersList.find((w) => w.url === browserWallpaper) || SIMULATOR_WALLPAPERS[0]
 
   return (
     <div className="hyperstream-root-wrapper">
@@ -810,7 +832,9 @@ export default function App() {
                 }}
                 currentWallpaper={browserWallpaper}
                 onSelectWallpaper={handleSelectWallpaper}
-                wallpapers={SIMULATOR_WALLPAPERS}
+                wallpapers={wallpapersList}
+                onAddCustomWallpaper={handleAddCustomWallpaper}
+                onDeleteCustomWallpaper={handleDeleteCustomWallpaper}
               />
             </div>
           )}
@@ -841,7 +865,7 @@ export default function App() {
       {!isNative && (
       <aside className="browser-simulator-dock" aria-label="Wallpaper and Display Controls">
         <span className="sim-tag">Wallpaper:</span>
-        {SIMULATOR_WALLPAPERS.map((wp) => (
+        {wallpapersList.map((wp) => (
           <button
             key={wp.id}
             type="button"
