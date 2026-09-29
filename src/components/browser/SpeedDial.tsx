@@ -1,14 +1,66 @@
 import { useState, useEffect, type CSSProperties, type FormEvent, type MouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { SpeedDialItem } from './types'
 import {
   IconPlus,
   IconX,
+  IconGlobe,
+  IconBookmark,
 } from './Icons'
 import { IconSearch } from '../stream-hub/Icons'
 import { playHapticClick, playHapticGlass, playHapticPop } from '@/lib/sound'
 import { DEFAULT_SPEED_DIAL_PRESETS, renderSpeedDialIcon } from './speed-dial-presets'
 import { resolveBrowserNavigation } from './url-utils'
 import './browser.css'
+
+export function detectPreset(inputUrl: string): { title: string; iconKey: string; accentColor: string; category: SpeedDialItem['category'] } | null {
+  if (!inputUrl) return null
+  let host = ''
+  try {
+    const withProto = /^https?:\/\//i.test(inputUrl) ? inputUrl : `https://${inputUrl}`
+    host = new URL(withProto).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    host = inputUrl.toLowerCase().trim()
+  }
+
+  const match = DEFAULT_SPEED_DIAL_PRESETS.find((p) => {
+    try {
+      const pHost = new URL(p.url).hostname.replace(/^www\./, '')
+      return host === pHost || host.endsWith(`.${pHost}`)
+    } catch {
+      return false
+    }
+  })
+  if (match) {
+    return {
+      title: match.title,
+      iconKey: match.iconKey,
+      accentColor: match.accentColor ?? 'var(--color-brand-primary, #6366f1)',
+      category: match.category,
+    }
+  }
+
+  if (host.includes('twitch')) return { title: 'Twitch', iconKey: 'twitch', accentColor: '#9146FF', category: 'streaming' }
+  if (host.includes('kick')) return { title: 'Kick', iconKey: 'kick', accentColor: '#53FC18', category: 'streaming' }
+  if (host.includes('vimeo')) return { title: 'Vimeo', iconKey: 'vimeo', accentColor: '#1AB7EA', category: 'video' }
+  if (host.includes('soundcloud')) return { title: 'SoundCloud', iconKey: 'soundcloud', accentColor: '#FF5500', category: 'music' }
+  if (host.includes('bilibili')) return { title: 'Bilibili', iconKey: 'custom', accentColor: '#00A1D6', category: 'video' }
+  if (host.includes('reddit')) return { title: 'Reddit', iconKey: 'custom', accentColor: '#FF4500', category: 'social' }
+  if (host.includes('github')) return { title: 'GitHub', iconKey: 'custom', accentColor: '#ffffff', category: 'custom' }
+  if (host.includes('spotify')) return { title: 'Spotify', iconKey: 'custom', accentColor: '#1DB954', category: 'music' }
+  if (host.includes('tiktok')) return { title: 'TikTok', iconKey: 'custom', accentColor: '#00F2FE', category: 'social' }
+
+  if (host && host.includes('.')) {
+    const parts = host.split('.')
+    const domainName = parts[0]
+    if (domainName && domainName.length > 1) {
+      const pretty = domainName.charAt(0).toUpperCase() + domainName.slice(1)
+      return { title: pretty, iconKey: 'custom', accentColor: 'var(--color-brand-primary, #6366f1)', category: 'custom' }
+    }
+  }
+
+  return null
+}
 
 function hostOf(url: string): string {
   try {
@@ -102,6 +154,7 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newUrl, setNewUrl] = useState('')
+  const [userEditedTitle, setUserEditedTitle] = useState(false)
   const [query, setQuery] = useState('')
   const [suggestHidden, setSuggestHidden] = useState(() => {
     try {
@@ -152,6 +205,9 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
 
   const handleOpenAddModal = () => {
     playHapticClick()
+    setNewTitle('')
+    setNewUrl('')
+    setUserEditedTitle(false)
     setIsAddModalOpen(true)
   }
 
@@ -160,6 +216,24 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
     setIsAddModalOpen(false)
     setNewTitle('')
     setNewUrl('')
+    setUserEditedTitle(false)
+  }
+
+  const handleUrlChange = (val: string) => {
+    setNewUrl(val)
+    if (!userEditedTitle) {
+      const detected = detectPreset(val)
+      if (detected?.title) {
+        setNewTitle(detected.title)
+      }
+    }
+  }
+
+  const handleSelectPresetSuggestion = (preset: SpeedDialItem) => {
+    playHapticClick()
+    setNewUrl(preset.url)
+    setNewTitle(preset.title)
+    setUserEditedTitle(true)
   }
 
   const handleAddBookmark = (e: FormEvent) => {
@@ -172,22 +246,21 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
       trimmedUrl = `https://${trimmedUrl}`
     }
 
-    let host = ''
-    try { host = new URL(trimmedUrl).hostname.replace(/^www\./, '') } catch { /* keep empty */ }
-    const known = DEFAULT_SPEED_DIAL_PRESETS.find((p) => host === new URL(p.url).hostname || host.endsWith(`.${new URL(p.url).hostname}`))
+    const detected = detectPreset(trimmedUrl)
     const newBookmark: SpeedDialItem = {
       id: `custom-${Date.now()}`,
       title: trimmedTitle,
       url: trimmedUrl,
-      category: known?.category ?? 'custom',
-      iconKey: known?.iconKey ?? 'custom',
-      accentColor: known?.accentColor ?? 'var(--color-brand-primary)',
+      category: detected?.category ?? 'custom',
+      iconKey: detected?.iconKey ?? 'custom',
+      accentColor: detected?.accentColor ?? 'var(--color-brand-primary, #6366f1)',
     }
 
     playHapticGlass()
     saveCustomTiles([...customTiles, newBookmark])
     setNewTitle('')
     setNewUrl('')
+    setUserEditedTitle(false)
     setIsAddModalOpen(false)
   }
 
@@ -202,6 +275,143 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
   const handleRemoveCustomTile = (id: string) => {
     saveCustomTiles(customTiles.filter((tile) => tile.id !== id))
   }
+
+  const detectedPreview = detectPreset(newUrl)
+  const previewIconKey = detectedPreview?.iconKey ?? 'custom'
+  const previewColor = detectedPreview?.accentColor ?? 'var(--color-brand-primary, #6366f1)'
+  const previewBadgeStyle = {
+    color: previewColor,
+    backgroundColor: `${previewColor}18`,
+    borderColor: `${previewColor}38`,
+  }
+
+  const modalElement = isAddModalOpen ? (
+    <div
+      className="speed-dial-modal-backdrop"
+      onClick={handleCloseAddModal}
+      role="presentation"
+    >
+      <div
+        className="speed-dial-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add Bookmark"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="speed-dial-modal-header">
+          <div className="speed-dial-modal-header-left">
+            <div className="speed-dial-modal-badge" style={previewBadgeStyle}>
+              {renderSpeedDialIcon(previewIconKey, 22)}
+            </div>
+            <div className="speed-dial-modal-titles">
+              <h2 className="speed-dial-modal-title">Add Bookmark</h2>
+              <span className="speed-dial-modal-desc">Save a quick shortcut to your start page</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="speed-dial-modal-close"
+            onClick={handleCloseAddModal}
+            aria-label="Close dialog"
+          >
+            <IconX size={14} />
+          </button>
+        </div>
+
+        <form onSubmit={handleAddBookmark} className="speed-dial-modal-form">
+          <div className="speed-dial-form-group">
+            <label htmlFor="portal-url-input" className="speed-dial-form-label">
+              Web Address
+            </label>
+            <div className="speed-dial-input-box">
+              <span className="speed-dial-input-icon">
+                <IconGlobe size={16} />
+              </span>
+              <input
+                id="portal-url-input"
+                type="text"
+                className="speed-dial-form-input"
+                placeholder="e.g. twitch.tv or https://..."
+                value={newUrl}
+                onChange={(e) => handleUrlChange(e.target.value)}
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="speed-dial-form-group">
+            <div className="speed-dial-form-label-row">
+              <label htmlFor="portal-title-input" className="speed-dial-form-label">
+                Name
+              </label>
+              {!userEditedTitle && newTitle && (
+                <span className="speed-dial-auto-badge">Auto-filled</span>
+              )}
+            </div>
+            <div className="speed-dial-input-box">
+              <span className="speed-dial-input-icon">
+                <IconBookmark size={16} />
+              </span>
+              <input
+                id="portal-title-input"
+                type="text"
+                className="speed-dial-form-input"
+                placeholder="e.g. Twitch"
+                value={newTitle}
+                onChange={(e) => {
+                  setNewTitle(e.target.value)
+                  setUserEditedTitle(true)
+                }}
+                autoComplete="off"
+                spellCheck={false}
+                required
+              />
+            </div>
+          </div>
+
+          {/* Quick presets shortcut bar inside modal */}
+          <div className="speed-dial-modal-presets">
+            <span className="speed-dial-modal-presets-label">Popular shortcuts</span>
+            <div className="speed-dial-modal-chips">
+              {DEFAULT_SPEED_DIAL_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className="speed-dial-modal-chip"
+                  onClick={() => handleSelectPresetSuggestion(preset)}
+                >
+                  <span style={{ color: preset.accentColor, display: 'inline-flex' }}>
+                    {renderSpeedDialIcon(preset.iconKey, 13)}
+                  </span>
+                  <span>{preset.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="speed-dial-modal-actions">
+            <button
+              type="button"
+              className="speed-dial-btn speed-dial-btn-cancel"
+              onClick={handleCloseAddModal}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="speed-dial-btn speed-dial-btn-submit"
+              disabled={!newTitle.trim() || !newUrl.trim()}
+            >
+              Add Bookmark
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  ) : null
 
   return (
     <section className="speed-dial-container" aria-label="Start page">
@@ -285,84 +495,8 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
         </div>
       )}
 
-      {/* Add Bookmark Modal Dialog */}
-      {isAddModalOpen && (
-        <div
-          className="speed-dial-modal-backdrop"
-          onClick={handleCloseAddModal}
-          role="presentation"
-        >
-          <div
-            className="speed-dial-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Add Bookmark"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="speed-dial-modal-header">
-              <h2 className="speed-dial-modal-title">Add Bookmark</h2>
-              <button
-                type="button"
-                className="shields-close-btn"
-                onClick={handleCloseAddModal}
-                aria-label="Close dialog"
-              >
-                <IconX size={14} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddBookmark} className="speed-dial-modal-form">
-              <div className="speed-dial-form-group">
-                <label htmlFor="portal-title-input" className="speed-dial-form-label">
-                  Name
-                </label>
-                <input
-                  id="portal-title-input"
-                  type="text"
-                  className="speed-dial-form-input"
-                  placeholder="e.g. Bilibili"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div className="speed-dial-form-group">
-                <label htmlFor="portal-url-input" className="speed-dial-form-label">
-                  Address
-                </label>
-                <input
-                  id="portal-url-input"
-                  type="text"
-                  className="speed-dial-form-input"
-                  placeholder="https://..."
-                  value={newUrl}
-                  onChange={(e) => setNewUrl(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="speed-dial-form-actions">
-                <button
-                  type="button"
-                  className="speed-dial-btn speed-dial-btn-cancel"
-                  onClick={handleCloseAddModal}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="speed-dial-btn speed-dial-btn-submit"
-                  disabled={!newTitle.trim() || !newUrl.trim()}
-                >
-                  Add Bookmark
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Render modal into document.body to cover the entire window uniformly */}
+      {modalElement && (typeof document !== 'undefined' ? createPortal(modalElement, document.body) : modalElement)}
     </section>
   )
 }
