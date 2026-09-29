@@ -2119,13 +2119,13 @@
 [data-wallpaper-theme="dark"] .pipeline-card,
 [data-wallpaper-theme="dark"] .recent-captures-card,
 [data-wallpaper-theme="dark"] .manifest-dropzone {
-  background: linear-gradient(180deg, rgba(28, 34, 56, 0.65) 0%, rgba(18, 22, 38, 0.76) 100%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.10) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.25) !important;
-  border-left: 1px solid rgba(255, 255, 255, 0.14) !important;
-  backdrop-filter: blur(24px) saturate(140%) brightness(0.96) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(140%) brightness(0.96) !important;
-  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.50), inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.13) 0%, rgba(180, 160, 255, 0.08) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.38) !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.22) !important;
+  backdrop-filter: blur(16px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+  box-shadow: 0 10px 28px -10px rgba(10, 6, 30, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
 }
 
 [data-wallpaper-theme="dark"] .omnibar-card::before,
@@ -2139,16 +2139,16 @@
 [data-wallpaper-theme="dark"] .pipeline-card:hover,
 [data-wallpaper-theme="dark"] .recent-captures-card:hover,
 [data-wallpaper-theme="dark"] .manifest-dropzone:hover {
-  background: linear-gradient(180deg, rgba(38, 46, 75, 0.75) 0%, rgba(24, 30, 52, 0.85) 100%) !important;
-  border-color: rgba(255, 255, 255, 0.20) !important;
-  border-top-color: rgba(255, 255, 255, 0.40) !important;
-  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.60), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.18) 0%, rgba(180, 160, 255, 0.12) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  border-top-color: rgba(255, 255, 255, 0.55) !important;
+  box-shadow: 0 14px 34px -8px rgba(10, 6, 30, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
 }
 
 [data-wallpaper-theme="dark"] .omnibar-card:focus-within {
   border-color: rgba(165, 180, 252, 0.65) !important;
-  border-top-color: rgba(255, 255, 255, 0.50) !important;
-  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(129, 140, 248, 0.45) !important;
+  border-top-color: rgba(255, 255, 255, 0.65) !important;
+  box-shadow: 0 10px 28px -10px rgba(10, 6, 30, 0.35), 0 0 0 1px rgba(129, 140, 248, 0.45) !important;
 }
 
 /* High contrast typography & values on dark backgrounds */
@@ -2275,14 +2275,14 @@
 }
 
 [data-wallpaper-theme="dark"] .pipeline-empty-state {
-  background: linear-gradient(180deg, rgba(28, 34, 56, 0.55) 0%, rgba(18, 22, 38, 0.68) 100%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.10) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.22) !important;
-  border-left: 1px solid rgba(255, 255, 255, 0.14) !important;
-  color: #cbd5e1 !important;
-  backdrop-filter: blur(20px) saturate(130%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(130%) !important;
-  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.09) 0%, rgba(180, 160, 255, 0.05) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.30) !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.18) !important;
+  color: #e2e8f0 !important;
+  backdrop-filter: blur(14px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(120%) !important;
+  box-shadow: 0 8px 24px -10px rgba(10, 6, 30, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.20) !important;
 }
 
 [data-wallpaper-theme="dark"] .stream-hub-badge-select .glass-select-trigger {

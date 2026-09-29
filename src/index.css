@@ -184,14 +184,14 @@
   --env-backdrop-saturate: 114%;
   --env-backdrop-brightness: 99%;
   --env-backdrop-contrast: 103%;
-  --env-tint-shell: rgba(18, 22, 38, 0.55);
-  --env-tint-pane: rgba(16, 20, 36, 0.60);
-  --env-tint-card: rgba(28, 34, 56, 0.65);
-  --env-tint-card-hover: rgba(38, 46, 75, 0.75);
-  --env-specular-top: rgba(255, 255, 255, 0.28);
-  --env-specular-side: rgba(255, 255, 255, 0.10);
-  --env-border-rim: rgba(255, 255, 255, 0.12);
-  --env-shadow-ambient: rgba(5, 3, 15, 0.50);
+  --env-tint-shell: rgba(180, 160, 255, 0.035);
+  --env-tint-pane: rgba(165, 140, 255, 0.06);
+  --env-tint-card: rgba(185, 165, 255, 0.12);
+  --env-tint-card-hover: rgba(205, 190, 255, 0.18);
+  --env-specular-top: rgba(225, 215, 255, 0.45);
+  --env-specular-side: rgba(180, 165, 255, 0.18);
+  --env-border-rim: rgba(200, 185, 255, 0.20);
+  --env-shadow-ambient: rgba(5, 3, 15, 0.25);
 
   --surface-control: rgba(255, 255, 255, 0.10);
   --surface-control-hover: rgba(255, 255, 255, 0.18);
@@ -312,14 +312,14 @@
   --env-backdrop-saturate: 114%;
   --env-backdrop-brightness: 99%;
   --env-backdrop-contrast: 103%;
-  --env-tint-shell: rgba(18, 22, 38, 0.55);
-  --env-tint-pane: rgba(16, 20, 36, 0.60);
-  --env-tint-card: rgba(28, 34, 56, 0.65);
-  --env-tint-card-hover: rgba(38, 46, 75, 0.75);
-  --env-specular-top: rgba(255, 255, 255, 0.28);
-  --env-specular-side: rgba(255, 255, 255, 0.10);
-  --env-border-rim: rgba(255, 255, 255, 0.12);
-  --env-shadow-ambient: rgba(5, 3, 15, 0.50);
+  --env-tint-shell: rgba(255, 255, 255, 0.035);
+  --env-tint-pane: rgba(255, 255, 255, 0.06);
+  --env-tint-card: rgba(255, 255, 255, 0.12);
+  --env-tint-card-hover: rgba(255, 255, 255, 0.18);
+  --env-specular-top: rgba(255, 255, 255, 0.45);
+  --env-specular-side: rgba(255, 255, 255, 0.18);
+  --env-border-rim: rgba(255, 255, 255, 0.20);
+  --env-shadow-ambient: rgba(0, 0, 0, 0.25);
 
   --surface-level-3-active: rgba(255, 255, 255, 0.18);
   --surface-control: rgba(255, 255, 255, 0.10);

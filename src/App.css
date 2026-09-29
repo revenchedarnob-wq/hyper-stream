@@ -277,17 +277,15 @@ body.is-browser-dragging * {
   inset: 0;
   pointer-events: none;
   z-index: 2;
-  background:
-    radial-gradient(ellipse at 50% 30%, rgba(20, 24, 42, 0.40) 0%, rgba(10, 13, 24, 0.68) 100%),
-    linear-gradient(180deg, rgba(12, 16, 28, 0.30) 0%, rgba(8, 10, 18, 0.55) 100%);
-  backdrop-filter: blur(28px) saturate(145%) brightness(0.95);
-  -webkit-backdrop-filter: blur(28px) saturate(145%) brightness(0.95);
+  background: rgba(10, 14, 25, 0.08);
+  backdrop-filter: blur(12px) saturate(115%);
+  -webkit-backdrop-filter: blur(12px) saturate(115%);
 }
 
 .window-container.potato-mode .wallpaper-optical-frost {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: rgba(10, 14, 25, 0.38) !important;
+  background: transparent !important;
 }
 
 /* Subtle Inactive Resting Glass (preserves text contrast, softens specular, pauses telemetry loops) */
@@ -1497,11 +1495,11 @@ body.is-browser-dragging * {
 
 .window-container[data-wallpaper-theme="dark"] .sidebar,
 [data-wallpaper-theme="dark"] .sidebar {
-  background: linear-gradient(180deg, rgba(20, 25, 42, 0.60) 0%, rgba(12, 16, 30, 0.72) 100%) !important;
-  backdrop-filter: blur(var(--env-backdrop-blur, 28px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
-  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 28px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
-  border: 1px solid rgba(255, 255, 255, 0.09) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.22) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(120, 100, 200, 0.08) 100%) !important;
+  backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 130%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 130%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.35) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
@@ -1509,18 +1507,18 @@ body.is-browser-dragging * {
 [data-wallpaper-theme="dark"].potato-mode .sidebar {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: linear-gradient(180deg, rgba(20, 25, 42, 0.65) 0%, rgba(12, 16, 30, 0.75) 100%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  background: linear-gradient(180deg, rgba(20, 25, 42, 0.45) 0%, rgba(12, 16, 30, 0.55) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
 .window-container[data-wallpaper-theme="dark"] .content-pane,
 [data-wallpaper-theme="dark"] .content-pane {
-  background: linear-gradient(180deg, rgba(20, 25, 42, 0.62) 0%, rgba(12, 16, 30, 0.74) 100%) !important;
-  backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 140%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
-  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 140%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
-  border: 1px solid rgba(255, 255, 255, 0.09) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.22) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(120, 100, 200, 0.10) 100%) !important;
+  backdrop-filter: blur(var(--env-backdrop-blur, 28px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 28px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.35) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
@@ -1528,8 +1526,8 @@ body.is-browser-dragging * {
 [data-wallpaper-theme="dark"].potato-mode .content-pane {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: linear-gradient(180deg, rgba(20, 25, 42, 0.65) 0%, rgba(12, 16, 30, 0.75) 100%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  background: linear-gradient(180deg, rgba(20, 25, 42, 0.45) 0%, rgba(12, 16, 30, 0.55) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
