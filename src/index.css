@@ -305,22 +305,42 @@
   --env-shadow-ambient: rgba(30, 15, 45, 0.10);
 }
 
-/* Fallback for generic dark theme */
-.window-container[data-wallpaper-theme="dark"]:not([data-wallpaper-id]),
-[data-theme="dark"] .window-container {
-  --env-backdrop-blur: 20px;
-  --env-backdrop-saturate: 114%;
-  --env-backdrop-brightness: 99%;
-  --env-backdrop-contrast: 103%;
-  --env-tint-shell: rgba(255, 255, 255, 0.035);
-  --env-tint-pane: rgba(255, 255, 255, 0.06);
-  --env-tint-card: rgba(255, 255, 255, 0.12);
-  --env-tint-card-hover: rgba(255, 255, 255, 0.18);
-  --env-specular-top: rgba(255, 255, 255, 0.45);
-  --env-specular-side: rgba(255, 255, 255, 0.18);
+/* 8. Nocturne Horizon (Warm Terracotta / Sunset Atmosphere) */
+.window-container[data-wallpaper-id="unsplash-nocturne"] {
+  --env-backdrop-blur: 24px;
+  --env-backdrop-saturate: 115%;
+  --env-backdrop-brightness: 100%;
+  --env-backdrop-contrast: 102%;
+  --env-tint-shell: rgba(255, 255, 255, 0.04);
+  --env-tint-pane: rgba(255, 255, 255, 0.07);
+  --env-tint-card: rgba(255, 255, 255, 0.10);
+  --env-tint-card-hover: rgba(255, 255, 255, 0.16);
+  --env-specular-top: rgba(255, 255, 255, 0.40);
+  --env-specular-side: rgba(255, 255, 255, 0.16);
   --env-border-rim: rgba(255, 255, 255, 0.20);
-  --env-shadow-ambient: rgba(0, 0, 0, 0.25);
+  --env-shadow-ambient: rgba(12, 8, 10, 0.28);
+  --color-brand-primary: #fb7185;
+}
 
+/* 9. Coral Dusk (Warm Editorial Pastel) */
+.window-container[data-wallpaper-id="coral-dusk"] {
+  --env-backdrop-blur: 24px;
+  --env-backdrop-saturate: 112%;
+  --env-backdrop-brightness: 99%;
+  --env-backdrop-contrast: 102%;
+  --env-tint-shell: rgba(255, 240, 235, 0.05);
+  --env-tint-pane: rgba(255, 235, 230, 0.13);
+  --env-tint-card: rgba(255, 244, 240, 0.32);
+  --env-tint-card-hover: rgba(255, 250, 248, 0.44);
+  --env-specular-top: rgba(255, 255, 255, 0.70);
+  --env-specular-side: rgba(255, 235, 230, 0.28);
+  --env-border-rim: rgba(255, 240, 235, 0.38);
+  --env-shadow-ambient: rgba(35, 18, 22, 0.08);
+}
+
+/* Universal dark environment variables (Neon Waves, Nocturne Horizon, etc.) */
+.window-container[data-wallpaper-theme="dark"],
+[data-wallpaper-theme="dark"] {
   --surface-level-3-active: rgba(255, 255, 255, 0.18);
   --surface-control: rgba(255, 255, 255, 0.10);
   --surface-control-hover: rgba(255, 255, 255, 0.18);
@@ -335,7 +355,6 @@
   --color-text-tertiary: rgba(255, 255, 255, 0.60);
   --color-text-disabled: rgba(255, 255, 255, 0.38);
   --color-text-inverse: #090d16;
-  --color-text-brand: #818cf8;
 }
 
 *, *::before, *::after {

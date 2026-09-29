@@ -34,7 +34,6 @@ import {
   isWindowMaximized,
   isAppForeground,
 } from '@/lib/tauri-bridge'
-import { detectHardwareProfile } from '@/lib/hardware-profiler'
 
 import { SIMULATOR_WALLPAPERS } from '@/lib/wallpapers'
 
@@ -101,16 +100,11 @@ export default function App() {
 
   const [isPotatoMode, setIsPotatoMode] = useState(() => {
     try {
-      const hw = detectHardwareProfile()
-      const stored = localStorage.getItem('hyperstream_potato_mode_v2')
+      const stored = localStorage.getItem('hyperstream_potato_mode_v3')
       if (stored !== null) {
         return stored === 'true'
       }
-      const legacy = localStorage.getItem('hyperstream_potato_mode')
-      if (legacy !== null) {
-        return legacy === 'true'
-      }
-      return hw.recommendedRenderingProfile === 'potato'
+      return false
     } catch {
       return false
     }
@@ -128,6 +122,7 @@ export default function App() {
     setIsPotatoMode((prev) => {
       const next = !prev
       try {
+        localStorage.setItem('hyperstream_potato_mode_v3', String(next))
         localStorage.setItem('hyperstream_potato_mode_v2', String(next))
         localStorage.setItem('hyperstream_potato_mode', String(next))
       } catch {
@@ -624,7 +619,7 @@ export default function App() {
             <div
               className="wallpaper-parallax-bg prev"
               style={{
-                backgroundImage: `url("${isPotatoMode ? (SIMULATOR_WALLPAPERS.find((w) => w.url === prevWallpaper)?.frostedUrl || prevWallpaper) : prevWallpaper}")`,
+                backgroundImage: `url("${prevWallpaper}")`,
               }}
               aria-hidden="true"
             />
@@ -633,11 +628,10 @@ export default function App() {
             key={browserWallpaper}
             className={`wallpaper-parallax-bg ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
             style={{
-              backgroundImage: `url("${isPotatoMode ? (currentWallpaperObj?.frostedUrl || browserWallpaper) : browserWallpaper}")`,
+              backgroundImage: `url("${browserWallpaper}")`,
             }}
             aria-hidden="true"
           />
-          <div className="wallpaper-optical-frost" aria-hidden="true" />
         </div>
       <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''} ${activeNav === 'browser' && !sidebarOpen ? 'browser-fullbleed' : ''}`}>
         {/* Topbar with real-time 120 FPS pointer drag handler and smooth maximize toggle */}

@@ -537,6 +537,13 @@
   transform: scale(0.97);
 }
 
+.action-btn.action-btn-danger,
+.action-btn.action-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
 /* Sound Audition Buttons */
 .haptic-audition-group {
   display: flex;
@@ -710,4 +717,59 @@
   color: #34d399 !important;
   background: rgba(16, 185, 129, 0.16) !important;
   border-color: rgba(16, 185, 129, 0.32) !important;
+}
+
+[data-wallpaper-theme="dark"] .profile-card,
+[data-wallpaper-theme="dark"] .settings-card-group,
+[data-wallpaper-theme="dark"] .wallpaper-card {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  border-top-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+[data-wallpaper-theme="dark"] .profile-card:hover,
+[data-wallpaper-theme="dark"] .wallpaper-card:hover {
+  background: rgba(255, 255, 255, 0.10) !important;
+  border-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+[data-wallpaper-theme="dark"] .settings-header {
+  border-bottom-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+[data-wallpaper-theme="dark"] .settings-nav-bar {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+[data-wallpaper-theme="dark"] .profile-hardware-chip {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+.settings-row-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.settings-badge.engine-badge-missing {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.settings-engine-source {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+}
+
+.settings-desc-error {
+  color: #dc2626;
 }
