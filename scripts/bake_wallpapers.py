@@ -65,6 +65,13 @@ items = [
         "type": "dark_landscape",
         "target_size": (2560, 1440),
     },
+    {
+        "src": "let.jpg_2K_20260925233721.jpg",
+        "sharp": "bg-coral-dusk.jpg",
+        "frosted": "bg-coral-dusk-frosted.webp",
+        "type": "pastel",
+        "target_size": (2560, 1440),
+    },
 ]
 
 for item in items:

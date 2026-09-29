@@ -1,970 +1,348 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './stream-hub.css'
-import {
-  IconSearch,
-  IconSparkles,
-  IconX,
-  IconClipboard,
-  IconCheck,
-  IconAlertCircle,
-  IconLoader,
-} from './Icons'
-import { playHapticClick, playHapticPop } from '@/lib/sound'
-import { GlassSelect } from '../common/GlassSelect'
+import { listen } from '@tauri-apps/api/event'
+import { playHapticGlass } from '@/lib/sound'
 import { TelemetryVitals } from './TelemetryVitals'
 import { ActivePipeline } from './ActivePipeline'
-import type { DownloadItem, TransferStatus } from './ActivePipeline'
 import { RecentCaptures } from './RecentCaptures'
-import type { RecentItem } from './RecentCaptures'
 import { ManifestDropzone } from './ManifestDropzone'
+import { Omnibar } from './Omnibar'
+import { IconAlertCircle, IconLoader } from './Icons'
 import {
-  revealInExplorer,
-  queryMediaInfo,
-  startUniversalDownload,
-  cancelDownload,
+  clearFinished,
+  errorMessage,
   getActiveDownloads,
+  getQueueConfig,
   getSystemVitals,
   isTauri,
-  pauseDownload,
-  resumeDownload,
-  reorderDownload,
-  getQueueConfig,
-  setQueueConfig,
+  openMediaFile,
   pauseAll,
+  pauseDownload,
+  removeDownload,
+  moveDownload,
   resumeAll,
-  clearFinished,
+  resumeDownload,
+  retryDownload,
+  revealInExplorer,
+  setMaxConcurrent,
+  startDownload,
+  type LibraryItem,
+  type NativeDownloadOptions,
   type NativeDownloadProgress,
   type NativeQueueChangedPayload,
   type SystemVitalsData,
 } from '@/lib/tauri-bridge'
-import { listen } from '@tauri-apps/api/event'
-import { invoke } from '@tauri-apps/api/core'
-import { FormatPickerModal } from './FormatPickerModal'
-
-export type QualityTier = 'Best' | '1080p' | '720p' | '480p' | 'Audio'
-
-const QUALITY_OPTIONS = [
-  { value: 'Best', label: 'Best' },
-  { value: '1080p', label: '1080p' },
-  { value: '720p', label: '720p' },
-  { value: '480p', label: '480p' },
-  { value: 'Audio', label: 'Audio' },
-]
-
-const AUDIO_TRACK_OPTIONS = [
-  { value: 'JPN 5.1', label: 'Audio: JPN 5.1' },
-  { value: 'ENG 2.0', label: 'Audio: ENG 2.0' },
-  { value: 'Commentary', label: 'Audio: Commentary' },
-  { value: 'All Tracks', label: 'Audio: All Tracks' },
-]
-
-const SUBTITLE_TRACK_OPTIONS = [
-  { value: 'ENG', label: 'Subs: ENG' },
-  { value: 'ENG Signs', label: 'Subs: ENG Signs' },
-  { value: 'SPA', label: 'Subs: SPA' },
-  { value: 'Off', label: 'Subs: Off' },
-]
-
-import { isValidStreamUrl } from './validation'
-
-export interface OmnibarProps {
-  onAnalyze: (url: string, preset: QualityTier, audioTrack?: string, subtitleTrack?: string) => void
-  isAnalyzing: boolean
-}
-
-export const Omnibar: React.FC<OmnibarProps> = ({ onAnalyze, isAnalyzing }) => {
-  const [url, setUrl] = useState('')
-  const [quality, setQuality] = useState<QualityTier>('Best')
-  const [audioTrack, setAudioTrack] = useState('JPN 5.1')
-  const [subtitleTrack, setSubtitleTrack] = useState('ENG')
-  const [clipboardPrompt, setClipboardPrompt] = useState<string | null>(null)
-  const [validationError, setValidationError] = useState<string | null>(null)
-  const [isShaking, setIsShaking] = useState(false)
-  const [captureStatus, setCaptureStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
-  const inputRef = useRef<HTMLInputElement>(null)
-  const prevAnalyzingRef = useRef(isAnalyzing)
-
-  useEffect(() => {
-    if (prevAnalyzingRef.current && !isAnalyzing) {
-      setCaptureStatus('success')
-      const timer = setTimeout(() => {
-        setCaptureStatus('idle')
-      }, 1400)
-      return () => clearTimeout(timer)
-    }
-    prevAnalyzingRef.current = isAnalyzing
-  }, [isAnalyzing])
-
-  useEffect(() => {
-    const checkClipboard = async () => {
-      try {
-        if (navigator.clipboard && navigator.clipboard.readText) {
-          const text = (await navigator.clipboard.readText()).trim()
-          if (isValidStreamUrl(text)) {
-            setClipboardPrompt(text)
-          }
-        }
-      } catch {
-        // Clipboard read permission might be denied
-      }
-    }
-
-    checkClipboard()
-    window.addEventListener('focus', checkClipboard)
-    return () => window.removeEventListener('focus', checkClipboard)
-  }, [])
-
-  const getClipboardLabel = (clipUrl: string) => {
-    if (clipUrl.includes('frieren')) return 'Frieren Ep 29'
-    if (clipUrl.includes('youtube') || clipUrl.includes('youtu.be')) return 'YouTube Stream'
-    if (clipUrl.includes('twitch')) return 'Twitch Live'
-    if (clipUrl.includes('.m3u8')) return 'HLS Master'
-    if (clipUrl.includes('.mpd')) return 'DASH Stream'
-    return 'Detected Stream'
-  }
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setUrl(e.target.value)
-    if (validationError) {
-      setValidationError(null)
-    }
-    if (captureStatus === 'error') {
-      setCaptureStatus('idle')
-    }
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const trimmed = url.trim()
-    if (!trimmed || isAnalyzing) return
-
-    if (!isValidStreamUrl(trimmed)) {
-      playHapticPop()
-      setIsShaking(true)
-      setValidationError('Please enter a valid stream URL (e.g. .m3u8, .mpd, or video link)')
-      setCaptureStatus('error')
-      setTimeout(() => setIsShaking(false), 500)
-      setTimeout(() => {
-        setCaptureStatus('idle')
-      }, 2000)
-      return
-    }
-
-    setValidationError(null)
-    playHapticClick()
-    onAnalyze(trimmed, quality, audioTrack, subtitleTrack)
-  }
-
-  const handlePasteClipboard = () => {
-    if (clipboardPrompt) {
-      playHapticPop()
-      setUrl(clipboardPrompt)
-      setValidationError(null)
-      onAnalyze(clipboardPrompt, quality, audioTrack, subtitleTrack)
-      setClipboardPrompt(null)
-    }
-  }
-
-
-  const isUrlValid = url.trim().length > 0 && isValidStreamUrl(url.trim())
-  const hasUrlContent = url.trim().length > 0
-  const effectiveStatus = isAnalyzing ? 'loading' : captureStatus
-
-  return (
-    <div className="omnibar-wrapper">
-      <form
-        onSubmit={handleSubmit}
-        className={`omnibar-card ${isShaking ? 'omnibar-shake' : ''} ${validationError ? 'omnibar-invalid' : ''} ${isUrlValid ? 'omnibar-valid' : ''}`}
-      >
-        <div className={`omnibar-icon-prefix ${isUrlValid ? 'is-valid' : ''}`}>
-          {effectiveStatus === 'loading' ? (
-            <IconLoader size={17} className="omnibar-spin-icon" />
-          ) : isUrlValid ? (
-            <IconSearch size={17} className="omnibar-search-valid" />
-          ) : (
-            <IconSearch size={17} />
-          )}
-        </div>
-
-        <input
-          ref={inputRef}
-          id="stream-url-input"
-          name="streamUrl"
-          type="text"
-          className="omnibar-input"
-          placeholder="Paste stream or video link..."
-          value={url}
-          onChange={handleInputChange}
-          autoFocus
-          spellCheck={false}
-          autoComplete="off"
-        />
-
-        <div className="omnibar-actions">
-          {!hasUrlContent && clipboardPrompt && (
-            <div className="omnibar-clipboard-chip" role="status" aria-label="Detected clipboard link">
-              <button
-                type="button"
-                className="clipboard-chip-button"
-                onClick={handlePasteClipboard}
-                title={`Paste and ingest: ${clipboardPrompt}`}
-              >
-                <IconClipboard size={12} className="clipboard-chip-icon" />
-                <span className="clipboard-chip-text">{getClipboardLabel(clipboardPrompt)}</span>
-                <span className="clipboard-chip-badge">Paste</span>
-              </button>
-              <button
-                type="button"
-                className="clipboard-chip-close"
-                onClick={() => setClipboardPrompt(null)}
-                title="Dismiss clipboard suggestion"
-                aria-label="Dismiss"
-              >
-                <IconX size={11} />
-              </button>
-            </div>
-          )}
-
-          {hasUrlContent && (
-            <button
-              type="button"
-              className="omnibar-clear-btn"
-              onClick={() => {
-                playHapticClick()
-                setUrl('')
-                setValidationError(null)
-                setCaptureStatus('idle')
-                inputRef.current?.focus()
-              }}
-              title="Clear input"
-              aria-label="Clear input"
-            >
-              <IconX size={13} />
-            </button>
-          )}
-
-          {/* Quick Manifest Track Badges (Audio & Subtitles) */}
-          {hasUrlContent && (
-            <div className="stream-hub-quick-badges" role="group" aria-label="Stream manifest tracks">
-              <GlassSelect
-                id="stream-audio-track-select"
-                value={audioTrack}
-                options={AUDIO_TRACK_OPTIONS}
-                onChange={setAudioTrack}
-                className="stream-hub-badge-select"
-                ariaLabel="Select audio stream track"
-              />
-              <GlassSelect
-                id="stream-subs-track-select"
-                value={subtitleTrack}
-                options={SUBTITLE_TRACK_OPTIONS}
-                onChange={setSubtitleTrack}
-                className="stream-hub-badge-select"
-                ariaLabel="Select subtitle track"
-              />
-            </div>
-          )}
-
-          {/* 5-Tier Quality Selector */}
-          <div className="omnibar-preset-wrapper">
-            <GlassSelect
-              id="stream-preset-select"
-              value={quality}
-              options={QUALITY_OPTIONS}
-              onChange={(val) => setQuality(val as QualityTier)}
-              ariaLabel="Select stream quality tier"
-            />
-          </div>
-
-
-          {/* Primary Ingestion Trigger */}
-          <button
-            type="submit"
-            className={`omnibar-submit-btn state-${effectiveStatus} ${!hasUrlContent ? 'is-empty' : ''}`}
-            disabled={!hasUrlContent || isAnalyzing}
-            title={!hasUrlContent ? 'Enter stream URL to capture' : 'Capture and ingest stream'}
-            aria-label={isAnalyzing ? 'Ingesting stream' : 'Capture stream'}
-          >
-            {effectiveStatus === 'loading' ? (
-              <>
-                <IconLoader size={14} className="omnibar-spin-icon" />
-                <span>Ingesting...</span>
-              </>
-            ) : effectiveStatus === 'success' ? (
-              <>
-                <IconCheck size={14} className="omnibar-success-icon" />
-                <span>Captured</span>
-              </>
-            ) : effectiveStatus === 'error' ? (
-              <>
-                <IconAlertCircle size={14} />
-                <span>Invalid URL</span>
-              </>
-            ) : (
-              <>
-                <IconSparkles size={14} />
-                <span>Capture</span>
-              </>
-            )}
-          </button>
-        </div>
-      </form>
-
-      {validationError && (
-        <div className="omnibar-error-hint" role="alert">
-          <IconAlertCircle size={12} />
-          <span>{validationError}</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-
-function loadPersistedRecents(): RecentItem[] {
-  try {
-    const raw = localStorage.getItem('hyperstream_media_items')
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.slice(0, 10).map((m: any) => ({
-          id: m.id || `rec-${Math.random().toString(36).slice(2, 7)}`,
-          title: m.title || 'Untitled Stream',
-          quality: m.quality || 'Master',
-          size: m.size || 'Unknown',
-          duration: m.duration || 'Completed',
-          timestamp: m.timestamp || 'Recent',
-        }))
-      }
-    }
-  } catch {
-    // Ignore storage read error
-  }
-  return []
-}
-
-function mapNativeProgressToDownloadItem(p: NativeDownloadProgress): DownloadItem {
-  const speedFormatted = `${(p.speed_bytes_per_sec / (1024 * 1024)).toFixed(1)} MB/s`
-  const downloadedMb = `${(p.downloaded_bytes / (1024 * 1024)).toFixed(1)} MB`
-  const totalMb = p.total_bytes ? `${(p.total_bytes / (1024 * 1024)).toFixed(1)} MB` : undefined
-
-  return {
-    id: p.task_id,
-    title: p.title,
-    sourceType: 'stream',
-    quality: 'Master',
-    codec: 'Lossless MKV',
-    audioLang: 'Multi-Track',
-    progress: Math.round(p.progress_percent),
-    downloadedSize: downloadedMb,
-    totalSize: totalMb || 'Dynamic Stream',
-    speed: speedFormatted,
-    eta: p.eta_seconds ? `${p.eta_seconds}s` : 'Calculating...',
-    status: p.state === 'remuxing' ? 'processing' : p.state === 'completed' ? 'completed' : p.state === 'failed' ? 'failed' : p.state === 'paused' ? 'paused' : 'downloading',
-  }
-}
+import { saveSettings } from '@/lib/settings'
+import { formatBytes } from '@/lib/format'
+import { useEngine, useLibrary, useSettings } from '@/lib/hooks'
 
 export interface StreamHubProps {
   initialUrl?: string
   onUrlConsumed?: () => void
+  onOpenInBrowser?: (url: string) => void
+  onOpenLibrary?: () => void
 }
 
-export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed }) => {
-  const [downloads, setDownloads] = useState<DownloadItem[]>([])
-  const [recents, setRecents] = useState<RecentItem[]>(() => loadPersistedRecents())
-  const [vitals, setVitals] = useState<SystemVitalsData | null>(null)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [notification, setNotification] = useState<string | null>(null)
+const FINISHED = new Set(['completed', 'failed', 'cancelled'])
 
-  const showNotification = (msg: string) => {
-    setNotification(msg)
-    setTimeout(() => {
-      setNotification((current) => (current === msg ? null : current))
-    }, 3200)
-  }
-
-  const [formatModalData, setFormatModalData] = useState<{
-    isOpen: boolean
-    url: string
-    title: string
-    thumbnail?: string
-    duration?: number
-    formats: any[]
-    subtitles: any[]
-    crunchyrollVersions?: any[]
-  }>({
-    isOpen: false,
-    url: '',
-    title: '',
-    formats: [],
-    subtitles: [],
-  })
-
-  const [queueOrder, setQueueOrder] = useState<string[]>([])
-  const [maxConcurrent, setMaxConcurrent] = useState<number>(3)
-
-  // Listen to live native download telemetry and poll vitals
-  useEffect(() => {
-    let unlistenProgress: (() => void) | undefined
-    let unlistenComplete: (() => void) | undefined
-    let unlistenError: (() => void) | undefined
-    let unlistenQueue: (() => void) | undefined
-    let pollTimer: ReturnType<typeof setInterval> | undefined
-
-    const setupListeners = async () => {
-      // 1. Initial hydration from native backend
-      if (isTauri()) {
-        try {
-          const initialTasks = await getActiveDownloads()
-          if (Array.isArray(initialTasks) && initialTasks.length > 0) {
-            setDownloads(initialTasks.map(mapNativeProgressToDownloadItem))
-          }
-        } catch (err) {
-          console.warn('Failed to load initial active downloads:', err)
-        }
-
-        try {
-          const cfg = await getQueueConfig()
-          if (cfg && typeof cfg.max_concurrent === 'number') {
-            setMaxConcurrent(cfg.max_concurrent)
-          }
-        } catch (err) {
-          console.warn('Failed to load queue config:', err)
-        }
-
-        try {
-          const initialVitals = await getSystemVitals()
-          if (initialVitals) {
-            setVitals(initialVitals)
-          }
-        } catch (err) {
-          console.warn('Failed to load initial vitals:', err)
-        }
-
-        // Periodic vitals sync (every 3 seconds)
-        pollTimer = setInterval(async () => {
-          try {
-            const v = await getSystemVitals()
-            if (v) setVitals(v)
-          } catch {
-            // Ignore background poll errors
-          }
-        }, 3000)
-      }
-
-      if (!isTauri()) return
-
-      unlistenQueue = await listen<NativeQueueChangedPayload>('download-queue-changed', (event) => {
-        const p = event.payload
-        if (Array.isArray(p.order)) {
-          setQueueOrder(p.order)
-        }
-        if (typeof p.max_concurrent === 'number') {
-          setMaxConcurrent(p.max_concurrent)
-        }
-      })
-
-      unlistenProgress = await listen<NativeDownloadProgress>('download-progress', (event) => {
-        const p = event.payload
-        const mappedStatus: TransferStatus =
-          p.state === 'paused' ? 'paused' :
-          p.state === 'queued' ? 'queued' :
-          p.state === 'remuxing' ? 'processing' :
-          p.state === 'completed' ? 'completed' :
-          p.state === 'failed' ? 'failed' :
-          p.state === 'cancelled' ? 'cancelled' :
-          'downloading'
-
-        setDownloads((prev) => {
-          const idx = prev.findIndex((item) => item.id === p.task_id)
-          const speedFormatted = p.state === 'paused' ? 'Paused' : `${(p.speed_bytes_per_sec / (1024 * 1024)).toFixed(1)} MB/s`
-          const downloadedMb = `${(p.downloaded_bytes / (1024 * 1024)).toFixed(1)} MB`
-          const totalMb = p.total_bytes ? `${(p.total_bytes / (1024 * 1024)).toFixed(1)} MB` : undefined
-
-          if (idx >= 0) {
-            const next = [...prev]
-            next[idx] = {
-              ...next[idx],
-              progress: Math.round(p.progress_percent),
-              speed: speedFormatted,
-              downloadedSize: downloadedMb,
-              totalSize: totalMb || next[idx].totalSize,
-              status: mappedStatus,
-              errorReason: p.error_message || next[idx].errorReason,
-            }
-            return next
-          }
-
-          // If new download
-          const newItem: DownloadItem = {
-            id: p.task_id,
-            title: p.title,
-            sourceType: 'stream',
-            quality: 'Master',
-            codec: 'Lossless MKV',
-            audioLang: 'Multi-Track',
-            progress: Math.round(p.progress_percent),
-            downloadedSize: downloadedMb,
-            totalSize: totalMb || 'Dynamic Stream',
-            speed: speedFormatted,
-            eta: p.eta_seconds ? `${p.eta_seconds}s` : 'Calculating...',
-            status: mappedStatus,
-            errorReason: p.error_message,
-          }
-          return [newItem, ...prev]
-        })
-      })
-
-      unlistenComplete = await listen<NativeDownloadProgress>('download-complete', (event) => {
-        const p = event.payload
-        showNotification(`Download completed: ${p.title}`)
-        setDownloads((prev) =>
-          prev.map((item) =>
-            item.id === p.task_id ? { ...item, progress: 100, status: 'completed' } : item
-          )
-        )
-
-        try {
-          const totalMb = p.total_bytes ? `${(p.total_bytes / (1024 * 1024)).toFixed(1)} MB` : '1.2 GB'
-          const newMedia = {
-            id: `media-${p.task_id || Date.now()}`,
-            title: p.title || 'Downloaded Media Asset',
-            category: 'stream',
-            source: 'Universal Ingestion',
-            quality: '1080p Master',
-            codec: 'HEVC / MKV',
-            duration: 'Completed',
-            size: totalMb,
-            timestamp: 'Just now',
-            audioTracks: ['Multi-Track Audio'],
-            gradient: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
-            bitrate: 'Master Direct',
-          }
-
-          const currentRaw = localStorage.getItem('hyperstream_media_items')
-          const currentList = currentRaw ? JSON.parse(currentRaw) : []
-          const updated = [newMedia, ...currentList.filter((m: any) => m.id !== newMedia.id)]
-          localStorage.setItem('hyperstream_media_items', JSON.stringify(updated))
-          setRecents(loadPersistedRecents())
-          window.dispatchEvent(new CustomEvent('hyperstream:media-added', { detail: newMedia }))
-        } catch {
-          // Ignore local storage write error
-        }
-
-        // Refresh vitals immediately upon completion
-        if (isTauri()) {
-          getSystemVitals().then((v) => {
-            if (v) setVitals(v)
-          })
-        }
-      })
-
-      unlistenError = await listen<NativeDownloadProgress>('download-error', (event) => {
-        const p = event.payload
-        showNotification(`Download failed: ${p.error_message || p.title}`)
-        setDownloads((prev) =>
-          prev.map((item) =>
-            item.id === p.task_id ? { ...item, status: 'failed' } : item
-          )
-        )
-      })
-    }
-
-    const handleMediaAdded = () => {
-      setRecents(loadPersistedRecents())
-    }
-    window.addEventListener('hyperstream:media-added', handleMediaAdded)
-
-    setupListeners()
-
-    return () => {
-      unlistenProgress?.()
-      unlistenComplete?.()
-      unlistenError?.()
-      unlistenQueue?.()
-      if (pollTimer) clearInterval(pollTimer)
-      window.removeEventListener('hyperstream:media-added', handleMediaAdded)
-    }
+function useToast() {
+  const [toast, setToast] = useState<{ text: string; tone: 'info' | 'error' } | null>(null)
+  const timer = useRef<number | undefined>(undefined)
+  const show = useCallback((text: string, tone: 'info' | 'error' = 'info') => {
+    setToast({ text, tone })
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setToast(null), tone === 'error' ? 5000 : 3000)
   }, [])
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  return { toast, show }
+}
 
-  const handleAnalyze = async (
-    url: string,
-    _preset: QualityTier,
-    _audioTrack = 'JPN 5.1',
-    _subtitleTrack = 'ENG'
-  ) => {
-    setIsAnalyzing(true)
+export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed, onOpenInBrowser, onOpenLibrary }) => {
+  const settings = useSettings()
+  const engine = useEngine({ autoInstall: true })
+  const library = useLibrary()
+  const { toast, show } = useToast()
 
-    try {
-      if (isTauri()) {
-        const meta = await queryMediaInfo(url)
-        let crVersions: any[] = []
+  const [tasks, setTasks] = useState<NativeDownloadProgress[]>([])
+  const [queueOrder, setQueueOrder] = useState<string[]>([])
+  const [maxConcurrent, setMaxConcurrentState] = useState(settings.maxConcurrent)
+  const [vitals, setVitals] = useState<SystemVitalsData | null>(null)
 
-        if (url.includes('crunchyroll.com')) {
-          try {
-            const session = await invoke<any>('query_crunchyroll_stream', { url, accessToken: '' })
-            if (session?.versions) {
-              crVersions = session.versions
-            }
-          } catch {
-            // Optional preview probing
-          }
-        }
+  const completionSoundRef = useRef(settings.completionSound)
+  completionSoundRef.current = settings.completionSound
 
-        if (meta) {
-          setIsAnalyzing(false)
-          setFormatModalData({
-            isOpen: true,
-            url,
-            title: meta.title,
-            thumbnail: meta.thumbnail,
-            duration: meta.duration,
-            formats: meta.formats,
-            subtitles: meta.subtitles,
-            crunchyrollVersions: crVersions,
-          })
-          return
-        }
-      }
-    } catch (err: any) {
-      console.warn('Analysis error:', err)
-      if (isTauri()) {
-        setIsAnalyzing(false)
-        const errMsg = typeof err === 'string' ? err : err?.message || 'Unable to resolve media metadata'
-        showNotification(`Stream analysis failed: ${errMsg}`)
-        return
-      }
-    }
+  // Removed tasks can still emit one last "cancelled" event; never let it re-add the card.
+  const removedRef = useRef(new Set<string>())
 
-    setIsAnalyzing(false)
-    setFormatModalData({
-      isOpen: true,
-      url,
-      title: 'Stream Ingestion Asset',
-      formats: [],
-      subtitles: [],
-    })
-  }
-
-  useEffect(() => {
-    if (initialUrl && initialUrl.trim()) {
-      handleAnalyze(initialUrl.trim(), 'Best')
-      onUrlConsumed?.()
-    }
-  }, [initialUrl])
-
-  const handleConfirmDownload = async (opts: {
-    formatId?: string
-    title: string
-    audioFormats: string[]
-    subtitles: string[]
-    outputDir?: string
-  }) => {
-    if (isTauri()) {
-      const taskId = await startUniversalDownload({
-        url: formatModalData.url,
-        title: opts.title,
-        format_id: opts.formatId,
-        output_dir: opts.outputDir,
-        audio_formats: opts.audioFormats,
-        subtitles: opts.subtitles,
-      })
-
-      if (taskId) {
-        showNotification(`Ingestion started: ${opts.title}`)
-      }
-    } else {
-      const newItem: DownloadItem = {
-        id: `dl-${Date.now()}`,
-        title: opts.title,
-        sourceType: 'stream',
-        quality: '1080p Master',
-        codec: 'HEVC / AAC',
-        audioLang: opts.audioFormats.join(', ') || 'Original',
-        progress: 10,
-        downloadedSize: '120 MB',
-        totalSize: '1.80 GB',
-        speed: '42.5 MB/s',
-        eta: '45s',
-        status: 'downloading',
-      }
-      setDownloads((prev) => [newItem, ...prev])
-      showNotification(`Ingestion started: ${opts.title}`)
-    }
-  }
-
-  const handleTogglePause = async (id: string) => {
-    const item = downloads.find((d) => d.id === id)
-    if (!item) return
-
-    if (item.status === 'paused') {
-      if (isTauri()) {
-        await resumeDownload(id)
-      }
-      setDownloads((prev) =>
-        prev.map((d) => (d.id === id ? { ...d, status: 'queued', speed: 'Resuming' } : d))
-      )
-      showNotification(`Resumed: ${item.title}`)
-    } else {
-      if (isTauri()) {
-        await pauseDownload(id)
-      }
-      setDownloads((prev) =>
-        prev.map((d) => (d.id === id ? { ...d, status: 'paused', speed: 'Paused' } : d))
-      )
-      showNotification(`Paused: ${item.title}`)
-    }
-  }
-
-  const handleReorder = async (id: string, direction: 'up' | 'down') => {
-    const idx = queueOrder.indexOf(id)
-    if (idx < 0) return
-
-    const newPriority = direction === 'up' ? 10 + (queueOrder.length - idx) : -10
-    if (isTauri()) {
-      await reorderDownload(id, newPriority)
-    }
-
-    setQueueOrder((prev) => {
-      const next = [...prev]
-      const targetIdx = direction === 'up' ? idx - 1 : idx + 1
-      if (targetIdx >= 0 && targetIdx < next.length) {
-        const temp = next[idx]
-        next[idx] = next[targetIdx]
-        next[targetIdx] = temp
-      }
+  const upsert = useCallback((p: NativeDownloadProgress) => {
+    if (removedRef.current.has(p.task_id)) return
+    setTasks((prev) => {
+      const idx = prev.findIndex((t) => t.task_id === p.task_id)
+      if (idx === -1) return [...prev, p]
+      const next = prev.slice()
+      next[idx] = p
       return next
     })
-  }
+  }, [])
 
-  const handleMaxConcurrentChange = async (limit: number) => {
-    setMaxConcurrent(limit)
-    if (isTauri()) {
-      await setQueueConfig({
-        max_concurrent: limit,
-        max_retries: 2,
-        retry_backoff_ms: 5000,
+  // Hydrate from the backend and subscribe to live updates.
+  useEffect(() => {
+    if (!isTauri()) return
+    let disposed = false
+    const unlisteners: Array<() => void> = []
+    const track = (p: Promise<() => void>) =>
+      p.then((fn) => {
+        if (disposed) fn()
+        else unlisteners.push(fn)
       })
-    }
-    showNotification(`Active concurrency limit set to ${limit}`)
-  }
 
-  const handlePauseAll = async () => {
-    if (isTauri()) {
-      await pauseAll()
-    }
-    setDownloads((prev) =>
-      prev.map((d) =>
-        d.status === 'downloading' || d.status === 'queued' || d.status === 'ingesting'
-          ? { ...d, status: 'paused', speed: 'Paused' }
-          : d
-      )
-    )
-    showNotification('All active transfers paused')
-  }
-
-  const handleResumeAll = async () => {
-    if (isTauri()) {
-      await resumeAll()
-    }
-    setDownloads((prev) =>
-      prev.map((d) => (d.status === 'paused' ? { ...d, status: 'queued', speed: 'Resuming' } : d))
-    )
-    showNotification('All paused transfers resumed')
-  }
-
-  const handleClearFinished = async () => {
-    if (isTauri()) {
-      await clearFinished()
-    }
-    setDownloads((prev) =>
-      prev.filter(
-        (d) => d.status !== 'completed' && d.status !== 'failed' && d.status !== 'cancelled'
-      )
-    )
-    showNotification('Cleared finished and cancelled transfers')
-  }
-
-  const handleCancel = (id: string) => {
-    if (isTauri()) {
-      cancelDownload(id)
-    }
-    setDownloads((prev) => prev.filter((item) => item.id !== id))
-    showNotification('Download cancelled and staging cache cleared')
-  }
-
-  const handlePlay = (item: RecentItem) => {
-    showNotification(`Launching playback for: ${item.title}`)
-  }
-
-  const handleOpenFolder = (item: RecentItem) => {
-    try {
-      const raw = localStorage.getItem('hyperstream_media_items')
-      if (raw) {
-        const items = JSON.parse(raw)
-        const found = items.find((m: any) => m.id === item.id || m.title === item.title)
-        if (found?.filePath) {
-          revealInExplorer(found.filePath)
-          showNotification(`Revealed in Explorer: ${item.title}`)
-          return
-        }
+    getActiveDownloads().then((list) => !disposed && setTasks(list))
+    getQueueConfig().then((cfg) => {
+      // Settings are the source of truth; the backend starts with its default after a restart.
+      if (cfg && cfg.max_concurrent !== settings.maxConcurrent) {
+        void setMaxConcurrent(settings.maxConcurrent)
       }
-    } catch {
-      // Ignore local storage read errors
-    }
-    const downloadDir = localStorage.getItem('hyperstream_download_dir') || ''
-    if (downloadDir) {
-      revealInExplorer(`${downloadDir}\\${item.title}`)
-    } else {
-      revealInExplorer(item.title)
-    }
-    showNotification(`Revealed in Explorer: ${item.title}`)
-  }
-
-  const handleRetry = (id: string) => {
-    setDownloads((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          return {
-            ...item,
-            status: 'downloading',
-            progress: 8,
-            speed: '31.5 MB/s',
-            eta: '48s',
-            errorReason: undefined,
-          }
-        }
-        return item
-      })
-    )
-    showNotification('Transfer restarted from staging checkpoint')
-  }
-
-  const handleFilesDropped = (files: FileList) => {
-    const fileNames = Array.from(files).map((f) => f.name).join(', ')
-    Array.from(files).forEach((file) => {
-      const isM3u8 = file.name.toLowerCase().endsWith('.m3u8')
-      const newItem: DownloadItem = {
-        id: `dl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title: file.name.replace(/\.(m3u8|mpd|txt|json)$/i, ''),
-        sourceType: isM3u8 ? 'anime' : 'stream',
-        quality: isM3u8 ? '1080p Master' : 'Original',
-        codec: 'HEVC / OPUS',
-        audioLang: 'Multi-Track',
-        progress: 0,
-        downloadedSize: '0 MB',
-        totalSize: '2.40 GB',
-        speed: '34.2 MB/s',
-        eta: 'Calculating...',
-        status: 'downloading',
-      }
-      setDownloads((prev) => [newItem, ...prev])
     })
-    showNotification(`Queued transfer from manifest: ${fileNames}`)
-  }
 
-  const liveThroughput = downloads
-    .filter((d) => d.status === 'downloading' || d.status === 'ingesting')
-    .reduce((acc, d) => acc + (parseFloat(d.speed) || 0), 0)
+    track(listen<NativeDownloadProgress>('download-progress', (e) => upsert(e.payload)))
+    track(
+      listen<NativeDownloadProgress>('download-complete', (e) => {
+        upsert(e.payload)
+        if (completionSoundRef.current) playHapticGlass()
+      }),
+    )
+    track(listen<NativeDownloadProgress>('download-error', (e) => upsert(e.payload)))
+    track(
+      listen<NativeQueueChangedPayload>('download-queue-changed', (e) => {
+        setQueueOrder(e.payload.order)
+        setMaxConcurrentState(e.payload.max_concurrent)
+      }),
+    )
+
+    return () => {
+      disposed = true
+      unlisteners.forEach((fn) => fn())
+    }
+    // Hydration runs once; settings.maxConcurrent is read at mount on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upsert])
+
+  // Free space on the download drive (cheap call; refresh occasionally).
+  useEffect(() => {
+    if (!isTauri()) return
+    let disposed = false
+    const refresh = () => getSystemVitals(settings.downloadDir).then((v) => !disposed && v && setVitals(v))
+    void refresh()
+    const timer = window.setInterval(refresh, 15000)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [settings.downloadDir, library.items.length])
+
+  const act = useCallback(
+    async (action: () => Promise<unknown>, success?: string) => {
+      try {
+        await action()
+        if (success) show(success)
+      } catch (err) {
+        show(errorMessage(err), 'error')
+      }
+    },
+    [show],
+  )
+
+  const handleCapture = useCallback(
+    async (requests: NativeDownloadOptions[]) => {
+      for (const request of requests) {
+        await startDownload(request)
+      }
+      show(requests.length === 1 ? `Added: ${requests[0].title}` : `Added ${requests.length} downloads`)
+    },
+    [show],
+  )
+
+  const handleLinks = useCallback(
+    (urls: string[]) =>
+      act(async () => {
+        for (const url of urls) {
+          await startDownload({
+            url,
+            title: '',
+            max_height: /^\d+$/.test(settings.defaultQuality) ? Number(settings.defaultQuality) : null,
+            audio_only: settings.defaultQuality === 'audio',
+            output_dir: settings.downloadDir || null,
+            prefer_compatible: settings.preferCompatible,
+          })
+        }
+      }, `Added ${urls.length} link${urls.length === 1 ? '' : 's'}`),
+    [act, settings.defaultQuality, settings.downloadDir, settings.preferCompatible],
+  )
+
+  const handleRemove = useCallback(
+    (id: string) =>
+      act(async () => {
+        removedRef.current.add(id)
+        setTasks((prev) => prev.filter((t) => t.task_id !== id))
+        await removeDownload(id)
+      }),
+    [act],
+  )
+
+  const handleReorder = useCallback(
+    (id: string, direction: 'up' | 'down') => void act(() => moveDownload(id, direction)),
+    [act],
+  )
+
+  const handleMaxConcurrent = useCallback(
+    (limit: number) => {
+      setMaxConcurrentState(limit)
+      saveSettings({ maxConcurrent: limit })
+      void act(() => setMaxConcurrent(limit))
+    },
+    [act],
+  )
+
+  const handleClearFinished = useCallback(
+    () =>
+      act(async () => {
+        await clearFinished()
+        setTasks((prev) => {
+          prev.filter((t) => FINISHED.has(t.state)).forEach((t) => removedRef.current.add(t.task_id))
+          return prev.filter((t) => !FINISHED.has(t.state))
+        })
+      }),
+    [act],
+  )
+
+  const openFile = useCallback((path?: string | null) => (path ? act(() => openMediaFile(path)) : undefined), [act])
+  const revealFile = useCallback((path?: string | null) => (path ? act(() => revealInExplorer(path)) : undefined), [act])
+
+  // Newest first; tasks from the backend carry their creation time.
+  const orderedTasks = useMemo(() => tasks.slice().sort((a, b) => b.created_at - a.created_at), [tasks])
+  const speed = tasks.reduce((sum, t) => sum + (t.state === 'downloading' ? t.speed_bytes_per_sec : 0), 0)
+  const activeCount = tasks.filter((t) => t.state === 'downloading' || t.state === 'remuxing').length
+  const queuedCount = tasks.filter((t) => t.state === 'queued').length
+  const recent = library.items.slice(0, 5)
+
+  const engineReady = !!engine.status?.all_ready
+  const engineLabel = !engine.status
+    ? isTauri() ? 'Checking…' : 'Desktop only'
+    : engineReady
+      ? 'Ready'
+      : engine.busy
+        ? 'Setting up'
+        : 'Not installed'
+
+  const setupPercent =
+    engine.progress?.total && engine.progress.total > 0
+      ? Math.round((engine.progress.downloaded / engine.progress.total) * 100)
+      : null
 
   return (
     <div className="stream-hub-container">
-      {/* Toast Notification */}
-      {notification && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '16px',
-            right: '20px',
-            background: 'rgba(24, 9, 47, 0.94)',
-            color: '#ffffff',
-            padding: '9px 16px',
-            borderRadius: '8px',
-            fontSize: '12.5px',
-            fontWeight: 500,
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.22)',
-            border: '1px solid rgba(167, 139, 250, 0.35)',
-            zIndex: 100,
-            animation: 'bannerSlideIn 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both',
-          }}
-        >
-          {notification}
+      {toast && (
+        <div className={`hub-toast ${toast.tone === 'error' ? 'is-error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'}>
+          {toast.text}
         </div>
       )}
 
       <div className="stream-hub-content">
-        {/* Unified Top Header */}
         <div className="stream-hub-header">
           <h1 className="stream-hub-title">Stream Hub</h1>
           <div className="hub-status-pill">
-            <span className={`hub-status-dot ${liveThroughput > 0 ? 'is-active' : ''}`} />
+            <span className={`hub-status-dot ${activeCount > 0 ? 'is-active' : ''}`} />
             <span className="hub-status-throughput">
-              {liveThroughput > 0 ? `${liveThroughput.toFixed(1)} MB/s Ingesting` : 'Engine Ready'}
+              {activeCount > 0 ? `${activeCount} downloading · ${formatBytes(speed)}/s` : engineReady ? 'Engine Ready' : engineLabel}
             </span>
-            <span className="meta-dot">·</span>
-            <span className="hub-status-engine">{vitals?.engineStatus || 'Direct Pipeline'}</span>
           </div>
         </div>
 
-        {/* 1. Hero Stream Ingestion Omnibar */}
+        {isTauri() && engine.status && !engineReady && (
+          <div className={`engine-setup-banner ${engine.error ? 'is-error' : ''}`} role="status">
+            {engine.error ? (
+              <>
+                <IconAlertCircle size={14} />
+                <span className="engine-setup-text">
+                  Couldn’t install the download engine: {engine.error}
+                </span>
+                <button type="button" className="engine-setup-btn" onClick={() => void engine.install()}>
+                  Try again
+                </button>
+              </>
+            ) : (
+              <>
+                <IconLoader size={14} className="omnibar-spin-icon" />
+                <span className="engine-setup-text">
+                  Setting up the download engine (one time)
+                  {engine.progress
+                    ? ` — ${engine.progress.component} ${setupPercent !== null ? `${setupPercent}%` : formatBytes(engine.progress.downloaded)}`
+                    : '…'}
+                </span>
+                {setupPercent !== null && (
+                  <div className="engine-setup-track" aria-hidden="true">
+                    <div className="engine-setup-bar" style={{ width: `${setupPercent}%` }} />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         <Omnibar
-          onAnalyze={handleAnalyze}
-          isAnalyzing={isAnalyzing}
+          settings={settings}
+          engineReady={engineReady || !isTauri()}
+          onCapture={handleCapture}
+          onOpenInBrowser={onOpenInBrowser}
+          initialUrl={initialUrl}
+          onUrlConsumed={onUrlConsumed}
         />
 
-
-        {/* 2. Engine & Throughput Vitals */}
         <TelemetryVitals
-          throughput={liveThroughput}
-          activeCount={downloads.filter((d) => d.status === 'downloading' || d.status === 'ingesting').length}
-          queuedCount={downloads.filter((d) => d.status === 'paused' || d.status === 'queued').length}
-          storageFreeGb={vitals?.storageFreeGb ?? (vitals?.nvmeFreeTb ? vitals.nvmeFreeTb * 1024 : 0)}
-          storagePercentage={vitals?.storagePercentage || vitals?.nvmePercentage || 0}
-          engineStatus={vitals?.engineStatus || 'Hardware Acceleration'}
+          speedBytesPerSec={speed}
+          activeCount={activeCount}
+          queuedCount={queuedCount}
+          storageFreeGb={vitals?.storageFreeGb}
+          storagePercentage={vitals?.storagePercentage}
+          engineLabel={engineLabel}
+          engineDetail={engine.status ? `yt-dlp ${engine.status.ytdlp.version ?? 'missing'} · FFmpeg ${engine.status.ffmpeg.version ?? 'missing'}` : undefined}
         />
 
-        {/* 3 & 4. Bento Split Area: Active Pipeline (Left) & Recents/Dropzone (Right) */}
         <div className="hub-bento-split">
           <ActivePipeline
-            items={downloads}
-            onTogglePause={handleTogglePause}
-            onCancel={handleCancel}
-            onRetry={handleRetry}
+            tasks={orderedTasks}
             queueOrder={queueOrder}
             maxConcurrent={maxConcurrent}
-            onMaxConcurrentChange={handleMaxConcurrentChange}
+            onMaxConcurrentChange={handleMaxConcurrent}
+            onPauseAll={() => void act(pauseAll)}
+            onResumeAll={() => void act(resumeAll)}
+            onClearFinished={() => void handleClearFinished()}
+            onPause={(id) => void act(() => pauseDownload(id))}
+            onResume={(id) => void act(() => resumeDownload(id))}
+            onRetry={(id) => void act(() => retryDownload(id))}
+            onRemove={(id) => void handleRemove(id)}
+            onOpen={(t) => void openFile(t.output_path)}
+            onReveal={(t) => void revealFile(t.output_path)}
             onReorder={handleReorder}
-            onPauseAll={handlePauseAll}
-            onResumeAll={handleResumeAll}
-            onClearFinished={handleClearFinished}
           />
 
           <div className="hub-sidebar-aux">
             <RecentCaptures
-              items={recents}
-              onPlay={handlePlay}
-              onOpenFolder={handleOpenFolder}
+              items={recent}
+              onPlay={(item: LibraryItem) => void openFile(item.file_path)}
+              onReveal={(item: LibraryItem) => void revealFile(item.file_path)}
+              onShowAll={() => onOpenLibrary?.()}
             />
-
-            <ManifestDropzone onFilesDropped={handleFilesDropped} />
+            <ManifestDropzone
+              onLinks={(urls) => void handleLinks(urls)}
+              onNoLinks={() => show('No links found. Use a text file with one link per line.', 'error')}
+              disabled={isTauri() && !engineReady}
+            />
           </div>
         </div>
       </div>
-
-      <FormatPickerModal
-        isOpen={formatModalData.isOpen}
-        onClose={() => setFormatModalData((prev) => ({ ...prev, isOpen: false }))}
-        url={formatModalData.url}
-        title={formatModalData.title}
-        thumbnail={formatModalData.thumbnail}
-        duration={formatModalData.duration}
-        formats={formatModalData.formats}
-        subtitles={formatModalData.subtitles}
-        crunchyrollVersions={formatModalData.crunchyrollVersions}
-        onConfirmDownload={handleConfirmDownload}
-      />
     </div>
   )
 }
-export default StreamHub
+
+export default StreamHub

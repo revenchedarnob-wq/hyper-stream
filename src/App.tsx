@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import './App.css'
 import { StreamHub } from './components/stream-hub/StreamHub'
 import { MediaLibrary } from './components/media-library/MediaLibrary'
@@ -30,6 +31,8 @@ import {
   listenWindowMoved,
   listenWindowResized,
   getWindowPosition,
+  isWindowMaximized,
+  isAppForeground,
 } from '@/lib/tauri-bridge'
 import { detectHardwareProfile } from '@/lib/hardware-profiler'
 
@@ -37,7 +40,7 @@ import { SIMULATOR_WALLPAPERS } from '@/lib/wallpapers'
 
 const NAV_ITEMS = [
   { id: 'hub', label: 'Stream Hub', icon: IconSparkles },
-  { id: 'browser', label: 'Brave Browser', icon: IconCompass },
+  { id: 'browser', label: 'Browser', icon: IconCompass },
   { id: 'library', label: 'Media Library', icon: IconFilm },
   { id: 'settings', label: 'Settings', icon: IconCpu },
 ]
@@ -46,6 +49,7 @@ export default function App() {
   const isNative = isTauri()
   const [activeNav, setActiveNav] = useState('hub')
   const [browserHandoffUrl, setBrowserHandoffUrl] = useState('')
+  const [browserRequest, setBrowserRequest] = useState<{ url: string; nonce: number } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMaximized, setIsMaximized] = useState(false)
   const [isWindowFocused, setIsWindowFocused] = useState(true)
@@ -101,10 +105,6 @@ export default function App() {
       const stored = localStorage.getItem('hyperstream_potato_mode_v2')
       if (stored !== null) {
         return stored === 'true'
-      }
-      // High-performance multi-core processors (8+ cores) default to full Studio Glass luxury
-      if (hw.logicalCores >= 8) {
-        return false
       }
       const legacy = localStorage.getItem('hyperstream_potato_mode')
       if (legacy !== null) {
@@ -228,6 +228,15 @@ export default function App() {
     }
   }
 
+  // Data written by earlier versions that nothing reads any more.
+  useEffect(() => {
+    try {
+      for (const key of ['hyperstream_media_items', 'hyperstream_browser_extensions_v1']) localStorage.removeItem(key)
+    } catch {
+      // Storage unavailable: nothing to clean.
+    }
+  }, [])
+
   useEffect(() => {
     syncWindowsAccentColor()
 
@@ -247,9 +256,36 @@ export default function App() {
       }
     }
 
+    // Clicking into the built-in browser's page moves focus out of this document while the
+    // window stays active; only a real switch to another app counts as unfocused.
+    let pageFocused = false
+    let blurTimer: number | undefined
     const handleBlur = () => {
-      setIsWindowFocused(false)
-      suspendHapticAudio()
+      window.clearTimeout(blurTimer)
+      blurTimer = window.setTimeout(async () => {
+        if (pageFocused || document.hasFocus()) return
+        if (isNative && (await isAppForeground())) return
+        setIsWindowFocused(false)
+        suspendHapticAudio()
+      }, 150)
+    }
+    let unlistenPageFocus: (() => void) | undefined
+    let disposed = false
+    if (isNative) {
+      listen<boolean>('browser-page-focus', (e) => {
+        pageFocused = e.payload
+        if (pageFocused) {
+          window.clearTimeout(blurTimer)
+          setIsWindowFocused(true)
+        } else {
+          handleBlur()
+        }
+      })
+        .then((fn) => {
+          if (disposed) fn()
+          else unlistenPageFocus = fn
+        })
+        .catch(() => {})
     }
 
     const handleVisibilityChange = () => {
@@ -277,6 +313,9 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       stopNativeDragSync()
       unsubAudio()
+      disposed = true
+      window.clearTimeout(blurTimer)
+      unlistenPageFocus?.()
     }
   }, [isNative])
 
@@ -335,9 +374,18 @@ export default function App() {
       }
     })
 
+    // Maximize can also come from the OS (Win+Up, snap layouts), so read it back on every resize.
+    const syncMaximized = () => {
+      void isWindowMaximized().then((max) => {
+        if (isMounted) setIsMaximized(max)
+      })
+    }
+    syncMaximized()
+
     // Listen to native window resize events
     listenWindowResized(() => {
       if (!isMounted) return
+      syncMaximized()
       updateDimensionsAndPosition(lastNativeCoordsRef.current.x, lastNativeCoordsRef.current.y)
     }).then((unlisten) => {
       if (isMounted) {
@@ -347,13 +395,14 @@ export default function App() {
       }
     })
 
-    window.addEventListener('resize', () => updateDimensionsAndPosition())
+    const handleWindowResize = () => updateDimensionsAndPosition()
+    window.addEventListener('resize', handleWindowResize)
 
     return () => {
       isMounted = false
       if (unlistenMove) unlistenMove()
       if (unlistenResize) unlistenResize()
-      window.removeEventListener('resize', () => updateDimensionsAndPosition())
+      window.removeEventListener('resize', handleWindowResize)
       stopNativeDragSync()
     }
   }, [isNative])
@@ -569,8 +618,27 @@ export default function App() {
           } : {}),
         }}
       >
-        {/* Optical Glass Base Layer — allows crisp 2K master wallpaper to shine through */}
-        <div className="window-backdrop-layer" aria-hidden="true" />
+        {/* Optical Glass Base Layer with Interactive Drag Parallax & Cinema Depth */}
+        <div className="window-backdrop-layer" aria-hidden="true">
+          {prevWallpaper && isTransitioningWallpaper && (
+            <div
+              className="wallpaper-parallax-bg prev"
+              style={{
+                backgroundImage: `url("${isPotatoMode ? (SIMULATOR_WALLPAPERS.find((w) => w.url === prevWallpaper)?.frostedUrl || prevWallpaper) : prevWallpaper}")`,
+              }}
+              aria-hidden="true"
+            />
+          )}
+          <div
+            key={browserWallpaper}
+            className={`wallpaper-parallax-bg ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
+            style={{
+              backgroundImage: `url("${isPotatoMode ? (currentWallpaperObj?.frostedUrl || browserWallpaper) : browserWallpaper}")`,
+            }}
+            aria-hidden="true"
+          />
+          <div className="wallpaper-optical-frost" aria-hidden="true" />
+        </div>
       <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''} ${activeNav === 'browser' && !sidebarOpen ? 'browser-fullbleed' : ''}`}>
         {/* Topbar with real-time 120 FPS pointer drag handler and smooth maximize toggle */}
         <header
@@ -712,14 +780,21 @@ export default function App() {
 
         {/* Content pane with jelly-smooth entrance on tab switch */}
         <main className="content-pane">
-          {activeNav === 'hub' && (
-            <div key="hub" className="hub-view-container jelly-content">
+          {/* The Hub stays mounted so a pasted link, its options and messages survive tab switches. */}
+          <div
+            className="hub-view-container jelly-content"
+            style={activeNav === 'hub' ? undefined : { display: 'none' }}
+          >
               <StreamHub
                 initialUrl={browserHandoffUrl}
                 onUrlConsumed={() => setBrowserHandoffUrl('')}
+                onOpenInBrowser={(url) => {
+                  setBrowserRequest({ url, nonce: Date.now() })
+                  setActiveNav('browser')
+                }}
+                onOpenLibrary={() => setActiveNav('library')}
               />
-            </div>
-          )}
+          </div>
           {activeNav === 'library' && (
             <div key="library" className="hub-view-container jelly-content">
               <MediaLibrary />
@@ -740,7 +815,6 @@ export default function App() {
                 currentWallpaper={browserWallpaper}
                 onSelectWallpaper={handleSelectWallpaper}
                 wallpapers={SIMULATOR_WALLPAPERS}
-                isNative={isNative}
               />
             </div>
           )}
@@ -753,12 +827,8 @@ export default function App() {
             }}
           >
             <InAppBrowser
-              initialUrl={browserHandoffUrl}
+              navigateRequest={browserRequest}
               onOpenInHub={(url) => {
-                setBrowserHandoffUrl(url)
-                setActiveNav('hub')
-              }}
-              onOpenInStudio={(url) => {
                 setBrowserHandoffUrl(url)
                 setActiveNav('hub')
               }}
@@ -771,6 +841,8 @@ export default function App() {
       </div>
     </div>
 
+      {/* Browser-preview-only dev controls; the native app picks wallpapers in Settings. */}
+      {!isNative && (
       <aside className="browser-simulator-dock" aria-label="Wallpaper and Display Controls">
         <span className="sim-tag">Wallpaper:</span>
         {SIMULATOR_WALLPAPERS.map((wp) => (
@@ -812,6 +884,7 @@ export default function App() {
           </button>
         )}
       </aside>
+      )}
   </div>
 )
-}
+}

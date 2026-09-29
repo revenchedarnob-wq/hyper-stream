@@ -242,15 +242,52 @@ body.is-browser-dragging * {
   border-radius: 12px;
   pointer-events: none;
   z-index: 0;
-  background: rgba(10, 14, 24, 0.35);
-  backdrop-filter: blur(12px) saturate(120%);
-  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  overflow: hidden;
   transform: translateZ(0);
-  will-change: transform;
 }
 
 .window-container.is-maximized .window-backdrop-layer {
   border-radius: 0;
+}
+
+.wallpaper-parallax-bg {
+  position: absolute;
+  width: var(--screen-width, 100vw);
+  height: var(--screen-height, 100vh);
+  top: 0;
+  left: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  will-change: transform;
+  transform: translate3d(calc(-1 * var(--bg-parallax-x, 0px)), calc(-1 * var(--bg-parallax-y, 0px)), 0);
+  pointer-events: none;
+}
+
+.wallpaper-parallax-bg.prev {
+  z-index: 0;
+}
+
+.wallpaper-parallax-bg:not(.prev) {
+  z-index: 1;
+}
+
+.wallpaper-optical-frost {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(20, 24, 42, 0.40) 0%, rgba(10, 13, 24, 0.68) 100%),
+    linear-gradient(180deg, rgba(12, 16, 28, 0.30) 0%, rgba(8, 10, 18, 0.55) 100%);
+  backdrop-filter: blur(28px) saturate(145%) brightness(0.95);
+  -webkit-backdrop-filter: blur(28px) saturate(145%) brightness(0.95);
+}
+
+.window-container.potato-mode .wallpaper-optical-frost {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(10, 14, 25, 0.38) !important;
 }
 
 /* Subtle Inactive Resting Glass (preserves text contrast, softens specular, pauses telemetry loops) */
@@ -1460,10 +1497,11 @@ body.is-browser-dragging * {
 
 .window-container[data-wallpaper-theme="dark"] .sidebar,
 [data-wallpaper-theme="dark"] .sidebar {
-  background: linear-gradient(180deg, var(--surface-level-1) 0%, rgba(14, 18, 30, 0.40) 100%) !important;
-  backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 130%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
-  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 130%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
-  border: 1px solid var(--border-subtle) !important;
+  background: linear-gradient(180deg, rgba(20, 25, 42, 0.60) 0%, rgba(12, 16, 30, 0.72) 100%) !important;
+  backdrop-filter: blur(var(--env-backdrop-blur, 28px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 28px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.22) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
@@ -1471,17 +1509,18 @@ body.is-browser-dragging * {
 [data-wallpaper-theme="dark"].potato-mode .sidebar {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: linear-gradient(180deg, var(--surface-level-1) 0%, rgba(14, 18, 30, 0.35) 100%) !important;
-  border: 1px solid var(--border-subtle) !important;
+  background: linear-gradient(180deg, rgba(20, 25, 42, 0.65) 0%, rgba(12, 16, 30, 0.75) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
 .window-container[data-wallpaper-theme="dark"] .content-pane,
 [data-wallpaper-theme="dark"] .content-pane {
-  background: linear-gradient(180deg, var(--surface-level-2) 0%, rgba(14, 18, 30, 0.50) 100%) !important;
-  backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
-  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 135%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
-  border: 1px solid var(--border-subtle) !important;
+  background: linear-gradient(180deg, rgba(20, 25, 42, 0.62) 0%, rgba(12, 16, 30, 0.74) 100%) !important;
+  backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 140%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 32px)) saturate(var(--env-backdrop-saturate, 140%)) brightness(var(--env-backdrop-brightness, 102%)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.22) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
@@ -1489,8 +1528,8 @@ body.is-browser-dragging * {
 [data-wallpaper-theme="dark"].potato-mode .content-pane {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: linear-gradient(180deg, var(--surface-level-2) 0%, rgba(14, 18, 30, 0.45) 100%) !important;
-  border: 1px solid var(--border-subtle) !important;
+  background: linear-gradient(180deg, rgba(20, 25, 42, 0.65) 0%, rgba(12, 16, 30, 0.75) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
   box-shadow: var(--shadow-card) !important;
 }
 
@@ -1614,4 +1653,15 @@ body.is-browser-dragging * {
 .nav-item:hover:not(.active) {
   background: rgba(255, 255, 255, 0.25);
   color: #0f172a;
+}
+/* Efficiency Mode: same frosted look as Studio, without live blur. */
+.window-container.potato-mode :is(.omnibar-card, .telemetry-ribbon, .recent-captures-card, .pipeline-empty-state, .manifest-dropzone) {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.15) 0%, rgba(200, 190, 255, 0.1) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.13) !important;
+  border-top-color: rgba(255, 255, 255, 0.24) !important;
+  box-shadow: 0 10px 28px -12px rgba(10, 6, 30, 0.4) !important;
+}
+
+.window-container.potato-mode .omnibar-card:focus-within {
+  border-color: rgba(190, 170, 255, 0.5) !important;
 }

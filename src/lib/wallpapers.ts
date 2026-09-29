@@ -63,4 +63,11 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     frostedUrl: '/wallpapers/bg-unsplash-frosted.webp',
     theme: 'dark',
   },
+  {
+    id: 'coral-dusk',
+    name: 'Coral Dusk',
+    url: '/wallpapers/bg-coral-dusk.jpg',
+    frostedUrl: '/wallpapers/bg-coral-dusk-frosted.webp',
+    theme: 'light',
+  },
 ]
