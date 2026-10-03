@@ -1014,6 +1014,69 @@ body.is-browser-dragging * {
   column-gap: 0px;
 }
 
+/* Browser Full Mode: When in Browser tab and sidebar is collapsed, fill all area like a normal browser */
+.app-shell.is-browser-full-mode {
+  padding: 0 !important;
+  column-gap: 0 !important;
+  row-gap: 0 !important;
+  grid-template-rows: 1fr !important;
+  grid-template-columns: 1fr !important;
+  border: none !important;
+  border-radius: var(--radius-window, 24px) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.window-container.is-maximized .app-shell.is-browser-full-mode {
+  border-radius: 0 !important;
+}
+
+.app-shell.is-browser-full-mode .sidebar {
+  display: none !important;
+}
+
+.app-shell.is-browser-full-mode .content-pane {
+  grid-column: 1 / -1 !important;
+  grid-row: 1 / -1 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  border-radius: var(--radius-window, 24px) !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.window-container.is-maximized .app-shell.is-browser-full-mode .content-pane {
+  border-radius: 0 !important;
+}
+
+.app-shell.is-browser-full-mode .browser-content-area {
+  width: 100%;
+  height: calc(100% - 44px);
+}
+
+/* Full flush viewport for active websites */
+.app-shell.is-browser-full-mode .browser-viewport:not(.is-hidden) {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  border-bottom-left-radius: var(--radius-window, 24px);
+  border-bottom-right-radius: var(--radius-window, 24px);
+  background: #090d16 !important;
+}
+
+.window-container.is-maximized .app-shell.is-browser-full-mode .browser-viewport:not(.is-hidden) {
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+.app-shell.is-browser-full-mode .browser-omnibar-form {
+  max-width: 800px;
+}
+
 /* Browser View Wrapper inside content-pane */
 .browser-view-wrapper {
   animation: browserViewFadeIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both;

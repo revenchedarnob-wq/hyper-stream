@@ -45,4 +45,23 @@ describe('InAppBrowser Workspace Integration Suite', () => {
     const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u
     expect(emojiRegex.test(html)).toBe(false)
   })
+
+  it('renders unified header with brand area and window controls when provided', () => {
+    const onOpenInHub = vi.fn()
+
+    const html = renderToString(
+      <InAppBrowser
+        initialUrl="https://example.com"
+        onOpenInHub={onOpenInHub}
+        isWorkspaceActive={true}
+        isSidebarOpen={false}
+        sidebarArea={<div data-testid="test-brand">HyperStream</div>}
+        windowControls={<div data-testid="test-controls">Controls</div>}
+      />
+    )
+
+    expect(html).toContain('is-unified-header')
+    expect(html).toContain('test-brand')
+    expect(html).toContain('test-controls')
+  })
 })

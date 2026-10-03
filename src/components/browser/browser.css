@@ -1280,20 +1280,26 @@
   box-sizing: border-box;
 }
 
-/* Browser Toolbar inside content-pane */
+/* Browser Toolbar when acting as unified window topbar */
 .browser-toolbar.is-unified-header {
-  height: 42px;
-  min-height: 42px;
-  padding: 0 12px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 4px 0 10px;
   gap: 8px;
   background: var(--surface-level-1);
   border-top: none;
   border-left: none;
   border-right: none;
   border-bottom: 1px solid var(--border-subtle);
-  border-radius: 0;
+  border-top-left-radius: var(--radius-window, 24px);
+  border-top-right-radius: var(--radius-window, 24px);
   backdrop-filter: blur(var(--env-backdrop-blur, 20px)) saturate(var(--env-backdrop-saturate, 120%));
   -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 20px)) saturate(var(--env-backdrop-saturate, 120%));
+}
+
+.window-container.is-maximized .browser-toolbar.is-unified-header {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
 }
 
 .browser-toolbar-sidebar-slot {
@@ -1303,13 +1309,13 @@
 }
 
 .browser-toolbar-sidebar-slot .topbar-sidebar-area {
-  width: 230px;
+  width: 240px;
   padding-right: 6px;
   transition: width 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .app-shell.sidebar-collapsed .browser-toolbar-sidebar-slot .topbar-sidebar-area {
-  width: 148px;
+  width: 154px;
 }
 
 .browser-toolbar-drag-spacer {

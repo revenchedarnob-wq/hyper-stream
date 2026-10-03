@@ -61,13 +61,33 @@ export function InAppBrowser({
     const rect = el.getBoundingClientRect()
     if (!rect || rect.width < 10 || rect.height < 10) return undefined
 
-    return {
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
+    let x = Math.round(rect.left)
+    let y = Math.round(rect.top)
+    let width = Math.round(rect.width)
+    let height = Math.round(rect.height)
+
+    if (!isSidebarOpen || isMaximized) {
+      const winW = window.innerWidth
+      const winH = window.innerHeight
+      if (Math.abs((rect.left + rect.width) - winW) <= 4) {
+        width = winW - x
+      }
+      if (Math.abs((rect.top + rect.height) - winH) <= 4) {
+        height = winH - y
+      }
+      if (Math.abs(rect.left) <= 4) {
+        width += x
+        x = 0
+      }
     }
-  }, [])
+
+    return {
+      x,
+      y,
+      width: Math.max(10, width),
+      height: Math.max(10, height),
+    }
+  }, [isSidebarOpen, isMaximized])
 
   const nav = useBrowserNavigation(initialUrl, getBounds)
   const { currentUrl } = nav
