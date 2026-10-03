@@ -272,8 +272,118 @@ pub(crate) fn ensure_webview(app: &AppHandle) -> Result<tauri::Webview, String> 
 }
 
 /// For reading saved sign-ins. Must run off the main thread.
-pub(crate) fn webview_for_cookies(app: &AppHandle) -> Option<tauri::Webview> {
-    ensure_webview(app).ok()
+/// The browser, for reading the sign-in cookies a download of `url` may need. Starting the browser
+/// engine costs hundreds of MB, so it's only woken for sites that were opened in it (only those
+/// can hold a sign-in), and a browser woken just for this is unloaded again shortly after.
+pub(crate) fn webview_for_cookies(app: &AppHandle, url: &str) -> Option<tauri::Webview> {
+    let site = site_key_of_url(url)?;
+    let known = load_visited_sites();
+    if known.as_ref().is_some_and(|sites| !sites.contains(&site)) {
+        return None;
+    }
+    let was_running = webview(app).is_some();
+    let w = ensure_webview(app).ok()?;
+    if known.is_none() {
+        seed_visited_sites(&w);
+    }
+    if !was_running {
+        release_after_cookie_read(app.clone(), w.clone());
+    }
+    Some(w)
+}
+
+/// Unloads a browser that was only started to read cookies, unless the user opened it meanwhile.
+fn release_after_cookie_read(app: AppHandle, w: tauri::Webview) {
+    let generation = VISIBILITY_GEN.load(Ordering::Relaxed);
+    tauri::async_runtime::spawn(async move {
+        // Downloads queued together reuse it; then it goes.
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        if VISIBILITY_GEN.load(Ordering::Relaxed) == generation && !WANT_VISIBLE.load(Ordering::Relaxed) {
+            unload(&app, &w);
+        }
+    });
+}
+
+// ---------- Sites opened in the built-in browser ----------
+
+static VISITED_SITES: Mutex<Option<std::collections::BTreeSet<String>>> = Mutex::new(None);
+
+fn visited_sites_file() -> PathBuf {
+    data_root().join("browser_sites.json")
+}
+
+/// None until the list exists (first run after an update: the profile's cookies seed it once).
+fn load_visited_sites() -> Option<std::collections::BTreeSet<String>> {
+    let mut cache = VISITED_SITES.lock().ok()?;
+    if cache.is_none() {
+        let bytes = std::fs::read(visited_sites_file()).ok()?;
+        *cache = serde_json::from_slice(&bytes).ok();
+    }
+    cache.clone()
+}
+
+fn save_visited_sites(sites: &std::collections::BTreeSet<String>) {
+    if let Ok(bytes) = serde_json::to_vec(sites) {
+        let _ = std::fs::write(visited_sites_file(), bytes);
+    }
+}
+
+/// Records a page the browser showed.
+pub(crate) fn remember_visit(url: &str) {
+    let Some(key) = site_key_of_url(url) else { return };
+    let Ok(mut cache) = VISITED_SITES.lock() else { return };
+    let sites = cache.get_or_insert_with(|| {
+        std::fs::read(visited_sites_file()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    });
+    if sites.insert(key) {
+        save_visited_sites(sites);
+    }
+}
+
+/// Existing profiles: every site that already has a cookie counts as visited.
+fn seed_visited_sites(w: &tauri::Webview) {
+    let mut sites: std::collections::BTreeSet<String> = w
+        .cookies()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|c| c.domain().map(|d| site_key(d.trim_start_matches('.'))))
+        .collect();
+    if let Ok(mut cache) = VISITED_SITES.lock() {
+        if let Some(existing) = cache.as_ref() {
+            sites.extend(existing.iter().cloned());
+        }
+        save_visited_sites(&sites);
+        *cache = Some(sites);
+    }
+}
+
+fn site_key_of_url(url: &str) -> Option<String> {
+    let parsed: tauri::Url = url.parse().ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+    Some(site_key(parsed.host_str()?))
+}
+
+/// Registrable domain ("m.youtube.com" → "youtube.com", "bbc.co.uk" stays), with short-link
+/// domains mapped to the site whose sign-in they use.
+pub(crate) fn site_key(host: &str) -> String {
+    const SECOND_LEVEL: &[&str] = &["co", "com", "net", "org", "gov", "edu", "ac", "or", "ne", "go"];
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let labels: Vec<&str> = host.split('.').filter(|l| !l.is_empty()).collect();
+    let keep = if labels.len() >= 3 && labels[labels.len() - 1].len() == 2 && SECOND_LEVEL.contains(&labels[labels.len() - 2]) {
+        3
+    } else {
+        2
+    };
+    let key = labels[labels.len().saturating_sub(keep)..].join(".");
+    match key.as_str() {
+        "youtu.be" => "youtube.com".into(),
+        "twitter.com" => "x.com".into(),
+        "instagr.am" => "instagram.com".into(),
+        "fb.watch" | "fb.com" => "facebook.com".into(),
+        _ => key,
+    }
 }
 
 // ---------- Commands ----------
@@ -541,6 +651,17 @@ pub fn extension_page_url(extension_id: String, page: String) -> Result<String, 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn site_keys_group_subdomains_and_short_links() {
+        use super::site_key;
+        assert_eq!(site_key("m.youtube.com"), "youtube.com");
+        assert_eq!(site_key("youtu.be"), "youtube.com");
+        assert_eq!(site_key("www.bbc.co.uk"), "bbc.co.uk");
+        assert_eq!(site_key("twitter.com"), "x.com");
+        assert_eq!(site_key("127.0.0.1"), "0.1");
+        assert_eq!(site_key("localhost"), "localhost");
+    }
+
     use super::*;
 
     #[test]

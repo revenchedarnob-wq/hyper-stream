@@ -216,6 +216,44 @@ fn is_app_foreground() -> bool {
     true
 }
 
+/// Pages sent from another browser (`hyperstream://download?url=…`) that the UI hasn't taken yet.
+static PENDING_LINKS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// The web page inside a `hyperstream://download?url=…` link. Anything else is ignored.
+fn page_from_deep_link(link: &str) -> Option<String> {
+    let parsed = tauri::Url::parse(link).ok()?;
+    if parsed.scheme() != "hyperstream" {
+        return None;
+    }
+    let target = parsed.query_pairs().find(|(k, _)| k == "url")?.1.into_owned();
+    let page = tauri::Url::parse(target.trim()).ok()?;
+    matches!(page.scheme(), "http" | "https").then(|| page.to_string())
+}
+
+/// Any website can open a `hyperstream://` link, so a received page only lands in the Hub's link
+/// box with the window brought forward; the user still decides whether to download it.
+fn receive_deep_links(app: &tauri::AppHandle, links: &[tauri::Url]) {
+    use tauri::Emitter;
+    let pages: Vec<String> = links.iter().filter_map(|u| page_from_deep_link(u.as_str())).collect();
+    if pages.is_empty() {
+        return;
+    }
+    if let Ok(mut pending) = PENDING_LINKS.lock() {
+        pending.extend(pages);
+    }
+    let _ = app.emit("external-link", ());
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+#[tauri::command]
+fn take_external_links() -> Vec<String> {
+    PENDING_LINKS.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default()
+}
+
 #[tauri::command]
 fn exit_app(app: tauri::AppHandle) {
     shut_down(&app);
@@ -501,6 +539,23 @@ fn clear_finished(
     Ok(state.clear_finished())
 }
 
+#[cfg(test)]
+mod deep_link_tests {
+    use super::page_from_deep_link;
+
+    #[test]
+    fn accepts_only_web_pages_inside_hyperstream_links() {
+        assert_eq!(
+            page_from_deep_link("hyperstream://download?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dabc").as_deref(),
+            Some("https://www.youtube.com/watch?v=abc")
+        );
+        assert_eq!(page_from_deep_link("hyperstream://download?url=file%3A%2F%2F%2FC%3A%2Fx.exe"), None);
+        assert_eq!(page_from_deep_link("hyperstream://download?url=javascript%3Aalert(1)"), None);
+        assert_eq!(page_from_deep_link("https://example.com/?url=https://x.com"), None);
+        assert_eq!(page_from_deep_link("hyperstream://download"), None);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Child processes (WebView2, yt-dlp, ffmpeg) die with the app via a job object.
@@ -547,6 +602,7 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         // Reopen at the size and place the user left it (not visibility: setup shows the window).
         .plugin(
@@ -565,6 +621,21 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(browser::BrowserState::default());
+
+            // "Send to HyperStream" from other browsers. Registering keeps the link pointing at
+            // this copy of the app (installers register it too).
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                #[cfg(desktop)]
+                if let Err(e) = app.deep_link().register_all() {
+                    log::warn!("Couldn't register hyperstream:// links: {e}");
+                }
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| receive_deep_links(&handle, &event.urls()));
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    receive_deep_links(app.handle(), &urls);
+                }
+            }
             let orchestrator = downloader::DownloadOrchestrator::new();
             orchestrator.attach_app(app.handle().clone());
             app.manage(orchestrator);
@@ -604,6 +675,7 @@ pub fn run() {
             get_windows_accent_color,
             pick_storage_folder,
             exit_app,
+            take_external_links,
             is_app_foreground,
             browser::set_browser_visibility,
             browser::update_browser_bounds,

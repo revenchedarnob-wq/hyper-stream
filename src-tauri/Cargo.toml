@@ -28,7 +28,7 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.3", features = ["unstable", "protocol-asset"] }
 tauri-plugin-log = "2"
-tauri-plugin-single-instance = "2.4"
+tauri-plugin-single-instance = { version = "2.4", features = ["deep-link"] }
 tauri-plugin-notification = "2"
 tauri-plugin-window-state = "2"
 windows-sys = { version = "0.59", features = ["Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_System_Threading", "Win32_Foundation", "Win32_Security", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_UI_Shell"] }
@@ -46,6 +46,7 @@ flate2 = "1"
 # Direct access to WebView2 for the built-in browser (history, extensions, context menu, ad blocking).
 webview2-com = "0.38"
 windows = { version = "0.61", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse"] }
+tauri-plugin-deep-link = "2"
 
 [features]
 default = []

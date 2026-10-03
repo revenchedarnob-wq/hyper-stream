@@ -10,6 +10,7 @@ import {
   pickStorageFolder,
   revealInExplorer,
   setMaxConcurrent,
+  SEND_TO_HYPERSTREAM_BOOKMARKLET,
 } from '@/lib/tauri-bridge'
 import { detectHardwareProfile, formatGpuName } from '@/lib/hardware-profiler'
 import { saveSettings, type DefaultQuality } from '@/lib/settings'
@@ -257,6 +258,40 @@ function DownloadsPanel() {
   )
 }
 
+/**
+ * The "Send to HyperStream" bookmark for Chrome/Edge. React refuses `javascript:` hrefs, so the
+ * link's address is set directly; clicking it here does nothing, dragging it out makes the bookmark.
+ */
+function SendToHyperStreamRow() {
+  const [copied, setCopied] = React.useState(false)
+  const setHref = React.useCallback((el: HTMLAnchorElement | null) => {
+    el?.setAttribute('href', SEND_TO_HYPERSTREAM_BOOKMARKLET)
+  }, [])
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(SEND_TO_HYPERSTREAM_BOOKMARKLET)
+      playHapticGlass()
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+  return (
+    <Row
+      label="Send to HyperStream"
+      desc="Download from Chrome or Edge: drag this button to the bookmarks bar, or copy it and paste it as a new bookmark's address. On a video page, click the bookmark; the page opens here, ready to capture."
+    >
+      <a ref={setHref} className="action-btn" draggable onClick={(e) => e.preventDefault()} title="Drag to your bookmarks bar">
+        Send to HyperStream
+      </a>
+      <button type="button" className="action-btn" onClick={() => void copy()}>
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </Row>
+  )
+}
+
 function BrowserPanel() {
   const settings = useSettings()
   const [extensionCount, setExtensionCount] = React.useState<number | null>(null)
@@ -334,6 +369,15 @@ function BrowserPanel() {
               </Row>
             ))
           )}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-header">
+          <h2 className="settings-section-title">Other browsers</h2>
+        </div>
+        <div className="settings-card-group">
+          <SendToHyperStreamRow />
         </div>
       </section>
 

@@ -328,7 +328,8 @@ export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(
                         <div className="pipeline-progress-track">
                           <div
                             className={`pipeline-progress-bar ${task.state === 'paused' ? 'is-paused' : ''} ${task.state === 'remuxing' ? 'is-indeterminate' : ''}`}
-                            style={{ width: `${Math.max(0, Math.min(100, task.progress_percent))}%` }}
+                            // Slides instead of resizing: a width change re-lays out the page on every frame.
+                            style={{ transform: `translateX(${Math.max(0, Math.min(100, task.progress_percent)) - 100}%)` }}
                           />
                         </div>
                       )}

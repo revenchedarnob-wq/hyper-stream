@@ -40,6 +40,7 @@ import {
   getWindowPosition,
   isWindowMaximized,
   isAppForeground,
+  takeExternalLinks,
 } from '@/lib/tauri-bridge'
 
 import {
@@ -61,6 +62,25 @@ export default function App() {
   const isNative = isTauri()
   const [activeNav, setActiveNav] = useState('hub')
   const [browserHandoffUrl, setBrowserHandoffUrl] = useState('')
+
+  // Pages sent from Chrome/Edge ("Send to HyperStream"): open in the Hub's link box, never auto-download.
+  useEffect(() => {
+    if (!isTauri()) return
+    let disposed = false
+    const take = () =>
+      takeExternalLinks().then((links) => {
+        const latest = links.at(-1)
+        if (disposed || !latest) return
+        setBrowserHandoffUrl(latest)
+        setActiveNav('hub')
+      })
+    void take()
+    const unlisten = listen('external-link', () => void take())
+    return () => {
+      disposed = true
+      void unlisten.then((fn) => fn())
+    }
+  }, [])
   const [browserRequest, setBrowserRequest] = useState<{ url: string; nonce: number } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try {

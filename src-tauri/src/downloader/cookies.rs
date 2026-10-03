@@ -49,7 +49,7 @@ pub fn browser_cookies_for(app: &AppHandle, url: &str) -> Option<String> {
         return None;
     }
     let host = parsed.host_str()?.to_string();
-    let webview = crate::browser::webview_for_cookies(app)?;
+    let webview = crate::browser::webview_for_cookies(app, url)?;
     let cookies = webview.cookies_for_url(parsed).ok()?;
     if cookies.is_empty() {
         return None;

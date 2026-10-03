@@ -68,5 +68,14 @@
         "language": "en-US"
       }
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "hyperstream"
+        ]
+      }
+    }
   }
 }

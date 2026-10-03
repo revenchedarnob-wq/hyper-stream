@@ -109,6 +109,7 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
         let loading = loading.clone();
         Rc::new(move |core: &ICoreWebView2| {
             let state = nav_state(core, loading.get());
+            super::remember_visit(&state.url);
             if let Ok(mut last) = LAST_STATE.lock() {
                 *last = Some(state.clone());
             }

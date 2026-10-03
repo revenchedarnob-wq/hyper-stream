@@ -552,6 +552,20 @@ export function taskbarProgressFor(tasks: Pick<NativeDownloadProgress, 'state' |
   return { status: 'indeterminate', percent: 0 }
 }
 
+/** Pages sent from Chrome/Edge via `hyperstream://` links since the last call (oldest first). */
+export async function takeExternalLinks(): Promise<string[]> {
+  if (!isTauri()) return []
+  try {
+    return await invoke<string[]>('take_external_links')
+  } catch {
+    return []
+  }
+}
+
+/** Bookmark that sends the open page to HyperStream (drag to the bookmarks bar, or paste as a bookmark's URL). */
+export const SEND_TO_HYPERSTREAM_BOOKMARKLET =
+  "javascript:location.href='hyperstream://download?url='+encodeURIComponent(location.href)"
+
 /** Starts the browser engine in the background so the first site opens instantly. */
 export const prewarmBrowser = () => command('prewarm_browser')
 

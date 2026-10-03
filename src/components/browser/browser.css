@@ -463,7 +463,8 @@
   height: 100%;
   border-radius: 50%;
   border: 1.5px solid rgba(16, 185, 129, 0.6);
-  animation: stream-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+  /* A few pings to draw the eye, then still (it sits next to a playing video). */
+  animation: stream-ping 1.8s cubic-bezier(0, 0, 0.2, 1) 3;
 }
 
 @keyframes stream-ping {
@@ -1204,18 +1205,21 @@
   position: absolute;
   top: 0;
   bottom: 0;
+  left: 0;
   width: 30%;
   background: var(--color-brand-primary, #6366f1);
   border-radius: 2px;
   animation: browser-loading-slide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* Transform, not `left`: the bar slides on the GPU without re-laying out the toolbar each frame.
+   The bar is 30% wide, so -100%..333% of its own width spans -30%..100% of the toolbar. */
 @keyframes browser-loading-slide {
   from {
-    left: -30%;
+    transform: translateX(-100%);
   }
   to {
-    left: 100%;
+    transform: translateX(333.4%);
   }
 }
 
