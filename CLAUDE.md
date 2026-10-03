@@ -10,11 +10,17 @@ App lives in `app-preview/`. Backend: `app-preview/src-tauri/src/`. Frontend: `a
 
 ## Backend layout
 - `src/lib.rs` — Tauri commands + `generate_handler!` registration.
-- `src/downloader/` — legit media pipeline (yt-dlp / aria2c / FFmpeg on user URLs):
-  - `orchestrator.rs` downloads, progress events (`download-progress|complete|error`)
-  - `extractor.rs` metadata/format probing · `binary_manager.rs` engine binaries
+- `src/downloader/` — media pipeline (yt-dlp + FFmpeg on user URLs):
+  - `orchestrator.rs` queue workers, yt-dlp process, progress events (`download-progress|complete|error`, `download-queue-changed`)
+  - `queue.rs` persisted priority queue · `extractor.rs` link probing (formats, audio tracks, subtitles, playlists)
+  - `binary_manager.rs` engine install/update · `library.rs` finished downloads (`library-changed`)
+  - `cookies.rs` built-in browser session → cookie file · `error_classifier.rs` stderr → friendly message
   - `container.rs` `FastAtomInspector` (MP4 box validation)
-  - `error_classifier.rs` raw stderr → friendly message (planned)
+
+## Frontend layout
+- `src/components/stream-hub/` Hub (Omnibar probe → capture, ActivePipeline queue) · `media-library/` · `browser/` · `settings/`
+- `src/lib/` `tauri-bridge.ts` (all IPC), `settings.ts` (download prefs), `hooks.ts` (useSettings/useLibrary/useEngine), `format.ts`
+- No mock data: every number shown comes from the backend.
 
 ## Quarantine boundary (hard rule)
 `src-tauri/src/downloader/quarantine/` is isolated behind the non-default Cargo
@@ -24,3 +30,4 @@ release builds must not reference it. Build/test with default features only.
 ## Workflow
 - Big multi-file features: short spec → executed by Antigravity (Gemini agent).
 - Small edits: done directly. Keep specs free of DRM-related terminology.
+- Recent state & detailed handoff: see `docs/AGENT_HANDOFF.md`.
