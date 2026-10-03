@@ -117,37 +117,6 @@
   gap: var(--space-2, 8px);
 }
 
-.extension-load-unpacked-btn {
-  font-family: var(--font-sans, inherit);
-  font-size: var(--font-size-xs, 12px);
-  font-weight: var(--font-weight-medium, 500);
-  padding: 6px 12px;
-  border-radius: var(--radius-md, 8px);
-  background: var(--surface-level-3, #1e222d);
-  border: 1px solid var(--border-normal, rgba(255, 255, 255, 0.12));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.2));
-  color: var(--color-text-secondary, #cbd5e1);
-  cursor: pointer;
-  transition: all var(--duration-instant, 100ms) ease;
-}
-
-.extension-load-unpacked-btn:hover {
-  background: var(--surface-control-hover, rgba(255, 255, 255, 0.1));
-  color: var(--color-brand-primary, #6366f1);
-  border-color: var(--color-brand-primary, #6366f1);
-}
-
-.extension-store-status-banner {
-  font-size: var(--font-size-2xs, 11px);
-  font-weight: var(--font-weight-medium, 500);
-  padding: 2px 10px;
-  border-radius: var(--radius-full, 9999px);
-  background: rgba(99, 102, 241, 0.15);
-  color: var(--color-brand-primary, #818cf8);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  animation: bannerFadeIn 200ms ease;
-}
-
 @keyframes bannerFadeIn {
   from { opacity: 0; transform: translateY(-2px); }
   to { opacity: 1; transform: translateY(0); }
@@ -321,18 +290,6 @@
   color: var(--color-text-tertiary, #64748b);
 }
 
-.extension-rating {
-  color: #f59e0b;
-  font-weight: var(--font-weight-medium, 500);
-}
-
-.extension-desc {
-  font-size: var(--font-size-2xs, 11px);
-  color: var(--color-text-tertiary, #94a3b8);
-  line-height: 1.4;
-  margin: var(--space-3, 12px) 0;
-}
-
 .extension-card-actions {
   display: flex;
   align-items: center;
@@ -356,26 +313,6 @@
 .extension-install-btn:hover {
   filter: brightness(1.1);
   transform: translateY(-1px);
-}
-
-.extension-installed-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
-
-.extension-toggle-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.extension-toggle-text {
-  font-size: var(--font-size-2xs, 11px);
-  font-weight: var(--font-weight-medium, 500);
-  color: var(--color-text-secondary, #cbd5e1);
 }
 
 .extension-switch-btn {
@@ -640,18 +577,6 @@
   color: #0f172a;
 }
 
-[data-wallpaper-theme="light"] .extension-load-unpacked-btn {
-  background: rgba(255, 255, 255, 0.50);
-  border-color: rgba(255, 255, 255, 0.65);
-  border-top-color: #ffffff;
-  color: #334155;
-}
-
-[data-wallpaper-theme="light"] .extension-load-unpacked-btn:hover {
-  background: rgba(255, 255, 255, 0.80);
-  color: var(--color-brand-primary, #6366f1);
-}
-
 [data-wallpaper-theme="light"] .extension-store-close-btn {
   color: #64748b;
 }
@@ -723,10 +648,6 @@
 
 [data-wallpaper-theme="light"] .extension-row:hover {
   background: rgba(255, 255, 255, 0.65);
-}
-
-[data-wallpaper-theme="light"] .extension-toggle-text {
-  color: #475569;
 }
 
 [data-wallpaper-theme="light"] .extension-store-footer {

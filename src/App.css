@@ -74,23 +74,6 @@ body:not(.is-browser-environment) .hyperstream-root-wrapper {
   will-change: opacity;
 }
 
-.potato-parallax-bg.potato-parallax-prev {
-  z-index: 0;
-}
-
-.potato-parallax-bg:not(.potato-parallax-prev) {
-  z-index: 1;
-}
-
-.studio-idle-wallpaper.studio-idle-prev {
-  z-index: 0;
-}
-
-.studio-idle-wallpaper:not(.studio-idle-prev) {
-  z-index: 1;
-}
-
-
 body.is-browser-environment .window-container {
   position: relative;
   z-index: 10;
@@ -146,6 +129,11 @@ body.is-browser-dragging * {
 
 .window-container.is-dragging {
   transition: none !important;
+  will-change: transform;
+}
+
+/* GPU layers only while the parallax is actually moving; a static window keeps one flat layer. */
+.window-container.is-dragging :is(.wallpaper-parallax-bg, .potato-parallax-bg, .studio-idle-wallpaper) {
   will-change: transform;
 }
 
@@ -232,7 +220,6 @@ body.is-browser-dragging * {
   contain: paint;
   transition:
     border-radius 350ms cubic-bezier(0.34, 1.36, 0.64, 1);
-  will-change: border-radius;
   z-index: 10;
 }
 
@@ -259,7 +246,6 @@ body.is-browser-dragging * {
   overflow: hidden;
   isolation: isolate;
   contain: paint;
-  transform: translateZ(0);
 }
 
 .window-container.is-maximized .window-backdrop-layer {
@@ -278,8 +264,7 @@ body.is-browser-dragging * {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  will-change: transform;
-  transform: translate3d(calc(-1 * var(--bg-parallax-x, 0px)), calc(-1 * var(--bg-parallax-y, 0px)), 0);
+  transform: translate(calc(-1 * var(--bg-parallax-x, 0px)), calc(-1 * var(--bg-parallax-y, 0px)));
   pointer-events: none;
 }
 
@@ -313,10 +298,6 @@ body.is-browser-dragging * {
 
 .window-container[data-wallpaper-theme="light"] .window-glass-frosted-overlay {
   background: rgba(255, 255, 255, 0.06);
-}
-
-.wallpaper-optical-frost {
-  display: none !important;
 }
 
 /* Subtle Inactive Resting Glass (preserves text contrast, softens specular, pauses telemetry loops) */
@@ -404,53 +385,6 @@ body.is-browser-dragging * {
   box-shadow:
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.75),
     0 25px 60px -15px rgba(15, 23, 42, 0.12);
-}
-
-/* Studio Glass Mode: Cross-fade to pre-baked frosted wallpaper when idle/unfocused instead of total flat gray */
-.window-container:not(.potato-mode) .studio-idle-wallpaper {
-  position: absolute;
-  width: var(--screen-width, 100vw);
-  height: var(--screen-height, 100vh);
-  top: 0;
-  left: 0;
-  background-image: var(--potato-bg-url, url("/wallpapers/bg-neon-waves-frosted.webp"));
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: opacity, transform;
-  transform: translate3d(calc(-1 * var(--bg-parallax-x, 0px)), calc(-1 * var(--bg-parallax-y, 0px)), 0);
-  z-index: 0;
-}
-
-.window-container:not(.potato-mode).is-unfocused .studio-idle-wallpaper,
-.window-container:not(.potato-mode) .studio-idle-wallpaper.is-idle {
-  opacity: 1;
-}
-
-/* Efficiency Mode: 100% true-vibrancy pre-baked texture with real-time screen-anchored drag parallax */
-.window-container.potato-mode .potato-parallax-bg {
-  position: absolute;
-  width: var(--screen-width, 100vw);
-  height: var(--screen-height, 100vh);
-  top: 0;
-  left: 0;
-  background-image: var(--potato-bg-url, url("/wallpapers/bg-neon-waves-frosted.webp"));
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  will-change: transform;
-  transform: translate3d(calc(-1 * var(--bg-parallax-x, 0px)), calc(-1 * var(--bg-parallax-y, 0px)), 0);
-  pointer-events: none;
-}
-
-.window-container.is-maximized .potato-parallax-bg,
-.window-container.is-maximized .studio-idle-wallpaper {
-  width: 100vw !important;
-  height: 100vh !important;
-  transform: translate3d(0, 0, 0) !important;
 }
 
 /* Efficiency Mode Shell - Default Clean Optical Glass Sheen */
@@ -926,50 +860,8 @@ body.is-browser-dragging * {
   border-color: var(--color-brand-primary) !important;
 }
 
-/* Settings Controls */
-.window-container.potato-mode .settings-nav-pills,
-.window-container.potato-mode .settings-toggle-group {
-  background: var(--surface-control) !important;
-  border: 1px solid var(--border-subtle) !important;
-}
-
-.window-container.potato-mode .settings-pill-btn,
-.window-container.potato-mode .settings-toggle-btn {
-  color: var(--color-text-secondary) !important;
-  font-weight: 550;
-  background: transparent !important;
-}
-
-.window-container.potato-mode .settings-pill-btn:hover:not(.active),
-.window-container.potato-mode .settings-toggle-btn:hover:not(.active) {
-  color: var(--color-text-primary) !important;
-  background: var(--surface-control-hover) !important;
-}
-
-.window-container.potato-mode .settings-pill-btn.active,
-.window-container.potato-mode .settings-toggle-btn.active {
-  background: var(--surface-level-3-active) !important;
-  color: var(--color-text-primary) !important;
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08) !important;
-}
-
 .window-container.potato-mode .settings-row {
   border-bottom: 1px solid var(--border-normal) !important;
-}
-
-.window-container.potato-mode .settings-wallpaper-card {
-  background: var(--surface-control) !important;
-  border: 1px solid var(--border-subtle) !important;
-}
-
-.window-container.potato-mode .settings-wallpaper-card.is-active {
-  border-color: var(--color-brand-primary) !important;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35) !important;
-}
-
-.window-container.potato-mode .settings-wallpaper-label {
-  color: var(--color-text-primary) !important;
 }
 
 .window-container.potato-mode .telemetry-pulse-dot {
@@ -982,6 +874,11 @@ body.is-browser-dragging * {
 
 .window-container.potato-mode * {
   transition-duration: 0.12s !important;
+}
+
+/* Efficiency mode: screens appear at once (no entrance animation to render on a slow GPU). */
+.window-container.potato-mode :is(.jelly-content, .browser-view-wrapper, .topbar) {
+  animation: none !important;
 }
 
 .window-container.bloom-disabled .app-shell {
@@ -998,7 +895,6 @@ body.is-browser-dragging * {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 65%),
     var(--surface-level-1);
-  transform: translateZ(0);
   border: 1px solid var(--border-subtle);
   border-top: 1px solid var(--border-specular-top);
   border-left: 1px solid var(--env-specular-side, rgba(255, 255, 255, 0.40));
@@ -1017,7 +913,6 @@ body.is-browser-dragging * {
   transition:
     grid-template-columns 420ms cubic-bezier(0.34, 1.56, 0.64, 1),
     column-gap 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  will-change: grid-template-columns;
 }
 
 .app-shell.sidebar-collapsed {
@@ -1090,7 +985,7 @@ body.is-browser-dragging * {
 
 /* Browser View Wrapper inside content-pane */
 .browser-view-wrapper {
-  animation: browserViewFadeIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: browserViewFadeIn 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   width: 100%;
   height: 100%;
   position: relative;
@@ -1137,7 +1032,7 @@ body.is-browser-dragging * {
   justify-content: space-between;
   padding: 0 4px 0 8px;
   user-select: none;
-  animation: headerFadeIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: headerFadeIn 220ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 /* Linear / Notion style header: brand on left, collapse button on right edge of sidebar */
@@ -1149,7 +1044,6 @@ body.is-browser-dragging * {
   padding-right: 4px;
   box-sizing: border-box;
   transition: width 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  will-change: width;
 }
 
 .topbar-sidebar-area.closed {
@@ -1298,7 +1192,6 @@ body.is-browser-dragging * {
     opacity 320ms ease,
     padding 420ms cubic-bezier(0.34, 1.56, 0.64, 1),
     transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  will-change: transform, opacity, padding;
 }
 
 .app-shell.sidebar-collapsed .sidebar {
@@ -1306,7 +1199,7 @@ body.is-browser-dragging * {
   padding-left: 0;
   padding-right: 0;
   border-right-color: transparent;
-  transform: translate3d(-24px, 0, 0) scale(0.96);
+  transform: translate(-24px, 0) scale(0.96);
   pointer-events: none;
 }
 
@@ -1335,7 +1228,6 @@ body.is-browser-dragging * {
   pointer-events: none;
   z-index: 0;
   transition: transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  will-change: transform;
 }
 
 .nav-item {
@@ -1416,18 +1308,8 @@ body.is-browser-dragging * {
   overflow: hidden;
 }
 
-.content-inner {
-  margin: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  text-align: center;
-}
-
 .jelly-content {
-  animation: jellyPop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  will-change: transform, opacity;
+  animation: jellyPop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
 }
 
 @keyframes jellyPop {
@@ -1446,25 +1328,7 @@ body.is-browser-dragging * {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
   }
-}
-
-.content-heading {
-  font-family: var(--font-display);
-  font-size: 26px;
-  line-height: 34px;
-  font-weight: 600;
-  color: #1e293b;
-  letter-spacing: -0.02em;
-}
-
-.content-body {
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 400;
-  color: #94a3b8;
-}
-
-/* =========================================================
+}/* =========================================================
    VISUAL REFINEMENT PASS — Depth, Contrast & Hierarchy
    Appended layer: wins the cascade at equal specificity.
    (Potato-mode !important rules keep their baked values.)
@@ -1509,21 +1373,6 @@ body.is-browser-dragging * {
   border-color: var(--border-subtle);
   box-shadow: var(--shadow-sm);
   color: var(--color-brand-primary);
-}
-
-/* --- Empty-state copy contrast --- */
-.content-heading {
-  color: var(--color-text-primary);
-  font-family: var(--font-display);
-}
-
-.content-body {
-  color: var(--color-text-secondary);
-}
-
-.window-container.potato-mode .settings-subtitle {
-  color: var(--color-text-secondary) !important;
-  font-weight: var(--font-weight-medium);
 }
 
 /* =========================================================
@@ -1696,16 +1545,6 @@ body.is-browser-dragging * {
   color: #4338ca !important;
 }
 
-.window-container[data-wallpaper-theme="dark"] .content-heading,
-[data-wallpaper-theme="dark"] .content-heading {
-  color: #ffffff !important;
-}
-
-.window-container[data-wallpaper-theme="dark"] .content-body,
-[data-wallpaper-theme="dark"] .content-body {
-  color: rgba(255, 255, 255, 0.70) !important;
-}
-
 /* In-App Browser View Container */
 .browser-view-wrapper {
   padding: 0 !important;
@@ -1720,39 +1559,10 @@ body.is-browser-dragging * {
   font-weight: 600;
 }
 
-.fps-badge {
-  color: #059669;
-  font-weight: 700;
-}
-
-.sidebar-status-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  font-size: 11px;
-  color: #475569;
-}
-
-.status-beacon-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
-  animation: beaconPulse 2s infinite ease-in-out;
-}
-
 @keyframes beaconPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.85); }
-}
-
-.status-beacon-text {
-  font-weight: 500;
-}
-
-/* Efficiency Mode: same frosted look as Studio, without live blur. */
+}/* Efficiency Mode: same frosted look as Studio, without live blur. */
 .window-container.potato-mode :is(.omnibar-card, .telemetry-ribbon, .recent-captures-card, .pipeline-empty-state, .manifest-dropzone) {
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.15) 0%, rgba(200, 190, 255, 0.1) 100%) !important;
   border: 1px solid rgba(255, 255, 255, 0.13) !important;

@@ -118,6 +118,65 @@ pub fn remove(id: &str, delete_file: bool) -> Result<(), String> {
     save_to(&path, &items)
 }
 
+/// Thumbnails at or under this size are already small enough to show as they are.
+const THUMB_SMALL_BYTES: u64 = 80 * 1024;
+
+/// Re-encodes a downloaded thumbnail to at most 640 px wide. Sites ship 1280x720 or larger, which
+/// costs ~3.7 MB of memory per card when decoded; 640 px is sharp at the library's card size.
+/// Runs FFmpeg at below-normal priority; on any failure the original stays.
+pub fn shrink_thumbnail(path: &Path) {
+    if !needs_shrinking(path) {
+        return;
+    }
+    if let Some(ffmpeg) = crate::downloader::BinaryManager::find_binary("ffmpeg") {
+        shrink_with(&ffmpeg, path);
+    }
+}
+
+fn needs_shrinking(path: &Path) -> bool {
+    let is_jpg = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("jpg"));
+    is_jpg && std::fs::metadata(path).is_ok_and(|m| m.len() > THUMB_SMALL_BYTES)
+}
+
+fn shrink_with(ffmpeg: &Path, path: &Path) {
+    let tmp = path.with_extension("small.jpg");
+    let mut cmd = std::process::Command::new(ffmpeg);
+    cmd.args(["-v", "error", "-y", "-i"])
+        .arg(path)
+        .args(["-vf", "scale='min(640,iw)':-2", "-q:v", "4", "-frames:v", "1"])
+        .arg(&tmp);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        use crate::downloader::binary_manager::{BELOW_NORMAL_PRIORITY_CLASS, CREATE_NO_WINDOW};
+        cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
+    }
+    let ok = cmd.output().is_ok_and(|o| o.status.success())
+        && std::fs::metadata(&tmp).is_ok_and(|m| m.len() > 0 && m.len() < std::fs::metadata(path).map(|o| o.len()).unwrap_or(0));
+    if ok {
+        let _ = std::fs::rename(&tmp, path);
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// One pass over the library for thumbnails saved before they were shrunk on download.
+pub fn shrink_existing_thumbnails() {
+    let big: Vec<PathBuf> = load_from(&library_file())
+        .into_iter()
+        .filter_map(|item| item.thumbnail_path.map(PathBuf::from))
+        .filter(|p| needs_shrinking(p))
+        .collect();
+    if big.is_empty() {
+        return;
+    }
+    if let Some(ffmpeg) = crate::downloader::BinaryManager::find_binary("ffmpeg") {
+        for path in big {
+            shrink_with(&ffmpeg, &path);
+        }
+    }
+}
+
 /// Finds the thumbnail yt-dlp wrote for a task (`<task_id>.<ext>`), if any.
 pub fn find_thumbnail(task_id: &str) -> Option<String> {
     let dir = thumbnails_dir();

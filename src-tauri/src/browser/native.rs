@@ -403,6 +403,16 @@ pub fn sleep_if_hidden(webview: &tauri::Webview) {
     });
 }
 
+/// Asks a page engine to run lean (drops caches, trims its processes) or back to normal.
+pub fn set_memory_target(webview: &tauri::Webview, low: bool) {
+    with_core_do(webview, move |core| unsafe {
+        if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
+            let level = if low { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+            let _ = core19.SetMemoryUsageTargetLevel(level);
+        }
+    });
+}
+
 /// Silences (or restores) all sound from the page.
 pub fn set_muted(webview: &tauri::Webview, muted: bool) {
     with_core_do(webview, move |core| unsafe {

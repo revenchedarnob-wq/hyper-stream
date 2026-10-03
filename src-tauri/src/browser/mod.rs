@@ -137,6 +137,17 @@ fn apply_bounds(app: &AppHandle) {
     }
 }
 
+/// The app's own interface runs lean while the window is minimized and returns to normal on restore.
+pub(crate) fn on_main_minimized(app: &AppHandle, minimized: bool) {
+    static WAS_MINIMIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if WAS_MINIMIZED.swap(minimized, std::sync::atomic::Ordering::Relaxed) == minimized {
+        return;
+    }
+    if let Some(ui) = app.get_webview("main") {
+        native::set_memory_target(&ui, minimized);
+    }
+}
+
 pub(crate) fn on_window_resized(app: &AppHandle) {
     if PAGE_FULLSCREEN.load(Ordering::Relaxed) {
         apply_bounds(app);

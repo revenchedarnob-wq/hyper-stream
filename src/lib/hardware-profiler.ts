@@ -72,7 +72,15 @@ export function formatGpuName(raw: string): string {
   return cleaned || 'Hardware Accelerated GPU'
 }
 
+let cachedProfile: HardwareProfile | null = null
+
+/** Probes the GPU (a short-lived WebGL context) once per session; later calls reuse the answer. */
 export function detectHardwareProfile(): HardwareProfile {
+  if (!cachedProfile) cachedProfile = probeHardwareProfile()
+  return cachedProfile
+}
+
+function probeHardwareProfile(): HardwareProfile {
   let gpuRenderer = 'Unknown Renderer'
   let isIntegratedGpu = false
 

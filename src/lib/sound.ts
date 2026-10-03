@@ -18,6 +18,19 @@ try {
 }
 
 let idleSuspendTimer: ReturnType<typeof setTimeout> | null = null
+let idleCloseTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Silent for this long: the audio thread sleeps. */
+const SUSPEND_AFTER_MS = 2500
+/** Silent for this long: the context is released, which also ends WebView2's audio process (~20 MB). */
+const CLOSE_AFTER_MS = 30_000
+
+function clearIdleTimers(): void {
+  if (idleSuspendTimer) clearTimeout(idleSuspendTimer)
+  if (idleCloseTimer) clearTimeout(idleCloseTimer)
+  idleSuspendTimer = null
+  idleCloseTimer = null
+}
 
 export function suspendHapticAudio(): void {
   if (idleSuspendTimer) {
@@ -29,19 +42,21 @@ export function suspendHapticAudio(): void {
   }
 }
 
-export function resumeHapticAudio(): void {
-  if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {})
-  }
-}
+/** Nothing to do up front: the next sound wakes the audio engine itself (a running engine costs CPU). */
+export function resumeHapticAudio(): void {}
 
-function scheduleIdleSuspend(): void {
-  if (idleSuspendTimer) clearTimeout(idleSuspendTimer)
+function scheduleIdleSleep(): void {
+  clearIdleTimers()
   idleSuspendTimer = setTimeout(() => {
     if (audioCtx && audioCtx.state === 'running') {
       audioCtx.suspend().catch(() => {})
     }
-  }, 2500)
+  }, SUSPEND_AFTER_MS)
+  idleCloseTimer = setTimeout(() => {
+    const ctx = audioCtx
+    audioCtx = null
+    ctx?.close().catch(() => {})
+  }, CLOSE_AFTER_MS)
 }
 
 function getAudioContext(): AudioContext | null {
@@ -55,7 +70,7 @@ function getAudioContext(): AudioContext | null {
   if (audioCtx && audioCtx.state === 'suspended') {
     audioCtx.resume().catch(() => {})
   }
-  scheduleIdleSuspend()
+  scheduleIdleSleep()
   return audioCtx
 }
 

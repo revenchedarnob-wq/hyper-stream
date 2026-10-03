@@ -622,7 +622,7 @@ export function Settings({
                           }
                         }}
                       >
-                        <div className="wallpaper-thumb" style={{ backgroundImage: `url("${wp.url}")` }}>
+                        <div className="wallpaper-thumb" style={{ backgroundImage: `url("${wp.thumbUrl ?? wp.url}")` }}>
                           {wp.isCustom && onDeleteCustomWallpaper && (
                             <button
                               type="button"

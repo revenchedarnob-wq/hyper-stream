@@ -406,15 +406,6 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.24);
 }
 
-.shields-popover-footer {
-  font-size: var(--font-size-3xs, 10px);
-  color: var(--color-text-tertiary);
-  text-align: center;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: var(--space-2, 8px);
-  line-height: 1.4;
-}
-
 /* --------------------------------------------------------------------------
    2. Ambient Floating Stream Detector Pill
    -------------------------------------------------------------------------- */
@@ -1557,24 +1548,6 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-}
-
-.browser-dev-simulate-btn {
-  padding: 3px 10px;
-  font-size: var(--font-size-2xs, 11px);
-  font-weight: var(--font-weight-medium, 500);
-  border-radius: var(--radius-sm, 6px);
-  background: var(--surface-control);
-  border: 1px solid var(--border-subtle);
-  border-top: 1px solid var(--border-specular-top);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition: all var(--duration-instant, 100ms) ease;
-}
-
-.browser-dev-simulate-btn:hover {
-  background: var(--surface-control-hover);
-  border-color: var(--color-brand-primary);
 }
 
 .browser-dev-external-btn {

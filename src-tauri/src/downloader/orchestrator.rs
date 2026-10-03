@@ -766,6 +766,9 @@ impl RunContext {
             subtitle_languages: if o.audio_only { Vec::new() } else { o.subtitles.clone() },
             missing: false,
         };
+        if let Some(thumb) = item.thumbnail_path.clone() {
+            std::thread::spawn(move || library::shrink_thumbnail(Path::new(&thumb)));
+        }
         let library_result = library::add(item);
 
         emit_task(&self.app_handle, &self.tasks, task_id, "download-complete");

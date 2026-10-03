@@ -3,6 +3,8 @@ export interface WallpaperOption {
   name: string
   url: string
   frostedUrl?: string
+  /** Small preview for the Settings picker (the full image is only used by the browser preview). */
+  thumbUrl?: string
   theme?: 'light' | 'dark'
   isCustom?: boolean
 }
@@ -12,6 +14,7 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     id: 'neon-waves',
     name: 'Neon Waves',
     url: '/wallpapers/bg-neon-waves.jpg',
+    thumbUrl: '/wallpapers/thumbs/bg-neon-waves.webp',
     frostedUrl: '/wallpapers/bg-neon-waves-frosted.webp',
     theme: 'dark',
   },
@@ -19,6 +22,7 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     id: 'ghibli-meadow',
     name: 'Ghibli Meadow',
     url: '/wallpapers/bg-ghibli.jpg',
+    thumbUrl: '/wallpapers/thumbs/bg-ghibli.webp',
     frostedUrl: '/wallpapers/bg-ghibli-frosted.webp',
     theme: 'light',
   },
@@ -26,6 +30,7 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     id: 'silk-loop',
     name: 'Silk Loop',
     url: '/wallpapers/bg-silk-loop.jpg',
+    thumbUrl: '/wallpapers/thumbs/bg-silk-loop.webp',
     frostedUrl: '/wallpapers/bg-silk-loop-frosted.webp',
     theme: 'light',
   },
@@ -33,6 +38,7 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     id: 'amber-flow',
     name: 'Amber Flow',
     url: '/wallpapers/bg-amber-flow.jpg',
+    thumbUrl: '/wallpapers/thumbs/bg-amber-flow.webp',
     frostedUrl: '/wallpapers/bg-amber-flow-frosted.webp',
     theme: 'light',
   },
@@ -40,6 +46,7 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     id: 'rose-petals',
     name: 'Rose Petals',
     url: '/wallpapers/bg-rose-petals.jpg',
+    thumbUrl: '/wallpapers/thumbs/bg-rose-petals.webp',
     frostedUrl: '/wallpapers/bg-rose-petals-frosted.webp',
     theme: 'light',
   },
@@ -47,6 +54,7 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     id: 'prism-wave',
     name: 'Prism Wave',
     url: '/wallpapers/bg-prism-wave.jpg',
+    thumbUrl: '/wallpapers/thumbs/bg-prism-wave.webp',
     frostedUrl: '/wallpapers/bg-prism-wave-frosted.webp',
     theme: 'light',
   },
@@ -54,6 +62,7 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     id: 'violet-discs',
     name: 'Violet Discs',
     url: '/wallpapers/bg-violet-discs.jpg',
+    thumbUrl: '/wallpapers/thumbs/bg-violet-discs.webp',
     frostedUrl: '/wallpapers/bg-violet-discs-frosted.webp',
     theme: 'light',
   },
@@ -61,6 +70,7 @@ export const SIMULATOR_WALLPAPERS: WallpaperOption[] = [
     id: 'unsplash-nocturne',
     name: 'Nocturne Horizon',
     url: '/wallpapers/bg-unsplash.jpg',
+    thumbUrl: '/wallpapers/thumbs/bg-unsplash.webp',
     frostedUrl: '/wallpapers/bg-unsplash-frosted.webp',
     theme: 'dark',
   },

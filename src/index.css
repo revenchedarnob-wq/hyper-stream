@@ -461,14 +461,6 @@ body.is-browser-environment {
   font-feature-settings: 'tnum' 1;
 }
 
-/* Micro typography utilities */
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-
 /* Thin glass scrollbars everywhere; specific areas may still override. */
 ::-webkit-scrollbar {
   width: 6px;

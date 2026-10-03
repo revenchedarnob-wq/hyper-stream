@@ -53,8 +53,3 @@
   opacity: 1;
 }
 
-/* Zero compute in Eco Fast Mode */
-.eco-mode .sheen-card::before,
-.eco-mode .sheen-card::after {
-  display: none !important;
-}

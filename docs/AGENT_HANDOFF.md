@@ -121,3 +121,9 @@ Over recent iterations, the HyperStream application underwent major visual, arch
 * **Engine downloads:** every download passes `download_to_file(url, sums_url, …)`, which refuses files whose SHA-256 doesn't match the published list. Versions are cached in `bin/versions.json` keyed by file size + mtime.
 * **Fonts:** bundled via `@fontsource-variable/*` (imported in `main.tsx`). CSP no longer allows Google Fonts; don't add remote font/style links.
 * **Opening files:** `open_media_file` only accepts media/subtitle/image extensions (`library::is_openable_media`).
+* **GPU layers (measured with CDP LayerTree):** the UI must stay at ~1 composited layer when idle. No permanent `will-change`, `translateZ(0)` or `translate3d` on static elements; wallpaper layers get `will-change` only under `.is-dragging`; entrance animations use fill-mode `backwards` (never `both`).
+* **Startup work:** Library, Settings and Browser are `React.lazy` chunks preloaded at idle; the Browser mounts on first visit. Don't add eager imports of them in `App.tsx`.
+* **Window:** opaque (`transparent: false`, `backgroundColor`), Windows draws the rounded corners and shadow. The UI engine drops to a low memory target while minimized (`browser::on_main_minimized`).
+* **Audio:** the WebAudio context sleeps 2.5 s after the last sound and is closed after 30 s (frees WebView2's audio process). Never resume it eagerly.
+* **Thumbnails:** downloads' thumbnails are shrunk to ≤640 px wide with FFmpeg after completion (`library::shrink_thumbnail`). Wallpaper picker uses `public/wallpapers/thumbs/*.webp`; full JPEGs are dropped from `tauri build` by the Vite plugin in `vite.config.ts`.
+* **Efficiency mode:** decided once on first launch with the same rule Settings recommends (≤4 GB RAM, ≤4 cores or integrated GPU), then saved; the user's choice wins after that.

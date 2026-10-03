@@ -1,10 +1,17 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { detectHardwareProfile } from './lib/hardware-profiler'
 import { listen } from '@tauri-apps/api/event'
 import './App.css'
 import { StreamHub } from './components/stream-hub/StreamHub'
-import { MediaLibrary } from './components/media-library/MediaLibrary'
-import { Settings } from './components/settings/Settings'
-import { InAppBrowser } from './components/browser/InAppBrowser'
+
+// Screens other than the Hub load on first use (smaller startup script on slow PCs) and are
+// fetched quietly once the app is idle, so the first open is still instant.
+const loadLibrary = () => import('./components/media-library/MediaLibrary')
+const loadSettings = () => import('./components/settings/Settings')
+const loadBrowser = () => import('./components/browser/InAppBrowser')
+const MediaLibrary = lazy(() => loadLibrary().then((m) => ({ default: m.MediaLibrary })))
+const Settings = lazy(() => loadSettings().then((m) => ({ default: m.Settings })))
+const InAppBrowser = lazy(() => loadBrowser().then((m) => ({ default: m.InAppBrowser })))
 import { IconCompass } from './components/browser/Icons'
 
 import {
@@ -139,10 +146,25 @@ export default function App() {
       if (stored !== null) {
         return stored === 'true'
       }
-      return false
     } catch {
-      return false
+      // Storage unavailable: fall through to the hardware check.
     }
+    // First launch: the same rule Settings recommends with, decided once and saved (the GPU is
+    // probed this one time only). Switching in Settings replaces it.
+    // Existing installs (any saved HyperStream setting) keep the Studio look they've been using.
+    let existingInstall = false
+    try {
+      existingInstall = Object.keys(localStorage).some((k) => k.startsWith('hyperstream_'))
+    } catch {
+      // Treat as a new install.
+    }
+    const efficient = !existingInstall && detectHardwareProfile().recommendedRenderingProfile === 'potato'
+    try {
+      localStorage.setItem('hyperstream_potato_mode_v3', String(efficient))
+    } catch {
+      // Not saved: decided again next launch.
+    }
+    return efficient
   })
   const [isBloomEnabled, setIsBloomEnabled] = useState(() => {
     try {
@@ -605,6 +627,20 @@ export default function App() {
 
   const activeIndex = Math.max(0, NAV_ITEMS.findIndex((item) => item.id === activeNav))
 
+  // The browser is built on its first visit and kept afterwards (its page survives tab switches).
+  const [browserMounted, setBrowserMounted] = useState(false)
+  if (activeNav === 'browser' && !browserMounted) setBrowserMounted(true)
+
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1500))
+    const handle = idle(() => {
+      void loadLibrary()
+      void loadSettings()
+      void loadBrowser()
+    })
+    return () => (window.cancelIdleCallback ?? window.clearTimeout)(handle)
+  }, [])
+
   const currentWallpaperObj = wallpapersList.find((w) => w.url === browserWallpaper) || SIMULATOR_WALLPAPERS[0]
   const prevWallpaperObj = prevWallpaper ? wallpapersList.find((w) => w.url === prevWallpaper) : null
   const frostedBgUrl = currentWallpaperObj?.frostedUrl || browserWallpaper
@@ -804,7 +840,7 @@ export default function App() {
             <div
               className="nav-jelly-indicator"
               style={{
-                transform: `translate3d(0, ${activeIndex * 40}px, 0)`,
+                transform: `translateY(${activeIndex * 40}px)`,
               }}
             />
             {NAV_ITEMS.map((item) => {
@@ -848,11 +884,14 @@ export default function App() {
           </div>
           {activeNav === 'library' && (
             <div key="library" className="hub-view-container jelly-content">
-              <MediaLibrary />
+              <Suspense fallback={null}>
+                <MediaLibrary />
+              </Suspense>
             </div>
           )}
           {activeNav === 'settings' && (
             <div key="settings" className="hub-view-container jelly-content">
+              <Suspense fallback={null}>
               <Settings
                 isPotatoMode={isPotatoMode}
                 onTogglePotatoMode={handleTogglePotatoMode}
@@ -869,8 +908,10 @@ export default function App() {
                 onAddCustomWallpaper={handleAddCustomWallpaper}
                 onDeleteCustomWallpaper={handleDeleteCustomWallpaper}
               />
+              </Suspense>
             </div>
           )}
+          {browserMounted && (
           <div
             className="hub-view-container browser-view-wrapper"
             style={{
@@ -879,6 +920,7 @@ export default function App() {
               width: '100%',
             }}
           >
+            <Suspense fallback={null}>
             <InAppBrowser
               navigateRequest={browserRequest}
               onOpenInHub={(url) => {
@@ -895,7 +937,9 @@ export default function App() {
               onTopBarPointerUp={isUnifiedBrowserMode ? handleTopBarPointerUp : undefined}
               onTopBarDoubleClick={isUnifiedBrowserMode ? handleTopBarDoubleClick : undefined}
             />
+            </Suspense>
           </div>
+          )}
         </main>
       </div>
     )

@@ -531,6 +531,9 @@ pub fn run() {
                 }
                 tauri::WindowEvent::Resized(_) => {
                     use tauri::Emitter;
+                    if window.label() == "main" {
+                        browser::on_main_minimized(window.app_handle(), window.is_minimized().unwrap_or(false));
+                    }
                     browser::on_window_resized(window.app_handle());
                     let _ = window.emit("window-resized", ());
                 }
@@ -565,6 +568,12 @@ pub fn run() {
             let orchestrator = downloader::DownloadOrchestrator::new();
             orchestrator.attach_app(app.handle().clone());
             app.manage(orchestrator);
+
+            // Thumbnails saved by older versions are shrunk once, after startup has settled.
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_secs(20));
+                downloader::library::shrink_existing_thumbnails();
+            });
 
             // Keep the app-managed yt-dlp fresh; sites change their pages constantly.
             tauri::async_runtime::spawn(async {

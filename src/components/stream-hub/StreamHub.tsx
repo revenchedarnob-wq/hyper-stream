@@ -135,10 +135,14 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed,
     let disposed = false
     const refresh = () => getSystemVitals(settings.downloadDir).then((v) => !disposed && v && setVitals(v))
     void refresh()
-    const timer = window.setInterval(refresh, 15000)
+    // Minimized or hidden: no wake-ups; catch up as soon as the window shows again.
+    const timer = window.setInterval(() => !document.hidden && void refresh(), 15000)
+    const onVisible = () => !document.hidden && void refresh()
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       disposed = true
       window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [settings.downloadDir, library.items.length])
 
