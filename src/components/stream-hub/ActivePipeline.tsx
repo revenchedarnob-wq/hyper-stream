@@ -3,7 +3,6 @@ import {
   IconPause,
   IconPlay,
   IconX,
-  IconFilm,
   IconRadio,
   IconClock,
   IconAlertCircle,
@@ -13,412 +12,339 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconTrash,
+  IconFolder,
+  IconVolume2,
 } from './Icons'
 import { playHapticClick } from '@/lib/sound'
-import { BatchTransferCard } from './BatchTransferCard'
+import { GlassSelect } from '../common/GlassSelect'
+import type { NativeDownloadProgress } from '@/lib/tauri-bridge'
+import { formatBytes, formatEta, formatSpeed, hostnameOf } from '@/lib/format'
 
-export type TransferStatus =
-  | 'downloading'
-  | 'ingesting'
-  | 'paused'
-  | 'queued'
-  | 'connecting'
-  | 'processing'
-  | 'completed'
-  | 'failed'
-  | 'retrying'
-  | 'cancelled'
-
-export interface BatchEpisode {
-  id: string
-  episodeNumber: number
-  title: string
-  size: string
-  status: 'completed' | 'ingesting' | 'queued' | 'paused'
-  progress: number
-  speed: string
+export interface TransferActions {
+  onPause: (id: string) => void
+  onResume: (id: string) => void
+  onRetry: (id: string) => void
+  onRemove: (id: string) => void
+  onOpen: (task: NativeDownloadProgress) => void
+  onReveal: (task: NativeDownloadProgress) => void
+  onReorder: (id: string, direction: 'up' | 'down') => void
 }
 
-export interface BatchTransfer {
-  seriesTitle: string
-  seasonNumber: number
-  totalEpisodes: number
-  completedEpisodes: number
-  overallProgress: number
-  aggregateSpeed: string
-  timeRemaining: string
-  isExpanded?: boolean
-  episodes: BatchEpisode[]
+interface ActivePipelineProps extends TransferActions {
+  tasks: NativeDownloadProgress[]
+  queueOrder: string[]
+  maxConcurrent: number
+  onMaxConcurrentChange: (limit: number) => void
+  onPauseAll: () => void
+  onResumeAll: () => void
+  onClearFinished: () => void
 }
 
-export type BatchTransferItem = BatchTransfer
+const FINISHED = new Set(['completed', 'failed', 'cancelled'])
 
-export interface DownloadItem {
-  id: string
-  title: string
-  sourceType: 'anime' | 'stream' | 'vod'
-  quality: string
-  codec: string
-  audioLang: string
-  progress: number
-  downloadedSize: string
-  totalSize: string
-  speed: string
-  eta: string
-  status: TransferStatus
-  errorReason?: string
-  batch?: BatchTransfer
-}
+// Same range as Settings → Downloads at once.
+const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))
 
-interface ActivePipelineProps {
-  items: DownloadItem[]
-  onTogglePause: (id: string) => void
-  onCancel: (id: string) => void
-  onRetry?: (id: string) => void
-  queueOrder?: string[]
-  maxConcurrent?: number
-  onMaxConcurrentChange?: (limit: number) => void
-  onReorder?: (id: string, direction: 'up' | 'down') => void
-  onPauseAll?: () => void
-  onResumeAll?: () => void
-  onClearFinished?: () => void
-}
-
-export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(({
-  items,
-  onTogglePause,
-  onCancel,
-  onRetry,
-  queueOrder = [],
-  maxConcurrent = 3,
-  onMaxConcurrentChange,
-  onReorder,
-  onPauseAll,
-  onResumeAll,
-  onClearFinished,
-}) => {
-  const renderStatusBadge = (status: TransferStatus, queueIndex: number) => {
-    switch (status) {
-      case 'downloading':
-      case 'ingesting':
-        return (
-          <span className="meta-status ingesting">
-            <span className="meta-status-pulse" />
-            Ingesting
-          </span>
-        )
-      case 'paused':
-        return (
-          <span className="meta-status paused">
-            <span className="meta-status-dot paused-dot" />
-            Paused
-          </span>
-        )
-      case 'queued':
-        return (
-          <span className="meta-status queued">
-            <IconClock size={11} />
-            {queueIndex >= 0 ? `#${queueIndex + 1} in Queue` : 'Queued'}
-          </span>
-        )
-      case 'connecting':
-        return (
-          <span className="meta-status connecting">
-            <span className="meta-status-pulse cyan" />
-            Connecting
-          </span>
-        )
-      case 'processing':
-        return (
-          <span className="meta-status processing">
-            <IconCpu size={11} />
-            Transcoding
-          </span>
-        )
-      case 'completed':
-        return (
-          <span className="meta-status completed">
-            <IconCheckCircle size={11} />
-            Complete
-          </span>
-        )
-      case 'failed':
-        return (
-          <span className="meta-status failed">
-            <IconAlertCircle size={11} />
-            Failed
-          </span>
-        )
-      case 'retrying':
-        return (
-          <span className="meta-status retrying">
-            <IconRefreshCw size={11} className="spin-slow" />
-            Retrying
-          </span>
-        )
-      case 'cancelled':
-        return (
-          <span className="meta-status cancelled">
-            <IconX size={11} />
-            Cancelled
-          </span>
-        )
-      default:
-        return null
-    }
+function StatusBadge({ task, queueIndex }: { task: NativeDownloadProgress; queueIndex: number }) {
+  switch (task.state) {
+    case 'downloading':
+      return (
+        <span className="meta-status ingesting">
+          <span className="meta-status-pulse" />
+          Downloading
+        </span>
+      )
+    case 'remuxing':
+      return (
+        <span className="meta-status processing">
+          <IconCpu size={11} />
+          {task.stage || 'Processing'}
+        </span>
+      )
+    case 'paused':
+      return (
+        <span className="meta-status paused">
+          <span className="meta-status-dot paused-dot" />
+          Paused
+        </span>
+      )
+    case 'queued':
+      return task.error_message ? (
+        <span className="meta-status retrying">
+          <IconRefreshCw size={11} className="spin-slow" />
+          Retrying
+        </span>
+      ) : (
+        <span className="meta-status queued">
+          <IconClock size={11} />
+          {queueIndex >= 0 ? `#${queueIndex + 1} in queue` : 'Queued'}
+        </span>
+      )
+    case 'completed':
+      return (
+        <span className="meta-status completed">
+          <IconCheckCircle size={11} />
+          Done
+        </span>
+      )
+    case 'failed':
+      return (
+        <span className="meta-status failed">
+          <IconAlertCircle size={11} />
+          Failed
+        </span>
+      )
+    case 'cancelled':
+      return (
+        <span className="meta-status cancelled">
+          <IconX size={11} />
+          Cancelled
+        </span>
+      )
   }
+}
 
-  const isPaused = (status: TransferStatus) => status === 'paused'
-  const isFailed = (status: TransferStatus) => status === 'failed'
-  const isCompleted = (status: TransferStatus) => status === 'completed'
-  const isQueued = (status: TransferStatus) => status === 'queued'
-
-  const hasFinished = items.some((i) => i.status === 'completed' || i.status === 'failed' || i.status === 'cancelled')
-  const hasActive = items.some((i) => i.status === 'downloading' || i.status === 'ingesting' || i.status === 'queued')
-  const hasPaused = items.some((i) => i.status === 'paused')
-
+function IconButton({
+  label,
+  onClick,
+  className = '',
+  disabled,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  disabled?: boolean
+  children: React.ReactNode
+}) {
   return (
-    <div className="pipeline-section">
-      <div className="section-header">
-        <h2 className="section-title">
-          <span>Active Transfers</span>
-          <span className="section-badge-count">{items.length}</span>
-        </h2>
+    <button
+      type="button"
+      className={`pipeline-action-btn ${className}`}
+      disabled={disabled}
+      onClick={() => {
+        playHapticClick()
+        onClick()
+      }}
+      title={label}
+      aria-label={label}
+    >
+      {children}
+    </button>
+  )
+}
 
-        {/* Global Queue Controls */}
-        <div className="pipeline-header-controls">
-          {onMaxConcurrentChange && (
-            <div className="pipeline-concurrency-wrap" title="Maximum concurrent active downloads">
-              <span className="pipeline-control-label">Limit:</span>
-              <select
+function progressLine(task: NativeDownloadProgress): { left: string; middle: string; right: string } {
+  const sizes = task.total_bytes
+    ? `${formatBytes(task.downloaded_bytes)} of ${formatBytes(task.total_bytes)}`
+    : task.downloaded_bytes > 0
+      ? formatBytes(task.downloaded_bytes)
+      : ''
+  switch (task.state) {
+    case 'downloading':
+      return { left: sizes || 'Starting…', middle: formatSpeed(task.speed_bytes_per_sec), right: formatEta(task.eta_seconds) }
+    case 'remuxing':
+      return { left: sizes, middle: '', right: 'Almost done' }
+    case 'queued':
+      return { left: task.error_message ? task.stage : 'Waiting for a free slot', middle: '', right: '' }
+    case 'paused':
+      return { left: sizes || 'Not started', middle: '', right: `${Math.round(task.progress_percent)}%` }
+    case 'completed':
+      return { left: formatBytes(task.total_bytes ?? task.downloaded_bytes), middle: '', right: '' }
+    case 'cancelled':
+      return { left: 'Cancelled', middle: '', right: '' }
+    case 'failed':
+      return { left: '', middle: '', right: '' }
+  }
+}
+
+export const ActivePipeline: React.FC<ActivePipelineProps> = React.memo(
+  ({
+    tasks,
+    queueOrder,
+    maxConcurrent,
+    onMaxConcurrentChange,
+    onPauseAll,
+    onResumeAll,
+    onClearFinished,
+    ...actions
+  }) => {
+    const hasFinished = tasks.some((t) => FINISHED.has(t.state))
+    const hasActive = tasks.some((t) => t.state === 'downloading' || t.state === 'queued')
+    const hasPaused = tasks.some((t) => t.state === 'paused')
+
+    return (
+      <div className="pipeline-section">
+        <div className="section-header">
+          <h2 className="section-title">
+            <span>Transfers</span>
+            <span className="section-badge-count">{tasks.length}</span>
+          </h2>
+
+          <div className="pipeline-header-controls">
+            <div className="pipeline-concurrency-wrap" title="How many downloads run at the same time">
+              <span className="pipeline-control-label">At once:</span>
+              <GlassSelect
                 className="pipeline-concurrency-select"
-                value={maxConcurrent}
-                onChange={(e) => {
-                  playHapticClick()
-                  onMaxConcurrentChange(Number(e.target.value))
-                }}
-                aria-label="Max concurrent downloads"
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                  <option key={n} value={n}>
-                    {n} Parallel
-                  </option>
-                ))}
-              </select>
+                value={String(maxConcurrent)}
+                options={CONCURRENCY_OPTIONS}
+                onChange={(v) => onMaxConcurrentChange(Number(v))}
+                ariaLabel="Downloads at the same time"
+              />
             </div>
-          )}
 
-          {hasActive && onPauseAll && (
-            <button
-              type="button"
-              className="pipeline-header-btn"
-              onClick={() => {
-                playHapticClick()
-                onPauseAll()
-              }}
-              title="Pause all transfers"
-            >
-              <IconPause size={12} />
-              <span>Pause All</span>
-            </button>
-          )}
+            {hasActive && (
+              <button type="button" className="pipeline-header-btn" onClick={() => { playHapticClick(); onPauseAll() }}>
+                <IconPause size={12} />
+                <span>Pause all</span>
+              </button>
+            )}
+            {hasPaused && (
+              <button type="button" className="pipeline-header-btn" onClick={() => { playHapticClick(); onResumeAll() }}>
+                <IconPlay size={12} />
+                <span>Resume all</span>
+              </button>
+            )}
+            {hasFinished && (
+              <button type="button" className="pipeline-header-btn clear-btn" onClick={() => { playHapticClick(); onClearFinished() }}>
+                <IconTrash size={12} />
+                <span>Clear finished</span>
+              </button>
+            )}
+          </div>
+        </div>
 
-          {hasPaused && onResumeAll && (
-            <button
-              type="button"
-              className="pipeline-header-btn"
-              onClick={() => {
-                playHapticClick()
-                onResumeAll()
-              }}
-              title="Resume all transfers"
-            >
-              <IconPlay size={12} />
-              <span>Resume All</span>
-            </button>
-          )}
+        <div className="pipeline-cards-list">
+          {tasks.length === 0 ? (
+            <div className="pipeline-empty-state">Nothing downloading. Paste a link above to get started.</div>
+          ) : (
+            tasks.map((task) => {
+              const queueIndex = queueOrder.indexOf(task.task_id)
+              const queued = task.state === 'queued'
+              const line = progressLine(task)
+              const metaParts = [task.quality_label, hostnameOf(task.source_url)].filter(Boolean)
 
-          {hasFinished && onClearFinished && (
-            <button
-              type="button"
-              className="pipeline-header-btn clear-btn"
-              onClick={() => {
-                playHapticClick()
-                onClearFinished()
-              }}
-              title="Clear finished and cancelled tasks"
-            >
-              <IconTrash size={12} />
-              <span>Clear Finished</span>
-            </button>
+              return (
+                <div key={task.task_id} className={`pipeline-card state-${task.state}`}>
+                  <div className="pipeline-card-top">
+                    <div className="pipeline-thumbnail-wrap">
+                      <div className="pipeline-thumbnail">
+                        {task.thumbnail ? (
+                          <img className="pipeline-thumbnail-img" src={task.thumbnail} alt="" referrerPolicy="no-referrer" />
+                        ) : task.audio_only ? (
+                          <IconVolume2 size={20} />
+                        ) : (
+                          <IconRadio size={20} />
+                        )}
+                      </div>
+                      {task.container && <span className="pipeline-type-badge">{task.container}</span>}
+                    </div>
+
+                    <div className="pipeline-info">
+                      <div className="pipeline-title" title={task.title}>
+                        {task.title}
+                      </div>
+                      <div className="pipeline-meta-line">
+                        {metaParts.map((part) => (
+                          <React.Fragment key={part}>
+                            <span className="meta-quality">{part}</span>
+                            <span className="meta-dot">·</span>
+                          </React.Fragment>
+                        ))}
+                        <StatusBadge task={task} queueIndex={queueIndex} />
+                      </div>
+                    </div>
+
+                    <div className="pipeline-controls">
+                      {queued && queueIndex >= 0 && (
+                        <div className="pipeline-order-controls">
+                          <button
+                            type="button"
+                            className="pipeline-reorder-btn"
+                            disabled={queueIndex <= 0}
+                            onClick={() => { playHapticClick(); actions.onReorder(task.task_id, 'up') }}
+                            title="Move up"
+                            aria-label="Move up in queue"
+                          >
+                            <IconChevronUp size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            className="pipeline-reorder-btn"
+                            disabled={queueIndex >= queueOrder.length - 1}
+                            onClick={() => { playHapticClick(); actions.onReorder(task.task_id, 'down') }}
+                            title="Move down"
+                            aria-label="Move down in queue"
+                          >
+                            <IconChevronDown size={13} />
+                          </button>
+                        </div>
+                      )}
+
+                      {(task.state === 'downloading' || queued) && (
+                        <IconButton label="Pause" className="primary-control" onClick={() => actions.onPause(task.task_id)}>
+                          <IconPause size={13} />
+                        </IconButton>
+                      )}
+                      {task.state === 'paused' && (
+                        <IconButton label="Resume" className="primary-control is-paused" onClick={() => actions.onResume(task.task_id)}>
+                          <IconPlay size={13} />
+                        </IconButton>
+                      )}
+                      {(task.state === 'failed' || task.state === 'cancelled') && (
+                        <IconButton label="Try again" className="retry" onClick={() => actions.onRetry(task.task_id)}>
+                          <IconRefreshCw size={13} />
+                        </IconButton>
+                      )}
+                      {task.state === 'completed' && (
+                        <>
+                          <IconButton label="Play" className="primary-control" onClick={() => actions.onOpen(task)}>
+                            <IconPlay size={13} />
+                          </IconButton>
+                          <IconButton label="Show in folder" onClick={() => actions.onReveal(task)}>
+                            <IconFolder size={13} />
+                          </IconButton>
+                        </>
+                      )}
+
+                      <IconButton
+                        label={FINISHED.has(task.state) ? 'Remove from list' : 'Cancel download'}
+                        className="cancel"
+                        onClick={() => actions.onRemove(task.task_id)}
+                      >
+                        <IconX size={13} />
+                      </IconButton>
+                    </div>
+                  </div>
+
+                  {task.state === 'failed' ? (
+                    <div className="pipeline-error-line" role="alert">
+                      <IconAlertCircle size={12} />
+                      <span>{task.error_message || 'The download failed.'}</span>
+                    </div>
+                  ) : (
+                    <div className="pipeline-progress-container">
+                      {task.state !== 'completed' && task.state !== 'cancelled' && (
+                        <div className="pipeline-progress-track">
+                          <div
+                            className={`pipeline-progress-bar ${task.state === 'paused' ? 'is-paused' : ''} ${task.state === 'remuxing' ? 'is-indeterminate' : ''}`}
+                            style={{ width: `${Math.max(0, Math.min(100, task.progress_percent))}%` }}
+                          />
+                        </div>
+                      )}
+                      <div className="pipeline-progress-meta">
+                        <span className="pipeline-progress-size">{line.left}</span>
+                        <span className="pipeline-speed-badge">{line.middle}</span>
+                        <span className="pipeline-progress-eta">{line.right}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
       </div>
-
-      <div className="pipeline-cards-list">
-        {items.length === 0 ? (
-          <div className="pipeline-empty-state">
-            All transfers complete. Paste a stream URL above or drop a playlist to begin capture.
-          </div>
-        ) : (
-          items.map((item) => {
-            if (item.batch) {
-              return (
-                <BatchTransferCard
-                  key={item.id}
-                  item={item}
-                  onTogglePause={onTogglePause}
-                  onCancel={onCancel}
-                />
-              )
-            }
-
-            const paused = isPaused(item.status)
-            const failed = isFailed(item.status)
-            const completed = isCompleted(item.status)
-            const queued = isQueued(item.status)
-
-            const queueIndex = queueOrder.indexOf(item.id)
-            const canMoveUp = queued && queueIndex > 0
-            const canMoveDown = queued && queueIndex >= 0 && queueIndex < queueOrder.length - 1
-
-            return (
-              <div key={item.id} className={`pipeline-card state-${item.status}`}>
-                <div className="pipeline-card-top">
-                  <div className="pipeline-thumbnail-wrap">
-                    <div className="pipeline-thumbnail">
-                      {item.sourceType === 'anime' ? (
-                        <IconFilm size={22} />
-                      ) : (
-                        <IconRadio size={22} />
-                      )}
-                    </div>
-                    <span className="pipeline-type-badge">
-                      {item.quality.includes('4K') ? '4K' : item.quality.includes('1440p') ? '2K' : 'HLS'}
-                    </span>
-                  </div>
-
-                  <div className="pipeline-info">
-                    {/* Primary Title: single-line truncation with full tooltip */}
-                    <div className="pipeline-title" title={item.title}>
-                      {item.title}
-                    </div>
-
-                    <div className="pipeline-meta-line">
-                      <span className="meta-quality">{item.quality}</span>
-                      <span className="meta-dot">·</span>
-                      <span className="meta-codec">{item.codec}</span>
-                      <span className="meta-dot">·</span>
-                      <span className="meta-audio">{item.audioLang}</span>
-                      <span className="meta-dot">·</span>
-                      {renderStatusBadge(item.status, queueIndex)}
-                    </div>
-                  </div>
-
-                  <div className="pipeline-controls">
-                    {/* Reorder controls for queued items */}
-                    {queued && onReorder && (
-                      <div className="pipeline-order-controls">
-                        <button
-                          type="button"
-                          className="pipeline-reorder-btn"
-                          disabled={!canMoveUp}
-                          onClick={() => {
-                            playHapticClick()
-                            onReorder(item.id, 'up')
-                          }}
-                          title="Move up in queue"
-                          aria-label="Move up in queue"
-                        >
-                          <IconChevronUp size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          className="pipeline-reorder-btn"
-                          disabled={!canMoveDown}
-                          onClick={() => {
-                            playHapticClick()
-                            onReorder(item.id, 'down')
-                          }}
-                          title="Move down in queue"
-                          aria-label="Move down in queue"
-                        >
-                          <IconChevronDown size={13} />
-                        </button>
-                      </div>
-                    )}
-
-                    {failed ? (
-                      <button
-                        type="button"
-                        className="pipeline-action-btn retry"
-                        onClick={() => {
-                          playHapticClick()
-                          onRetry?.(item.id)
-                        }}
-                        title="Retry download"
-                        aria-label="Retry download"
-                      >
-                        <IconRefreshCw size={13} />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className={`pipeline-action-btn primary-control ${paused ? 'is-paused' : ''}`}
-                        onClick={() => {
-                          playHapticClick()
-                          onTogglePause(item.id)
-                        }}
-                        title={paused ? 'Resume transfer' : 'Pause transfer'}
-                        aria-label={paused ? 'Resume transfer' : 'Pause transfer'}
-                      >
-                        {paused ? <IconPlay size={13} /> : <IconPause size={13} />}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      className="pipeline-action-btn cancel"
-                      onClick={() => {
-                        playHapticClick()
-                        onCancel(item.id)
-                      }}
-                      title="Cancel and remove transfer"
-                      aria-label="Cancel and remove transfer"
-                    >
-                      <IconX size={13} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Progress bar and metrics (1-second scan) */}
-                <div className="pipeline-progress-container">
-                  <div className="pipeline-progress-track">
-                    <div
-                      className={`pipeline-progress-bar ${paused ? 'is-paused' : ''} ${failed ? 'is-failed' : ''} ${completed ? 'is-complete' : ''}`}
-                      style={{
-                        width: `${item.progress}%`,
-                      }}
-                    />
-                  </div>
-
-                  <div className="pipeline-progress-meta">
-                    <span className="pipeline-progress-size">
-                      {item.downloadedSize} of {item.totalSize}
-                    </span>
-                    <span className={`pipeline-speed-badge ${paused ? 'is-paused' : ''}`}>
-                      {paused ? 'Paused' : queued ? (queueIndex >= 0 ? `#${queueIndex + 1} in Queue` : 'In Queue') : failed ? 'Failed' : item.speed}
-                    </span>
-                    <span className="pipeline-progress-eta">
-                      {paused ? 'Suspended' : failed ? (item.errorReason || 'Network error') : queued ? 'Waiting for slot' : completed ? '100%' : `${item.eta} left`}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )
-          })
-        )}
-      </div>
-    </div>
-  )
-})
+    )
+  },
+)

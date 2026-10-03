@@ -2,25 +2,17 @@ export interface DetectedStream {
   id: string
   url: string
   title: string
-  format: 'HLS' | 'DASH' | 'MP4' | 'WebM' | 'Live'
-  resolution?: string
-  bitrateKbps?: number
+  /** Site name for pages ("YouTube"), container for direct media ("HLS", "MP4"). */
+  format: string
+  live?: boolean
   timestamp: number
-}
-
-export interface ShieldsMetrics {
-  adsBlocked: number
-  trackersBlocked: number
-  bandwidthSavedBytes: number
-  fingerprintingBlocked: number
-  isEnabled: boolean
 }
 
 export interface SpeedDialItem {
   id: string
   title: string
   url: string
-  category: 'streaming' | 'anime' | 'music' | 'custom'
+  category: 'streaming' | 'video' | 'music' | 'social' | 'anime' | 'custom'
   iconKey: string
   accentColor?: string
 }

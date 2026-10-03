@@ -83,16 +83,22 @@ pub fn sanitize_for_persistence(entry: &QueueEntry, state: DownloadState) -> Per
     }
 }
 
+/// %APPDATA%/HyperStream — shared home for queue.json, library.json and thumbnails.
+pub fn app_data_dir() -> PathBuf {
+    let base = std::env::var("APPDATA")
+        .or_else(|_| std::env::var("LOCALAPPDATA"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string())).join(".hyperstream")
+        });
+    let dir = base.join("HyperStream");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 /// Path to queue.json in %APPDATA%/HyperStream.
 pub fn get_queue_file_path() -> PathBuf {
-    if let Ok(app_data) = std::env::var("APPDATA") {
-        PathBuf::from(app_data).join("HyperStream").join("queue.json")
-    } else if let Ok(local_data) = std::env::var("LOCALAPPDATA") {
-        PathBuf::from(local_data).join("HyperStream").join("queue.json")
-    } else {
-        let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".hyperstream").join("queue.json")
-    }
+    app_data_dir().join("queue.json")
 }
 
 /// Save entries to disk atomically (write to temp file then rename).
@@ -198,14 +204,11 @@ mod tests {
             QueueEntry {
                 task_id: "dl-low".to_string(),
                 options: DownloadOptions {
-                    url: "https://example.com/1".to_string(),
-                    title: "Low Priority".to_string(),
-                    format_id: None,
-                    output_dir: None,
-                    audio_formats: vec![],
-                    subtitles: vec![],
-                    cookies: None,
-                },
+                url: "https://example.com/1".to_string(),
+                title: "Low Priority".to_string(),
+                cookies: None,
+                ..Default::default()
+            },
                 priority: 0,
                 enqueued_at: 200,
                 attempts: 0,
@@ -215,14 +218,11 @@ mod tests {
             QueueEntry {
                 task_id: "dl-high".to_string(),
                 options: DownloadOptions {
-                    url: "https://example.com/2".to_string(),
-                    title: "High Priority".to_string(),
-                    format_id: None,
-                    output_dir: None,
-                    audio_formats: vec![],
-                    subtitles: vec![],
-                    cookies: None,
-                },
+                url: "https://example.com/2".to_string(),
+                title: "High Priority".to_string(),
+                cookies: None,
+                ..Default::default()
+            },
                 priority: 10,
                 enqueued_at: 500,
                 attempts: 0,
@@ -232,14 +232,11 @@ mod tests {
             QueueEntry {
                 task_id: "dl-first".to_string(),
                 options: DownloadOptions {
-                    url: "https://example.com/3".to_string(),
-                    title: "First In".to_string(),
-                    format_id: None,
-                    output_dir: None,
-                    audio_formats: vec![],
-                    subtitles: vec![],
-                    cookies: None,
-                },
+                url: "https://example.com/3".to_string(),
+                title: "First In".to_string(),
+                cookies: None,
+                ..Default::default()
+            },
                 priority: 0,
                 enqueued_at: 100,
                 attempts: 0,
@@ -285,11 +282,8 @@ mod tests {
             options: DownloadOptions {
                 url: "https://example.com/test".to_string(),
                 title: "Sensitive Stream".to_string(),
-                format_id: Some("best".to_string()),
-                output_dir: None,
-                audio_formats: vec![],
-                subtitles: vec![],
                 cookies: Some("session_secret=xyz12345; auth=token_abcdef".to_string()),
+                ..Default::default()
             },
             priority: 5,
             enqueued_at: 1000,

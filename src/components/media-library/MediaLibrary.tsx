@@ -1,270 +1,170 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './media-library.css'
-import { INITIAL_MEDIA_ITEMS } from './mock-media-data'
-import type { MediaItem, EpisodeItem } from './mock-media-data'
 import { MediaGrid } from './MediaGrid'
 import { MediaList } from './MediaList'
-import { GlassPlayerModal } from './GlassPlayerModal'
-import { SeriesDetailView } from './SeriesDetailView'
-import { revealInExplorer, getSystemVitals, type SystemVitalsData } from '@/lib/tauri-bridge'
-import { IconSearch, IconX, IconGrid, IconList, IconHardDrive, IconFolder } from '../stream-hub/Icons'
+import {
+  errorMessage,
+  getDefaultDownloadDir,
+  getSystemVitals,
+  isTauri,
+  openMediaFile,
+  removeLibraryItem,
+  revealInExplorer,
+  type LibraryItem,
+  type SystemVitalsData,
+} from '@/lib/tauri-bridge'
+import { IconSearch, IconX, IconGrid, IconList, IconHardDrive, IconFolder, IconFilm, IconTrash } from '../stream-hub/Icons'
 import { GlassSelect } from '../common/GlassSelect'
 import { playHapticClick, playHapticGlass, playHapticPop } from '@/lib/sound'
+import { useLibrary, useSettings } from '@/lib/hooks'
+import { formatBytes } from '@/lib/format'
+import { filterLibrary, type LibraryCategory, type LibrarySort } from './library-filter'
 
-const SORT_OPTIONS = [
+
+const SORT_OPTIONS: { value: LibrarySort; label: string }[] = [
   { value: 'recent', label: 'Recent' },
   { value: 'size', label: 'Size' },
   { value: 'duration', label: 'Duration' },
   { value: 'title', label: 'Title' },
 ]
 
+const VIEW_KEY = 'hyperstream_library_view'
+
+function loadView(): 'grid' | 'list' {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'
+  } catch {
+    return 'grid'
+  }
+}
+
 export const MediaLibrary: React.FC = () => {
-  const [items, setItems] = useState<MediaItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('hyperstream_media_items')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((item: MediaItem) => {
-            const initialMatch = INITIAL_MEDIA_ITEMS.find((init) => init.id === item.id)
-            return initialMatch
-              ? { ...item, ...initialMatch, posterUrl: initialMatch.posterUrl || item.posterUrl }
-              : item
-          })
-        }
-      }
-    } catch {
-      // Ignore storage read error
-    }
-    return INITIAL_MEDIA_ITEMS
-  })
+  const settings = useSettings()
+  const { items, loaded } = useLibrary()
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeCategory, setActiveCategory] = useState('all')
-  const [sortBy, setSortBy] = useState('recent')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [playerItem, setPlayerItem] = useState<MediaItem | null>(null)
-  const [selectedSeries, setSelectedSeries] = useState<MediaItem | null>(null)
-  const [notification, setNotification] = useState<string | null>(null)
+  const [category, setCategory] = useState<LibraryCategory>('all')
+  const [sortBy, setSortBy] = useState<LibrarySort>('recent')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(loadView)
+  const [pendingDelete, setPendingDelete] = useState<LibraryItem | null>(null)
   const [vitals, setVitals] = useState<SystemVitalsData | null>(null)
+  const [defaultDir, setDefaultDir] = useState('')
+  const [toast, setToast] = useState<{ text: string; tone: 'info' | 'error' } | null>(null)
+  const toastTimer = useRef<number | undefined>(undefined)
+
+  const show = useCallback((text: string, tone: 'info' | 'error' = 'info') => {
+    setToast({ text, tone })
+    window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(null), tone === 'error' ? 5000 : 3000)
+  }, [])
+  useEffect(() => () => window.clearTimeout(toastTimer.current), [])
 
   useEffect(() => {
-    let mounted = true
-    getSystemVitals().then((v) => {
-      if (mounted && v) setVitals(v)
-    }).catch(() => {})
+    void getDefaultDownloadDir().then(setDefaultDir)
+  }, [])
 
-    const timer = setInterval(() => {
-      getSystemVitals().then((v) => {
-        if (mounted && v) setVitals(v)
-      }).catch(() => {})
-    }, 4000)
-
+  useEffect(() => {
+    if (!isTauri()) return
+    let disposed = false
+    void getSystemVitals(settings.downloadDir).then((v) => {
+      if (!disposed && v) setVitals(v)
+    })
     return () => {
-      mounted = false
-      clearInterval(timer)
+      disposed = true
     }
-  }, [])
-
-  const handleResetFilters = () => {
-    setSearchQuery('')
-    setActiveCategory('all')
-  }
-
-  const updateItems = (updater: (prev: MediaItem[]) => MediaItem[]) => {
-    setItems((prev) => {
-      const next = updater(prev)
-      try {
-        localStorage.setItem('hyperstream_media_items', JSON.stringify(next))
-      } catch {
-        // Ignore storage write error
-      }
-      return next
-    })
-  }
+  }, [settings.downloadDir, items.length])
 
   useEffect(() => {
-    const handleMediaAdded = (e: Event) => {
-      const customEvent = e as CustomEvent<MediaItem>
-      if (customEvent.detail) {
-        setItems((prev) => [customEvent.detail, ...prev.filter((i) => i.id !== customEvent.detail.id)])
-      }
+    try {
+      localStorage.setItem(VIEW_KEY, viewMode)
+    } catch {
+      // Not critical.
     }
-    window.addEventListener('hyperstream:media-added', handleMediaAdded)
-    return () => window.removeEventListener('hyperstream:media-added', handleMediaAdded)
-  }, [])
+  }, [viewMode])
 
-  const showNotification = (msg: string) => {
-    setNotification(msg)
-    setTimeout(() => {
-      setNotification((curr) => (curr === msg ? null : curr))
-    }, 3000)
-  }
+  // Close the delete dialog with Escape.
+  useEffect(() => {
+    if (!pendingDelete) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingDelete(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pendingDelete])
 
-  // Category counts
-  const counts = useMemo(() => {
-    return {
+  const counts = useMemo(
+    () => ({
       all: items.length,
-      anime: items.filter((i) => i.category === 'anime').length,
-      stream: items.filter((i) => i.category === 'stream').length,
-      '4k': items.filter((i) => i.category === '4k').length,
-      audio: items.filter((i) => i.category === 'audio').length,
-    }
-  }, [items])
+      video: items.filter((i) => i.kind === 'video').length,
+      audio: items.filter((i) => i.kind === 'audio').length,
+    }),
+    [items],
+  )
 
-  const categories = useMemo(() => [
+  const usedBytes = useMemo(() => items.reduce((sum, i) => sum + (i.missing ? 0 : i.size_bytes), 0), [items])
+  const displayedItems = useMemo(
+    () => filterLibrary(items, category, searchQuery, sortBy),
+    [items, category, searchQuery, sortBy],
+  )
+
+  const downloadDir = settings.downloadDir || defaultDir
+
+  const run = useCallback(
+    async (action: () => Promise<unknown>, success?: string) => {
+      try {
+        await action()
+        if (success) show(success)
+      } catch (err) {
+        show(errorMessage(err), 'error')
+      }
+    },
+    [show],
+  )
+
+  const handlePlay = useCallback((item: LibraryItem) => void run(() => openMediaFile(item.file_path)), [run])
+  const handleReveal = useCallback((item: LibraryItem) => void run(() => revealInExplorer(item.file_path)), [run])
+  const handleDelete = useCallback((item: LibraryItem) => setPendingDelete(item), [])
+
+  const confirmDelete = (deleteFile: boolean) => {
+    const item = pendingDelete
+    setPendingDelete(null)
+    if (!item) return
+    playHapticGlass()
+    void run(
+      () => removeLibraryItem(item.id, deleteFile),
+      deleteFile ? `Moved to Recycle Bin: ${item.title}` : `Removed from library: ${item.title}`,
+    )
+  }
+
+  const resetFilters = () => {
+    playHapticClick()
+    setSearchQuery('')
+    setCategory('all')
+  }
+
+  const categories: { id: LibraryCategory; label: string; count: number }[] = [
     { id: 'all', label: 'All', count: counts.all },
-    { id: 'anime', label: 'Anime', count: counts.anime },
-    { id: 'stream', label: 'Streams', count: counts.stream },
-    { id: '4k', label: '4K Masters', count: counts['4k'] },
+    { id: 'video', label: 'Video', count: counts.video },
     { id: 'audio', label: 'Audio', count: counts.audio },
-  ], [counts])
+  ]
 
-  const totalUsedGb = useMemo(() => {
-    return items.reduce((acc, item) => {
-      if (typeof item.sizeBytes === 'number' && item.sizeBytes > 0) {
-        return acc + item.sizeBytes / (1024 * 1024 * 1024)
-      }
-      const match = (item.size || '').match(/([\d.]+)\s*(GB|MB|KB|TB)/i)
-      if (match) {
-        const val = parseFloat(match[1])
-        const unit = match[2].toUpperCase()
-        if (unit === 'GB') return acc + val
-        if (unit === 'MB') return acc + val / 1024
-        if (unit === 'KB') return acc + val / (1024 * 1024)
-        if (unit === 'TB') return acc + val * 1024
-      }
-      return acc
-    }, 0)
-  }, [items])
-
-  const freeGb = vitals?.storageFreeGb ?? (vitals?.nvmeFreeTb ? vitals.nvmeFreeTb * 1024 : 0)
-
-  // Filtered & Sorted items
-  const displayedItems = useMemo(() => {
-    let result = [...items]
-
-    // Category filter
-    if (activeCategory !== 'all') {
-      result = result.filter((item) => item.category === activeCategory)
-    }
-
-    // Search filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(
-        (item) =>
-          item.title.toLowerCase().includes(q) ||
-          item.codec.toLowerCase().includes(q) ||
-          item.quality.toLowerCase().includes(q) ||
-          item.source.toLowerCase().includes(q)
-      )
-    }
-
-    // Sort
-    if (sortBy === 'title') {
-      result.sort((a, b) => a.title.localeCompare(b.title))
-    } else if (sortBy === 'size') {
-      const parseSize = (s: string) => {
-        const num = parseFloat(s)
-        if (s.includes('GB')) return num * 1024
-        return num
-      }
-      result.sort((a, b) => parseSize(b.size) - parseSize(a.size))
-    } else if (sortBy === 'duration') {
-      const parseDuration = (d: string) => {
-        const parts = d.split(':')
-        if (parts.length === 2) return parseInt(parts[0]) * 60 + parseInt(parts[1])
-        if (d.includes('h')) {
-          const hrs = parseInt(d.split('h')[0])
-          const mins = parseInt(d.split('h')[1]?.replace('m', '') || '0')
-          return hrs * 3600 + mins * 60
-        }
-        return 0
-      }
-      result.sort((a, b) => parseDuration(b.duration) - parseDuration(a.duration))
-    }
-
-    return result
-  }, [items, activeCategory, searchQuery, sortBy])
-
-  const handleDelete = (id: string) => {
-    const target = items.find((i) => i.id === id)
-    updateItems((prev) => prev.filter((i) => i.id !== id))
-    if (target) {
-      showNotification(`Removed: ${target.title}`)
-    }
-  }
-
-  const handleOpenFolder = (item?: MediaItem) => {
-    if (item) {
-      revealInExplorer(`C:\\Users\\arnob\\Downloads\\${item.title}.mp4`)
-      showNotification(`Revealed in Explorer: ${item.title}`)
-    } else {
-      revealInExplorer(`C:\\Users\\arnob\\Downloads`)
-      showNotification('Revealed capture directory in Explorer')
-    }
-  }
-
-  const handlePlayEpisode = (series: MediaItem, episode: EpisodeItem) => {
-    playHapticClick()
-    setPlayerItem({
-      ...series,
-      title: `${series.title} · ${episode.title}`,
-      videoUrl: episode.videoUrl || series.videoUrl,
-      duration: episode.duration || series.duration,
-      quality: episode.quality || series.quality,
-      codec: episode.codec || series.codec,
-      size: episode.size || series.size,
-    })
-  }
-
-  const handleRevealEpisode = (episode: EpisodeItem) => {
-    playHapticClick()
-    const filePath = episode.filePath || `C:\\Users\\arnob\\Downloads\\${episode.title}.mp4`
-    revealInExplorer(filePath)
-    showNotification(`Revealed in Explorer: ${episode.title}`)
-  }
+  const libraryEmpty = loaded && items.length === 0
 
   return (
     <div className="media-library-container">
-      {/* Toast Notification */}
-      {notification && (
+      {toast && (
         <div
-          style={{
-            position: 'absolute',
-            bottom: '16px',
-            right: '20px',
-            background: 'rgba(15, 23, 42, 0.92)',
-            color: '#ffffff',
-            padding: '9px 16px',
-            borderRadius: '8px',
-            fontSize: '12px',
-            fontWeight: 500,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.20)',
-            zIndex: 100,
-            animation: 'bannerSlideIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
-          }}
+          className={`hub-toast library-toast ${toast.tone === 'error' ? 'is-error' : ''}`}
+          role={toast.tone === 'error' ? 'alert' : 'status'}
         >
-          {notification}
+          {toast.text}
         </div>
       )}
 
-      {selectedSeries ? (
-        <SeriesDetailView
-          seriesItem={selectedSeries}
-          onBack={() => setSelectedSeries(null)}
-          onPlayEpisode={handlePlayEpisode}
-          onRevealEpisode={handleRevealEpisode}
-          onOpenFolder={handleOpenFolder}
-        />
-      ) : (
-        <div className="media-library-content animate-fade-in">
-        {/* Unified Clean Header: Title on Left, Search & View Controls on Right */}
+      <div className="media-library-content animate-fade-in">
         <div className="media-library-header">
           <h1 className="media-library-title">Media Library</h1>
 
           <div className="media-library-header-actions">
-            {/* Compact Search Input */}
             <div className="library-search-card">
               <div className="library-search-icon">
                 <IconSearch size={14} />
@@ -274,7 +174,7 @@ export const MediaLibrary: React.FC = () => {
                 name="librarySearch"
                 type="text"
                 className="library-search-input"
-                placeholder="Search media..."
+                placeholder="Search by title, channel or site…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -286,23 +186,22 @@ export const MediaLibrary: React.FC = () => {
                     playHapticClick()
                     setSearchQuery('')
                   }}
-                  title="Clear Search"
+                  title="Clear search"
+                  aria-label="Clear search"
                 >
                   <IconX size={12} />
                 </button>
               )}
             </div>
 
-            {/* Sort Dropdown */}
             <GlassSelect
               id="library-sort-select"
               value={sortBy}
               options={SORT_OPTIONS}
-              onChange={setSortBy}
-              ariaLabel="Sort library items"
+              onChange={(v) => setSortBy(v as LibrarySort)}
+              ariaLabel="Sort library"
             />
 
-            {/* Grid vs List View Toggle Pill */}
             <div className="view-mode-pill">
               <button
                 type="button"
@@ -311,7 +210,9 @@ export const MediaLibrary: React.FC = () => {
                   playHapticGlass()
                   setViewMode('grid')
                 }}
-                title="Grid View"
+                title="Grid view"
+                aria-label="Grid view"
+                aria-pressed={viewMode === 'grid'}
               >
                 <IconGrid size={14} />
               </button>
@@ -322,7 +223,9 @@ export const MediaLibrary: React.FC = () => {
                   playHapticGlass()
                   setViewMode('list')
                 }}
-                title="List View"
+                title="List view"
+                aria-label="List view"
+                aria-pressed={viewMode === 'list'}
               >
                 <IconList size={14} />
               </button>
@@ -330,17 +233,16 @@ export const MediaLibrary: React.FC = () => {
           </div>
         </div>
 
-        {/* Subnav Row: Category Pills on Left + Quiet Storage Pill on Right */}
         <div className="media-library-subnav">
           <div className="library-category-pills">
             {categories.map((cat) => (
               <button
                 key={cat.id}
                 type="button"
-                className={`library-cat-pill ${activeCategory === cat.id ? 'active' : ''}`}
+                className={`library-cat-pill ${category === cat.id ? 'active' : ''}`}
                 onClick={() => {
                   playHapticPop()
-                  setActiveCategory(cat.id)
+                  setCategory(cat.id)
                 }}
               >
                 <span>{cat.label}</span>
@@ -349,57 +251,96 @@ export const MediaLibrary: React.FC = () => {
             ))}
           </div>
 
-          <div className="library-storage-pill">
+          <div className="library-storage-pill" title={downloadDir || undefined}>
             <IconHardDrive size={13} className="storage-pill-icon" />
             <span className="storage-pill-text">
-              {totalUsedGb.toFixed(1)} GB used <span className="meta-dot">·</span> {freeGb > 0 ? `${freeGb.toFixed(1)} GB free` : 'Ready'}
+              {usedBytes > 0 ? `${formatBytes(usedBytes)} in library` : 'Library empty'}
+              {vitals && vitals.storageFreeGb > 0 && (
+                <>
+                  {' '}
+                  <span className="meta-dot">·</span> {vitals.storageFreeGb.toFixed(1)} GB free
+                </>
+              )}
             </span>
-            <button
-              type="button"
-              className="storage-pill-folder-btn"
-              onClick={() => handleOpenFolder()}
-              title="Reveal Downloads folder in Explorer"
-            >
-              <IconFolder size={11} />
-              <span>Folder</span>
-            </button>
+            {downloadDir && (
+              <button
+                type="button"
+                className="storage-pill-folder-btn"
+                onClick={() => {
+                  playHapticClick()
+                  void run(() => revealInExplorer(downloadDir))
+                }}
+                title={`Open ${downloadDir}`}
+              >
+                <IconFolder size={11} />
+                <span>Folder</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Presentation Grid or List */}
-        {viewMode === 'grid' ? (
-          <MediaGrid
-            items={displayedItems}
-            onPlay={(item) => setPlayerItem(item)}
-            onOpenFolder={(item) => handleOpenFolder(item)}
-            onDelete={handleDelete}
-            onOpenSeries={(item) => setSelectedSeries(item)}
-            searchQuery={searchQuery}
-            activeCategory={activeCategory}
-            onResetFilters={handleResetFilters}
-            totalLibraryCount={items.length}
-          />
+        {!loaded ? null : displayedItems.length === 0 ? (
+          <div className="library-empty-state">
+            <div className="library-empty-icon-circle">
+              {libraryEmpty ? <IconFilm size={26} /> : <IconSearch size={24} />}
+            </div>
+            <p className="empty-title">{libraryEmpty ? 'Nothing downloaded yet' : 'No matches'}</p>
+            <p className="empty-sub">
+              {libraryEmpty
+                ? 'Finished downloads from Stream Hub show up here.'
+                : searchQuery
+                  ? `Nothing matches "${searchQuery}".`
+                  : `No ${category} files yet.`}
+            </p>
+            {!libraryEmpty && (
+              <button type="button" className="empty-reset-btn" onClick={resetFilters}>
+                <span>Reset filters</span>
+              </button>
+            )}
+          </div>
+        ) : viewMode === 'grid' ? (
+          <MediaGrid items={displayedItems} onPlay={handlePlay} onReveal={handleReveal} onDelete={handleDelete} />
         ) : (
-          <MediaList
-            items={displayedItems}
-            onPlay={(item) => setPlayerItem(item)}
-            onOpenFolder={(item) => handleOpenFolder(item)}
-            onDelete={handleDelete}
-            onOpenSeries={(item) => setSelectedSeries(item)}
-            searchQuery={searchQuery}
-            activeCategory={activeCategory}
-            onResetFilters={handleResetFilters}
-            totalLibraryCount={items.length}
-          />
+          <MediaList items={displayedItems} onPlay={handlePlay} onReveal={handleReveal} onDelete={handleDelete} />
         )}
       </div>
-      )}
 
-      {/* 4. In-App Glass Video Preview Player */}
-      <GlassPlayerModal
-        item={playerItem}
-        onClose={() => setPlayerItem(null)}
-      />
+      {pendingDelete && (
+        <div className="library-dialog-backdrop" onClick={() => setPendingDelete(null)}>
+          <div
+            className="library-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="library-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="library-dialog-icon">
+              <IconTrash size={16} />
+            </div>
+            <h2 id="library-dialog-title" className="library-dialog-title">
+              Delete “{pendingDelete.title}”?
+            </h2>
+            <p className="library-dialog-text">
+              {pendingDelete.missing
+                ? 'The file is already gone. This removes it from your library.'
+                : 'Remove it from the library only, or also move the file to the Recycle Bin.'}
+            </p>
+            <div className="library-dialog-actions">
+              <button type="button" className="library-dialog-btn" onClick={() => setPendingDelete(null)} autoFocus>
+                Cancel
+              </button>
+              <button type="button" className="library-dialog-btn" onClick={() => confirmDelete(false)}>
+                Remove from library
+              </button>
+              {!pendingDelete.missing && (
+                <button type="button" className="library-dialog-btn is-danger" onClick={() => confirmDelete(true)}>
+                  Move to Recycle Bin
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -65,7 +65,7 @@ export function formatGpuName(raw: string): string {
   cleaned = cleaned.replace(/\s*,\s*D3D\d+.*$/i, '')
   cleaned = cleaned.replace(/\s*vs_\d+_\d+\s+ps_\d+_\d+.*$/i, '')
   // Strip any trailing parentheses or commas
-  cleaned = cleaned.replace(/[,\)]+$/, '')
+  cleaned = cleaned.replace(/[,)]+$/, '')
   // Clean whitespace
   cleaned = cleaned.replace(/\s+/g, ' ').trim()
 
@@ -112,14 +112,17 @@ export function detectHardwareProfile(): HardwareProfile {
   let recommendedRenderingProfile: 'potato' | 'studio' = 'studio'
   let summaryReason = 'Dedicated GPU and high memory detected'
 
-  if (logicalCores >= 8 && memoryGb >= 8) {
-    recommendedRenderingProfile = 'studio'
-    summaryReason = `High performance processor detected (${logicalCores} Cores)`
-  } else if (isIntegratedGpu || logicalCores <= 4 || memoryGb <= 4) {
+  // Any one weak spot (little RAM, few cores, integrated graphics) is enough for Efficiency Mode:
+  // lots of cores alone doesn't make the glass effects cheap.
+  if (memoryGb <= 4 || logicalCores <= 4 || isIntegratedGpu) {
     recommendedRenderingProfile = 'potato'
-    summaryReason = isIntegratedGpu
-      ? `Integrated graphics detected (${gpuRenderer.slice(0, 32)})`
-      : `Constrained system resources (${logicalCores} cores, ${memoryGb}GB RAM)`
+    summaryReason = memoryGb <= 4
+      ? `Limited memory (${memoryGb} GB RAM)`
+      : isIntegratedGpu
+        ? `Integrated graphics detected (${gpuRenderer.slice(0, 32)})`
+        : `Constrained system resources (${logicalCores} cores)`
+  } else if (logicalCores >= 8 && memoryGb >= 8) {
+    summaryReason = `High performance processor detected (${logicalCores} Cores)`
   }
 
   return {

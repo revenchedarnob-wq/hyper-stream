@@ -1,34 +1,42 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use regex::Regex;
 use tauri::{AppHandle, Emitter};
 
 use crate::ACTIVE_TRANSFERS;
 use crate::downloader::binary_manager::BinaryManager;
+use crate::downloader::cookies::browser_cookies_async;
+use crate::downloader::library::{self, LibraryItem, MediaKind};
 use crate::downloader::queue::{
     get_queue_file_path, is_transient_error, load_queue_from_path, sanitize_for_persistence,
     save_queue_to_path, PersistedQueueEntry, QueueChangedPayload, QueueConfig, QueueEntry,
 };
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+/// Returned by the runner when the user paused or cancelled; never shown as an error.
+const ABORTED: &str = "__aborted__";
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum DownloadState {
+    #[default]
     Queued,
     Downloading,
     Paused,
+    /// Post-processing: merging audio/video, embedding subtitles.
     Remuxing,
     Completed,
     Failed,
     Cancelled,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct DownloadProgress {
     pub task_id: String,
     pub title: String,
@@ -41,23 +49,63 @@ pub struct DownloadProgress {
     pub stage: String,
     pub output_path: Option<String>,
     pub error_message: Option<String>,
+    pub source_url: String,
+    /// Remote preview image from the probe, for the transfer card.
+    pub thumbnail: Option<String>,
+    /// "1080p", "Audio" — known once the format is chosen.
+    pub quality_label: Option<String>,
+    /// "MP4", "MKV", "M4A" — known once the format is chosen.
+    pub container: Option<String>,
+    pub audio_only: bool,
+    pub created_at: u64,
+    /// Planned output path, used to clean up partial files on cancel. Internal only.
+    #[serde(skip)]
+    planned_path: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct DownloadOptions {
     pub url: String,
     pub title: String,
-    pub format_id: Option<String>,
-    pub output_dir: Option<String>,
-    #[serde(default)]
-    pub audio_formats: Vec<String>,
-    #[serde(default)]
+    /// Cap the video height (e.g. 1080). None = best available.
+    pub max_height: Option<u32>,
+    pub audio_only: bool,
+    /// yt-dlp language codes to include. Empty = the source's default audio.
+    pub audio_languages: Vec<String>,
+    /// Subtitle language codes to embed.
     pub subtitles: Vec<String>,
+    pub output_dir: Option<String>,
+    /// Prefer H.264/AAC in MP4 for older players, even if a better codec exists.
+    pub prefer_compatible: bool,
+    /// Explicit cookies (Netscape format). Normally empty: browser cookies are read at run time.
     pub cookies: Option<String>,
+    // Probe hints carried into the library.
+    pub thumbnail: Option<String>,
+    pub duration: Option<f64>,
+    pub uploader: Option<String>,
+    pub extractor: Option<String>,
 }
 
+/// What a successful run produced.
+#[derive(Debug, Clone, Default)]
+struct DownloadOutcome {
+    file_path: String,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+pub fn default_download_dir() -> PathBuf {
+    match std::env::var("USERPROFILE") {
+        Ok(profile) => PathBuf::from(profile).join("Videos").join("HyperStream"),
+        Err(_) => PathBuf::from("downloads"),
+    }
+}
+
+type TaskMap = Arc<RwLock<HashMap<String, DownloadProgress>>>;
+
 pub struct DownloadOrchestrator {
-    tasks: Arc<RwLock<HashMap<String, DownloadProgress>>>,
+    tasks: TaskMap,
     all_entries: Arc<RwLock<HashMap<String, QueueEntry>>>,
     abort_handles: Arc<RwLock<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
     pending: Arc<Mutex<Vec<QueueEntry>>>,
@@ -67,6 +115,37 @@ pub struct DownloadOrchestrator {
     save_notify: Arc<tokio::sync::Notify>,
     scheduler_started: Arc<AtomicBool>,
     persistence_started: Arc<AtomicBool>,
+}
+
+fn sort_pending(pending: &mut [QueueEntry]) {
+    pending.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.enqueued_at.cmp(&b.enqueued_at)));
+}
+
+fn emit_task(app_handle: &Arc<RwLock<Option<AppHandle>>>, tasks: &TaskMap, task_id: &str, event: &str) {
+    if let Some(app) = app_handle.read().unwrap().as_ref() {
+        if let Some(t) = tasks.read().unwrap().get(task_id) {
+            let _ = app.emit(event, t);
+        }
+    }
+}
+
+fn progress_from_options(task_id: &str, options: &DownloadOptions, state: DownloadState, stage: &str, created_at: u64) -> DownloadProgress {
+    DownloadProgress {
+        task_id: task_id.to_string(),
+        title: options.title.clone(),
+        state,
+        stage: stage.to_string(),
+        source_url: options.url.clone(),
+        thumbnail: options.thumbnail.clone(),
+        audio_only: options.audio_only,
+        quality_label: if options.audio_only {
+            Some("Audio".to_string())
+        } else {
+            options.max_height.map(|h| format!("{}p", h))
+        },
+        created_at,
+        ..Default::default()
+    }
 }
 
 impl DownloadOrchestrator {
@@ -83,97 +162,55 @@ impl DownloadOrchestrator {
             scheduler_started: Arc::new(AtomicBool::new(false)),
             persistence_started: Arc::new(AtomicBool::new(false)),
         };
-
-        orchestrator.restore_persisted_queue();
-
-        if tokio::runtime::Handle::try_current().is_ok() {
-            orchestrator.start_scheduler();
-            orchestrator.start_persistence_worker();
-        }
-
+        orchestrator.restore_persisted_queue(&get_queue_file_path());
         orchestrator
     }
 
     pub fn attach_app(&self, app: AppHandle) {
         *self.app_handle.write().unwrap() = Some(app);
-        if tokio::runtime::Handle::try_current().is_ok() {
-            self.start_scheduler();
-            self.start_persistence_worker();
-        }
+        // Called from Tauri's setup hook (no tokio context), so workers spawn on Tauri's runtime.
+        self.start_scheduler();
+        self.start_persistence_worker();
         self.emit_queue_state();
     }
 
-    fn restore_persisted_queue(&self) {
-        let queue_file = get_queue_file_path();
-        if let Ok(entries) = load_queue_from_path(&queue_file) {
-            let mut tasks = self.tasks.write().unwrap();
-            let mut pending = self.pending.lock().unwrap();
-            let mut all_entries = self.all_entries.write().unwrap();
+    fn restore_persisted_queue(&self, queue_file: &Path) {
+        let Ok(entries) = load_queue_from_path(queue_file) else { return };
+        let mut tasks = self.tasks.write().unwrap();
+        let mut pending = self.pending.lock().unwrap();
+        let mut all_entries = self.all_entries.write().unwrap();
 
-            for item in entries {
-                let is_paused = item.state == DownloadState::Paused;
-                let state = if is_paused {
-                    DownloadState::Paused
-                } else {
-                    DownloadState::Queued
-                };
+        for item in entries {
+            let paused = item.state == DownloadState::Paused;
+            let (state, stage) = if paused {
+                (DownloadState::Paused, "Paused")
+            } else {
+                (DownloadState::Queued, "Waiting to start")
+            };
+            tasks.insert(
+                item.task_id.clone(),
+                progress_from_options(&item.task_id, &item.options, state, stage, item.enqueued_at),
+            );
 
-                let stage = if item.had_cookies && item.options.cookies.is_none() {
-                    "Needs sign-in cookies".to_string()
-                } else if is_paused {
-                    "Paused by user".to_string()
-                } else {
-                    "Restored to queue".to_string()
-                };
-
-                let progress = DownloadProgress {
-                    task_id: item.task_id.clone(),
-                    title: item.options.title.clone(),
-                    state,
-                    progress_percent: 0.0,
-                    speed_bytes_per_sec: 0,
-                    downloaded_bytes: 0,
-                    total_bytes: None,
-                    eta_seconds: None,
-                    stage,
-                    output_path: None,
-                    error_message: None,
-                };
-
-                tasks.insert(item.task_id.clone(), progress);
-
-                let priority = if item.had_cookies && item.options.cookies.is_none() {
-                    i32::MIN
-                } else {
-                    item.priority
-                };
-
-                let entry = QueueEntry {
-                    task_id: item.task_id.clone(),
-                    options: item.options,
-                    priority,
-                    enqueued_at: item.enqueued_at,
-                    attempts: item.attempts,
-                    target_dir: item.target_dir,
-                    had_cookies: item.had_cookies,
-                };
-
-                all_entries.insert(item.task_id.clone(), entry.clone());
-
-                if !is_paused {
-                    pending.push(entry);
-                }
+            let entry = QueueEntry {
+                task_id: item.task_id.clone(),
+                options: item.options,
+                priority: item.priority,
+                enqueued_at: item.enqueued_at,
+                attempts: item.attempts,
+                target_dir: item.target_dir,
+                had_cookies: item.had_cookies,
+            };
+            all_entries.insert(item.task_id.clone(), entry.clone());
+            if !paused {
+                pending.push(entry);
             }
-
-            pending.sort_by(|a, b| {
-                b.priority.cmp(&a.priority)
-                    .then_with(|| a.enqueued_at.cmp(&b.enqueued_at))
-            });
         }
+        sort_pending(&mut pending);
     }
 
     fn start_persistence_worker(&self) {
-        if self.persistence_started.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        if self.persistence_started.swap(true, Ordering::SeqCst) {
             return;
         }
 
@@ -182,52 +219,47 @@ impl DownloadOrchestrator {
         let tasks_ref = self.tasks.clone();
         let all_entries_ref = self.all_entries.clone();
 
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             loop {
                 save_notify.notified().await;
-
-                // 500ms debounce loop: keep waiting if new saves arrive
+                // Debounce bursts of changes into one write.
                 loop {
                     tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_millis(500)) => {
-                            break;
-                        }
+                        _ = tokio::time::sleep(Duration::from_millis(500)) => break,
                         _ = save_notify.notified() => {}
                     }
                 }
 
-                let mut entries_to_save: Vec<PersistedQueueEntry> = Vec::new();
-                {
-                    let p = pending_ref.lock().unwrap();
+                let entries_to_save: Vec<PersistedQueueEntry> = {
                     let t = tasks_ref.read().unwrap();
                     let all = all_entries_ref.read().unwrap();
+                    let _p = pending_ref.lock().unwrap();
+                    // Everything not finished survives a restart (running tasks resume as queued).
+                    let mut unfinished: Vec<&QueueEntry> = all
+                        .values()
+                        .filter(|e| {
+                            t.get(&e.task_id).map_or(false, |task| {
+                                !matches!(task.state, DownloadState::Completed | DownloadState::Failed | DownloadState::Cancelled)
+                            })
+                        })
+                        .collect();
+                    unfinished.sort_by_key(|e| e.enqueued_at);
+                    unfinished
+                        .into_iter()
+                        .map(|e| {
+                            let state = t.get(&e.task_id).map(|x| x.state.clone()).unwrap_or_default();
+                            sanitize_for_persistence(e, state)
+                        })
+                        .collect()
+                };
 
-                    // Pending items
-                    for entry in p.iter() {
-                        let state = t.get(&entry.task_id)
-                            .map(|task| task.state.clone())
-                            .unwrap_or(DownloadState::Queued);
-                        entries_to_save.push(sanitize_for_persistence(entry, state));
-                    }
-
-                    // Paused items
-                    for (task_id, task) in t.iter() {
-                        if task.state == DownloadState::Paused && !p.iter().any(|e| &e.task_id == task_id) {
-                            if let Some(entry) = all.get(task_id) {
-                                entries_to_save.push(sanitize_for_persistence(entry, DownloadState::Paused));
-                            }
-                        }
-                    }
-                }
-
-                let path = get_queue_file_path();
-                let _ = save_queue_to_path(&path, &entries_to_save);
+                let _ = save_queue_to_path(&get_queue_file_path(), &entries_to_save);
             }
         });
     }
 
     fn start_scheduler(&self) {
-        if self.scheduler_started.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        if self.scheduler_started.swap(true, Ordering::SeqCst) {
             return;
         }
 
@@ -239,211 +271,50 @@ impl DownloadOrchestrator {
         let app_handle_ref = self.app_handle.clone();
         let save_notify = self.save_notify.clone();
 
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             loop {
-                let max_concurrent = {
-                    let cfg = config_ref.read().unwrap();
-                    cfg.max_concurrent.clamp(1, 8)
-                };
-
-                let running_count = {
-                    let tasks = tasks_ref.read().unwrap();
-                    tasks.values()
-                        .filter(|t| t.state == DownloadState::Downloading || t.state == DownloadState::Remuxing)
-                        .count()
-                };
-
-                let can_spawn = if running_count < max_concurrent {
-                    max_concurrent - running_count
-                } else {
-                    0
-                };
+                let max_concurrent = config_ref.read().unwrap().max_concurrent.clamp(1, 8);
+                let running = tasks_ref
+                    .read()
+                    .unwrap()
+                    .values()
+                    .filter(|t| matches!(t.state, DownloadState::Downloading | DownloadState::Remuxing))
+                    .count();
 
                 let mut to_spawn = Vec::new();
-                if can_spawn > 0 {
+                if running < max_concurrent {
                     let mut pending = pending_ref.lock().unwrap();
-                    pending.sort_by(|a, b| {
-                        b.priority.cmp(&a.priority)
-                            .then_with(|| a.enqueued_at.cmp(&b.enqueued_at))
-                    });
-
-                    let num_take = can_spawn.min(pending.len());
-                    for _ in 0..num_take {
-                        to_spawn.push(pending.remove(0));
-                    }
+                    let tasks = tasks_ref.read().unwrap();
+                    // Never start something that was paused/cancelled/removed meanwhile.
+                    pending.retain(|e| tasks.get(&e.task_id).map_or(false, |t| t.state == DownloadState::Queued));
+                    sort_pending(&mut pending);
+                    let take = (max_concurrent - running).min(pending.len());
+                    to_spawn.extend(pending.drain(..take));
                 }
 
                 Self::emit_queue_change_event(&app_handle_ref, &pending_ref, &tasks_ref, max_concurrent);
 
                 for entry in to_spawn {
-                    let (abort_tx, mut abort_rx) = tokio::sync::oneshot::channel::<()>();
-                    {
-                        let mut handles = abort_handles.write().unwrap();
-                        handles.insert(entry.task_id.clone(), abort_tx);
+                    let (abort_tx, abort_rx) = tokio::sync::oneshot::channel::<()>();
+                    abort_handles.write().unwrap().insert(entry.task_id.clone(), abort_tx);
+
+                    if let Some(t) = tasks_ref.write().unwrap().get_mut(&entry.task_id) {
+                        t.state = DownloadState::Downloading;
+                        t.stage = "Connecting...".to_string();
+                        t.error_message = None;
                     }
+                    emit_task(&app_handle_ref, &tasks_ref, &entry.task_id, "download-progress");
 
-                    {
-                        let mut tasks = tasks_ref.write().unwrap();
-                        if let Some(t) = tasks.get_mut(&entry.task_id) {
-                            t.state = DownloadState::Downloading;
-                            t.stage = "Connecting to media stream...".to_string();
-                        }
-                    }
-
-                    if let Some(app) = app_handle_ref.read().unwrap().as_ref() {
-                        if let Some(t) = tasks_ref.read().unwrap().get(&entry.task_id) {
-                            let _ = app.emit("download-progress", t);
-                        }
-                    }
-
-                    let task_id_clone = entry.task_id.clone();
-                    let options_clone = entry.options.clone();
-                    let target_dir_clone = entry.target_dir.clone();
-                    let tasks_ref_clone = tasks_ref.clone();
-                    let app_handle_ref_clone = app_handle_ref.clone();
-                    let notify_clone = notify.clone();
-                    let save_notify_clone = save_notify.clone();
-                    let config_ref_clone = config_ref.clone();
-                    let pending_ref_clone = pending_ref.clone();
-                    let attempts = entry.attempts;
-
-                    tokio::spawn(async move {
-                        ACTIVE_TRANSFERS.fetch_add(1, Ordering::SeqCst);
-
-                        let dummy_app = app_handle_ref_clone.read().unwrap().clone();
-                        let res = if let Some(ref app) = dummy_app {
-                            Self::run_download_task(
-                                &task_id_clone,
-                                &options_clone,
-                                &target_dir_clone,
-                                &tasks_ref_clone,
-                                app,
-                                &mut abort_rx,
-                            ).await
-                        } else {
-                            Err("AppHandle not attached".to_string())
-                        };
-
-                        ACTIVE_TRANSFERS.fetch_sub(1, Ordering::SeqCst);
-
-                        let is_paused = {
-                            let tasks = tasks_ref_clone.read().unwrap();
-                            tasks.get(&task_id_clone)
-                                .map(|t| t.state == DownloadState::Paused)
-                                .unwrap_or(false)
-                        };
-
-                        let is_cancelled = {
-                            let tasks = tasks_ref_clone.read().unwrap();
-                            tasks.get(&task_id_clone)
-                                .map(|t| t.state == DownloadState::Cancelled)
-                                .unwrap_or(false)
-                        };
-
-                        if is_paused || is_cancelled {
-                            save_notify_clone.notify_one();
-                            notify_clone.notify_one();
-                            return;
-                        }
-
-                        match res {
-                            Ok(final_path) => {
-                                {
-                                    let mut tasks = tasks_ref_clone.write().unwrap();
-                                    if let Some(t) = tasks.get_mut(&task_id_clone) {
-                                        t.state = DownloadState::Completed;
-                                        t.progress_percent = 100.0;
-                                        t.stage = "Download completed successfully".to_string();
-                                        t.output_path = Some(final_path);
-                                    }
-                                }
-                                if let Some(app) = app_handle_ref_clone.read().unwrap().as_ref() {
-                                    if let Some(t) = tasks_ref_clone.read().unwrap().get(&task_id_clone) {
-                                        let _ = app.emit("download-complete", t);
-                                    }
-                                }
-                                save_notify_clone.notify_one();
-                                notify_clone.notify_one();
-                            }
-                            Err(e) => {
-                                let (max_retries, retry_backoff_ms) = {
-                                    let cfg = config_ref_clone.read().unwrap();
-                                    (cfg.max_retries, cfg.retry_backoff_ms)
-                                };
-
-                                let transient = is_transient_error(&e);
-
-                                if transient && attempts < max_retries {
-                                    let next_attempts = attempts + 1;
-                                    let backoff = retry_backoff_ms * (1 << (next_attempts - 1));
-                                    let backoff_secs = (backoff as f64) / 1000.0;
-
-                                    {
-                                        let mut tasks = tasks_ref_clone.write().unwrap();
-                                        if let Some(t) = tasks.get_mut(&task_id_clone) {
-                                            t.state = DownloadState::Queued;
-                                            t.stage = format!(
-                                                "Transient error: {}. Retrying in {:.1}s (attempt {} of {})...",
-                                                e, backoff_secs, next_attempts, max_retries
-                                            );
-                                            t.error_message = Some(e.clone());
-                                        }
-                                    }
-
-                                    if let Some(app) = app_handle_ref_clone.read().unwrap().as_ref() {
-                                        if let Some(t) = tasks_ref_clone.read().unwrap().get(&task_id_clone) {
-                                            let _ = app.emit("download-progress", t);
-                                        }
-                                    }
-
-                                    let pending_inner = pending_ref_clone.clone();
-                                    let notify_inner = notify_clone.clone();
-                                    let save_inner = save_notify_clone.clone();
-                                    let task_id_inner = task_id_clone.clone();
-                                    let options_inner = options_clone.clone();
-                                    let target_dir_inner = target_dir_clone.clone();
-
-                                    tokio::spawn(async move {
-                                        tokio::time::sleep(Duration::from_millis(backoff)).await;
-                                        {
-                                            let mut p = pending_inner.lock().unwrap();
-                                            p.push(QueueEntry {
-                                                task_id: task_id_inner,
-                                                options: options_inner,
-                                                priority: 0,
-                                                enqueued_at: now_ms(),
-                                                attempts: next_attempts,
-                                                target_dir: target_dir_inner,
-                                                had_cookies: false,
-                                            });
-                                            p.sort_by(|a, b| {
-                                                b.priority.cmp(&a.priority)
-                                                    .then_with(|| a.enqueued_at.cmp(&b.enqueued_at))
-                                            });
-                                        }
-                                        save_inner.notify_one();
-                                        notify_inner.notify_one();
-                                    });
-                                } else {
-                                    {
-                                        let mut tasks = tasks_ref_clone.write().unwrap();
-                                        if let Some(t) = tasks.get_mut(&task_id_clone) {
-                                            t.state = DownloadState::Failed;
-                                            t.stage = format!("Download failed: {}", e);
-                                            t.error_message = Some(e.clone());
-                                        }
-                                    }
-                                    if let Some(app) = app_handle_ref_clone.read().unwrap().as_ref() {
-                                        if let Some(t) = tasks_ref_clone.read().unwrap().get(&task_id_clone) {
-                                            let _ = app.emit("download-error", t);
-                                        }
-                                    }
-                                    save_notify_clone.notify_one();
-                                    notify_clone.notify_one();
-                                }
-                            }
-                        }
-                    });
+                    let ctx = RunContext {
+                        tasks: tasks_ref.clone(),
+                        app_handle: app_handle_ref.clone(),
+                        notify: notify.clone(),
+                        save_notify: save_notify.clone(),
+                        config: config_ref.clone(),
+                        pending: pending_ref.clone(),
+                        abort_handles: abort_handles.clone(),
+                    };
+                    tokio::spawn(ctx.run(entry, abort_rx));
                 }
 
                 notify.notified().await;
@@ -454,29 +325,18 @@ impl DownloadOrchestrator {
     fn emit_queue_change_event(
         app_handle_ref: &Arc<RwLock<Option<AppHandle>>>,
         pending_ref: &Arc<Mutex<Vec<QueueEntry>>>,
-        tasks_ref: &Arc<RwLock<HashMap<String, DownloadProgress>>>,
+        tasks_ref: &TaskMap,
         max_concurrent: usize,
     ) {
         if let Some(app) = app_handle_ref.read().unwrap().as_ref() {
-            let order = {
-                let p = pending_ref.lock().unwrap();
-                p.iter().map(|e| e.task_id.clone()).collect::<Vec<String>>()
-            };
-
-            let running = {
-                let tasks = tasks_ref.read().unwrap();
-                tasks.values()
-                    .filter(|t| t.state == DownloadState::Downloading || t.state == DownloadState::Remuxing)
-                    .count()
-            };
-
-            let payload = QueueChangedPayload {
-                order,
-                running,
-                max_concurrent,
-            };
-
-            let _ = app.emit("download-queue-changed", &payload);
+            let order = pending_ref.lock().unwrap().iter().map(|e| e.task_id.clone()).collect();
+            let running = tasks_ref
+                .read()
+                .unwrap()
+                .values()
+                .filter(|t| matches!(t.state, DownloadState::Downloading | DownloadState::Remuxing))
+                .count();
+            let _ = app.emit("download-queue-changed", &QueueChangedPayload { order, running, max_concurrent });
         }
     }
 
@@ -485,14 +345,21 @@ impl DownloadOrchestrator {
         Self::emit_queue_change_event(&self.app_handle, &self.pending, &self.tasks, max_conc);
     }
 
+    fn changed(&self) {
+        self.save_notify.notify_one();
+        self.notify.notify_one();
+        self.emit_queue_state();
+    }
+
+    /// All tasks, oldest first (stable order for the UI).
     pub fn get_tasks(&self) -> Vec<DownloadProgress> {
-        let tasks = self.tasks.read().unwrap();
-        tasks.values().cloned().collect()
+        let mut list: Vec<DownloadProgress> = self.tasks.read().unwrap().values().cloned().collect();
+        list.sort_by_key(|t| t.created_at);
+        list
     }
 
     pub fn get_task(&self, task_id: &str) -> Option<DownloadProgress> {
-        let tasks = self.tasks.read().unwrap();
-        tasks.get(task_id).cloned()
+        self.tasks.read().unwrap().get(task_id).cloned()
     }
 
     pub fn get_config(&self) -> QueueConfig {
@@ -507,222 +374,230 @@ impl DownloadOrchestrator {
         Ok(sanitized)
     }
 
-    pub fn pause_task(&self, task_id: &str) -> Result<(), String> {
-        // 1. If in pending, remove it
-        {
-            let mut pending = self.pending.lock().unwrap();
-            pending.retain(|e| e.task_id != task_id);
+    fn abort_running(&self, task_id: &str) {
+        if let Some(tx) = self.abort_handles.write().unwrap().remove(task_id) {
+            let _ = tx.send(());
         }
+    }
 
-        // 2. If running, abort it
-        {
-            let mut handles = self.abort_handles.write().unwrap();
-            if let Some(tx) = handles.remove(task_id) {
-                let _ = tx.send(());
-            }
-        }
-
-        // 3. Mark as Paused in tasks
+    fn set_state(&self, task_id: &str, state: DownloadState, stage: &str) -> Result<(), String> {
         {
             let mut tasks = self.tasks.write().unwrap();
-            if let Some(t) = tasks.get_mut(task_id) {
-                t.state = DownloadState::Paused;
-                t.stage = "Paused by user".to_string();
-                t.speed_bytes_per_sec = 0;
-            }
+            let t = tasks.get_mut(task_id).ok_or("That download no longer exists.")?;
+            t.state = state;
+            t.stage = stage.to_string();
+            t.speed_bytes_per_sec = 0;
+            t.eta_seconds = None;
         }
+        emit_task(&self.app_handle, &self.tasks, task_id, "download-progress");
+        Ok(())
+    }
 
-        if let Some(app) = self.app_handle.read().unwrap().as_ref() {
-            if let Some(t) = self.tasks.read().unwrap().get(task_id) {
-                let _ = app.emit("download-progress", t);
-            }
+    pub fn pause_task(&self, task_id: &str) -> Result<(), String> {
+        let state = self.get_task(task_id).map(|t| t.state).ok_or("That download no longer exists.")?;
+        if !matches!(state, DownloadState::Queued | DownloadState::Downloading | DownloadState::Remuxing) {
+            return Ok(());
         }
-
-        self.save_notify.notify_one();
-        self.notify.notify_one();
-        self.emit_queue_state();
+        self.pending.lock().unwrap().retain(|e| e.task_id != task_id);
+        self.set_state(task_id, DownloadState::Paused, "Paused")?;
+        self.abort_running(task_id);
+        self.changed();
         Ok(())
     }
 
     pub fn resume_task(&self, task_id: &str) -> Result<(), String> {
-        let entry = {
-            let all = self.all_entries.read().unwrap();
-            all.get(task_id).cloned()
-        };
-
-        let entry = match entry {
-            Some(e) => e,
-            None => {
-                let tasks = self.tasks.read().unwrap();
-                let t = tasks.get(task_id).ok_or_else(|| format!("Task {} not found", task_id))?;
-                QueueEntry {
-                    task_id: task_id.to_string(),
-                    options: DownloadOptions {
-                        url: "".to_string(),
-                        title: t.title.clone(),
-                        format_id: None,
-                        output_dir: None,
-                        audio_formats: vec![],
-                        subtitles: vec![],
-                        cookies: None,
-                    },
-                    priority: 0,
-                    enqueued_at: now_ms(),
-                    attempts: 0,
-                    target_dir: PathBuf::from("downloads"),
-                    had_cookies: false,
-                }
-            }
-        };
-
-        {
-            let mut tasks = self.tasks.write().unwrap();
-            if let Some(t) = tasks.get_mut(task_id) {
-                t.state = DownloadState::Queued;
-                t.stage = "Resuming download...".to_string();
-            }
+        let entry = self
+            .all_entries
+            .read()
+            .unwrap()
+            .get(task_id)
+            .cloned()
+            .ok_or("That download can't be resumed because its original request was lost.")?;
+        if self.get_task(task_id).map(|t| t.state) != Some(DownloadState::Paused) {
+            return Ok(());
         }
-
+        self.set_state(task_id, DownloadState::Queued, "Waiting to start")?;
         {
             let mut pending = self.pending.lock().unwrap();
             if !pending.iter().any(|e| e.task_id == task_id) {
                 pending.push(entry);
-                pending.sort_by(|a, b| {
-                    b.priority.cmp(&a.priority)
-                        .then_with(|| a.enqueued_at.cmp(&b.enqueued_at))
-                });
+                sort_pending(&mut pending);
             }
         }
+        self.changed();
+        Ok(())
+    }
 
-        if let Some(app) = self.app_handle.read().unwrap().as_ref() {
-            if let Some(t) = self.tasks.read().unwrap().get(task_id) {
-                let _ = app.emit("download-progress", t);
+    /// Re-queues a failed or cancelled download from scratch (partial data is reused if present).
+    pub fn retry_task(&self, task_id: &str) -> Result<(), String> {
+        let mut entry = self
+            .all_entries
+            .read()
+            .unwrap()
+            .get(task_id)
+            .cloned()
+            .ok_or("That download can't be retried because its original request was lost.")?;
+        let state = self.get_task(task_id).map(|t| t.state).ok_or("That download no longer exists.")?;
+        if !matches!(state, DownloadState::Failed | DownloadState::Cancelled) {
+            return Ok(());
+        }
+        entry.attempts = 0;
+        entry.enqueued_at = now_ms();
+        {
+            let mut tasks = self.tasks.write().unwrap();
+            if let Some(t) = tasks.get_mut(task_id) {
+                t.state = DownloadState::Queued;
+                t.stage = "Waiting to start".to_string();
+                t.error_message = None;
+                t.progress_percent = 0.0;
+                t.downloaded_bytes = 0;
+                t.speed_bytes_per_sec = 0;
+                t.eta_seconds = None;
             }
         }
-
-        self.save_notify.notify_one();
-        self.notify.notify_one();
-        self.emit_queue_state();
+        self.all_entries.write().unwrap().insert(task_id.to_string(), entry.clone());
+        {
+            let mut pending = self.pending.lock().unwrap();
+            pending.retain(|e| e.task_id != task_id);
+            pending.push(entry);
+            sort_pending(&mut pending);
+        }
+        emit_task(&self.app_handle, &self.tasks, task_id, "download-progress");
+        self.changed();
         Ok(())
     }
 
     pub fn reorder_task(&self, task_id: &str, priority: i32) -> Result<(), String> {
         {
             let mut pending = self.pending.lock().unwrap();
-            if let Some(entry) = pending.iter_mut().find(|e| e.task_id == task_id) {
-                entry.priority = priority;
-            } else {
-                return Err(format!("Task {} not in pending queue", task_id));
-            }
-            pending.sort_by(|a, b| {
-                b.priority.cmp(&a.priority)
-                    .then_with(|| a.enqueued_at.cmp(&b.enqueued_at))
-            });
+            let entry = pending
+                .iter_mut()
+                .find(|e| e.task_id == task_id)
+                .ok_or("Only waiting downloads can be reordered.")?;
+            entry.priority = priority;
+            sort_pending(&mut pending);
         }
+        if let Some(entry) = self.all_entries.write().unwrap().get_mut(task_id) {
+            entry.priority = priority;
+        }
+        self.changed();
+        Ok(())
+    }
 
+    /// Swaps a waiting download with its neighbour and renumbers the queue so the order sticks.
+    pub fn move_task(&self, task_id: &str, up: bool) -> Result<(), String> {
+        let priorities: Vec<(String, i32)> = {
+            let mut pending = self.pending.lock().unwrap();
+            sort_pending(&mut pending);
+            let idx = pending
+                .iter()
+                .position(|e| e.task_id == task_id)
+                .ok_or("Only waiting downloads can be reordered.")?;
+            let target = if up { idx.checked_sub(1) } else { Some(idx + 1).filter(|t| *t < pending.len()) };
+            let Some(target) = target else { return Ok(()) };
+            pending.swap(idx, target);
+            let n = pending.len() as i32;
+            for (i, e) in pending.iter_mut().enumerate() {
+                e.priority = n - i as i32;
+            }
+            pending.iter().map(|e| (e.task_id.clone(), e.priority)).collect()
+        };
         {
             let mut all = self.all_entries.write().unwrap();
-            if let Some(entry) = all.get_mut(task_id) {
-                entry.priority = priority;
+            for (id, priority) in priorities {
+                if let Some(e) = all.get_mut(&id) {
+                    e.priority = priority;
+                }
             }
         }
-
-        self.save_notify.notify_one();
-        self.notify.notify_one();
-        self.emit_queue_state();
+        self.changed();
         Ok(())
     }
 
     pub fn pause_all(&self) -> Result<(), String> {
-        let task_ids: Vec<String> = {
-            let tasks = self.tasks.read().unwrap();
-            tasks.iter()
-                .filter(|(_, t)| matches!(t.state, DownloadState::Queued | DownloadState::Downloading | DownloadState::Remuxing))
-                .map(|(id, _)| id.clone())
-                .collect()
-        };
-
-        for id in task_ids {
+        let ids: Vec<String> = self
+            .tasks
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, t)| matches!(t.state, DownloadState::Queued | DownloadState::Downloading | DownloadState::Remuxing))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
             let _ = self.pause_task(&id);
         }
         Ok(())
     }
 
     pub fn resume_all(&self) -> Result<(), String> {
-        let task_ids: Vec<String> = {
-            let tasks = self.tasks.read().unwrap();
-            tasks.iter()
-                .filter(|(_, t)| t.state == DownloadState::Paused)
-                .map(|(id, _)| id.clone())
-                .collect()
-        };
-
-        for id in task_ids {
+        let ids: Vec<String> = self
+            .tasks
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, t)| t.state == DownloadState::Paused)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
             let _ = self.resume_task(&id);
         }
         Ok(())
     }
 
     pub fn clear_finished(&self) -> usize {
-        let count = {
-            let mut tasks = self.tasks.write().unwrap();
-            let finished_ids: Vec<String> = tasks.iter()
-                .filter(|(_, t)| matches!(t.state, DownloadState::Completed | DownloadState::Failed | DownloadState::Cancelled))
-                .map(|(id, _)| id.clone())
-                .collect();
-
-            let c = finished_ids.len();
-            for id in &finished_ids {
-                tasks.remove(id);
-            }
-            c
-        };
-
+        let finished: Vec<String> = self
+            .tasks
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, t)| matches!(t.state, DownloadState::Completed | DownloadState::Failed | DownloadState::Cancelled))
+            .map(|(id, _)| id.clone())
+            .collect();
         {
+            let mut tasks = self.tasks.write().unwrap();
             let mut all = self.all_entries.write().unwrap();
-            let tasks = self.tasks.read().unwrap();
-            all.retain(|id, _| tasks.contains_key(id));
+            for id in &finished {
+                tasks.remove(id);
+                all.remove(id);
+            }
         }
-
-        self.save_notify.notify_one();
-        self.emit_queue_state();
-        count
+        self.changed();
+        finished.len()
     }
 
     pub fn cancel_task(&self, task_id: &str) -> Result<(), String> {
-        // 1. Remove from pending so it never spawns
-        {
-            let mut pending = self.pending.lock().unwrap();
-            pending.retain(|e| e.task_id != task_id);
-        }
-
-        // 2. Abort if currently running
-        {
-            let mut handles = self.abort_handles.write().unwrap();
-            if let Some(tx) = handles.remove(task_id) {
-                let _ = tx.send(());
+        let task = self.get_task(task_id).ok_or("That download no longer exists.")?;
+        self.pending.lock().unwrap().retain(|e| e.task_id != task_id);
+        let was_running = matches!(task.state, DownloadState::Downloading | DownloadState::Remuxing);
+        self.set_state(task_id, DownloadState::Cancelled, "Cancelled")?;
+        self.abort_running(task_id);
+        // A running task cleans up after its process exits; otherwise clean up now.
+        if !was_running {
+            if let Some(planned) = task.planned_path {
+                remove_partial_files(Path::new(&planned));
             }
         }
+        self.changed();
+        Ok(())
+    }
 
-        // 3. Mark state as Cancelled
-        {
-            let mut tasks = self.tasks.write().unwrap();
-            if let Some(t) = tasks.get_mut(task_id) {
-                t.state = DownloadState::Cancelled;
-                t.stage = "Cancelled by user".to_string();
-                t.speed_bytes_per_sec = 0;
-            }
+    /// Cancels if needed and removes the task from the list entirely.
+    pub fn remove_task(&self, task_id: &str) -> Result<(), String> {
+        let active = self
+            .get_task(task_id)
+            .map(|t| !matches!(t.state, DownloadState::Completed | DownloadState::Failed | DownloadState::Cancelled))
+            .unwrap_or(false);
+        if active {
+            self.cancel_task(task_id)?;
         }
-
-        if let Some(app) = self.app_handle.read().unwrap().as_ref() {
-            if let Some(t) = self.tasks.read().unwrap().get(task_id) {
-                let _ = app.emit("download-progress", t);
-            }
+        // Keep the Cancelled entry until the runner has cleaned up; the runner drops it after.
+        if !active {
+            self.tasks.write().unwrap().remove(task_id);
+            self.all_entries.write().unwrap().remove(task_id);
+        } else if let Some(t) = self.tasks.write().unwrap().get_mut(task_id) {
+            t.stage = "Removing".to_string();
         }
-
-        self.save_notify.notify_one();
-        self.notify.notify_one();
-        self.emit_queue_state();
+        self.changed();
         Ok(())
     }
 
@@ -732,377 +607,762 @@ impl DownloadOrchestrator {
         options: DownloadOptions,
         priority: Option<i32>,
     ) -> Result<String, String> {
+        if options.url.trim().is_empty() {
+            return Err("Paste a link first.".to_string());
+        }
+        let options = DownloadOptions {
+            title: if options.title.trim().is_empty() { options.url.clone() } else { options.title },
+            ..options
+        };
         if self.app_handle.read().unwrap().is_none() {
             self.attach_app(app.clone());
         }
 
         let task_id = format!("dl-{}", uuid_simple());
+        let target_dir = options
+            .output_dir
+            .as_deref()
+            .filter(|d| !d.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(default_download_dir);
+        std::fs::create_dir_all(&target_dir)
+            .map_err(|e| format!("Couldn't create the download folder {}: {}", target_dir.display(), e))?;
 
-        let target_dir = if let Some(dir) = options.output_dir.as_deref() {
-            PathBuf::from(dir)
-        } else if let Ok(video_dir) = std::env::var("USERPROFILE") {
-            PathBuf::from(video_dir).join("Videos").join("HyperStream")
-        } else {
-            PathBuf::from("downloads")
-        };
-        let _ = std::fs::create_dir_all(&target_dir);
-
-        let initial_progress = DownloadProgress {
-            task_id: task_id.clone(),
-            title: options.title.clone(),
-            state: DownloadState::Queued,
-            progress_percent: 0.0,
-            speed_bytes_per_sec: 0,
-            downloaded_bytes: 0,
-            total_bytes: None,
-            eta_seconds: None,
-            stage: "Queued in download pipeline...".to_string(),
-            output_path: None,
-            error_message: None,
-        };
-
-        {
-            let mut tasks = self.tasks.write().unwrap();
-            tasks.insert(task_id.clone(), initial_progress.clone());
-        }
+        let created_at = now_ms();
+        let progress = progress_from_options(&task_id, &options, DownloadState::Queued, "Waiting to start", created_at);
+        self.tasks.write().unwrap().insert(task_id.clone(), progress.clone());
 
         let entry = QueueEntry {
             task_id: task_id.clone(),
-            options: options.clone(),
+            options: DownloadOptions { cookies: None, ..options },
             priority: priority.unwrap_or(0),
-            enqueued_at: now_ms(),
+            enqueued_at: created_at,
             attempts: 0,
             target_dir,
-            had_cookies: options.cookies.is_some(),
+            had_cookies: false,
         };
-
-        {
-            let mut all = self.all_entries.write().unwrap();
-            all.insert(task_id.clone(), entry.clone());
-        }
-
+        self.all_entries.write().unwrap().insert(task_id.clone(), entry.clone());
         {
             let mut pending = self.pending.lock().unwrap();
             pending.push(entry);
-            pending.sort_by(|a, b| {
-                b.priority.cmp(&a.priority)
-                    .then_with(|| a.enqueued_at.cmp(&b.enqueued_at))
-            });
+            sort_pending(&mut pending);
         }
 
-        let _ = app.emit("download-progress", &initial_progress);
-
-        self.save_notify.notify_one();
-        self.notify.notify_one();
-        self.emit_queue_state();
-
+        let _ = app.emit("download-progress", &progress);
+        self.changed();
         Ok(task_id)
     }
+}
 
-    async fn run_download_task(
-        task_id: &str,
-        options: &DownloadOptions,
-        target_dir: &PathBuf,
-        tasks_ref: &Arc<RwLock<HashMap<String, DownloadProgress>>>,
-        app: &AppHandle,
-        abort_rx: &mut tokio::sync::oneshot::Receiver<()>,
-    ) -> Result<String, String> {
-        let mut cmd = BinaryManager::create_command("yt-dlp")?;
+/// Everything a running download needs, detached from the orchestrator borrow.
+struct RunContext {
+    tasks: TaskMap,
+    app_handle: Arc<RwLock<Option<AppHandle>>>,
+    notify: Arc<tokio::sync::Notify>,
+    save_notify: Arc<tokio::sync::Notify>,
+    config: Arc<RwLock<QueueConfig>>,
+    pending: Arc<Mutex<Vec<QueueEntry>>>,
+    abort_handles: Arc<RwLock<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
+}
 
-        let safe_title = options.title
-            .chars()
-            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
-            .collect::<String>();
-        let output_template = target_dir.join(format!("{}.%(ext)s", safe_title));
+impl RunContext {
+    fn state_of(&self, task_id: &str) -> Option<DownloadState> {
+        self.tasks.read().unwrap().get(task_id).map(|t| t.state.clone())
+    }
 
-        cmd.arg("-o");
-        cmd.arg(output_template.to_string_lossy().to_string());
-        cmd.arg("--newline");
-        cmd.arg("--no-playlist");
+    fn finish(&self) {
+        self.save_notify.notify_one();
+        self.notify.notify_one();
+    }
 
-        // Resume an interrupted transfer instead of restarting at 0%.
-        cmd.arg("--continue");
-        // Network resilience: retry transient failures with linear backoff.
-        cmd.arg("--retries");
-        cmd.arg("10");
-        cmd.arg("--fragment-retries");
-        cmd.arg("10");
-        cmd.arg("--retry-sleep");
-        cmd.arg("linear=1::5");
-        cmd.arg("--socket-timeout");
-        cmd.arg("30");
+    async fn run(self, entry: QueueEntry, mut abort_rx: tokio::sync::oneshot::Receiver<()>) {
+        let task_id = entry.task_id.clone();
+        ACTIVE_TRANSFERS.fetch_add(1, Ordering::SeqCst);
 
-        if let Some(fid) = &options.format_id {
-            cmd.arg("-f");
-            cmd.arg(fid);
+        let app = self.app_handle.read().unwrap().clone();
+        let result = match app {
+            Some(ref app) => run_download_task(&task_id, &entry, &self.tasks, app, &mut abort_rx).await,
+            None => Err("The app isn't ready yet. Try again in a moment.".to_string()),
+        };
+
+        ACTIVE_TRANSFERS.fetch_sub(1, Ordering::SeqCst);
+        self.abort_handles.write().unwrap().remove(&task_id);
+
+        match self.state_of(&task_id) {
+            Some(DownloadState::Paused) => return self.finish(),
+            Some(DownloadState::Cancelled) | None => {
+                let planned = self.tasks.read().unwrap().get(&task_id).and_then(|t| t.planned_path.clone());
+                if let Some(planned) = planned {
+                    remove_partial_files(Path::new(&planned));
+                }
+                // remove_task() marks a running task "Removing"; drop it now that cleanup is done.
+                let removing = self.tasks.read().unwrap().get(&task_id).map_or(false, |t| t.stage == "Removing");
+                if removing {
+                    self.tasks.write().unwrap().remove(&task_id);
+                }
+                return self.finish();
+            }
+            _ => {}
+        }
+
+        match result {
+            Ok(outcome) => self.complete(&entry, outcome),
+            Err(e) if e == ABORTED => {}
+            Err(e) => self.fail_or_retry(entry, e),
+        }
+        self.finish();
+    }
+
+    fn complete(&self, entry: &QueueEntry, outcome: DownloadOutcome) {
+        let task_id = &entry.task_id;
+        let o = &entry.options;
+        let (title, container) = {
+            let mut tasks = self.tasks.write().unwrap();
+            let Some(t) = tasks.get_mut(task_id) else { return };
+            t.state = DownloadState::Completed;
+            t.progress_percent = 100.0;
+            t.speed_bytes_per_sec = 0;
+            t.eta_seconds = None;
+            t.stage = "Done".to_string();
+            t.output_path = Some(outcome.file_path.clone());
+            if let Ok(meta) = std::fs::metadata(&outcome.file_path) {
+                t.total_bytes = Some(meta.len());
+                t.downloaded_bytes = meta.len();
+            }
+            (t.title.clone(), t.container.clone())
+        };
+
+        let size_bytes = std::fs::metadata(&outcome.file_path).map(|m| m.len()).unwrap_or(0);
+        let item = LibraryItem {
+            id: task_id.clone(),
+            title,
+            file_path: outcome.file_path.clone(),
+            source_url: o.url.clone(),
+            thumbnail_path: library::find_thumbnail(task_id),
+            uploader: o.uploader.clone(),
+            extractor: o.extractor.clone(),
+            duration: o.duration,
+            width: outcome.width,
+            height: outcome.height,
+            size_bytes,
+            added_at: now_ms(),
+            kind: if o.audio_only { MediaKind::Audio } else { MediaKind::Video },
+            container: container.unwrap_or_else(|| extension_label(&outcome.file_path)),
+            audio_languages: o.audio_languages.clone(),
+            subtitle_languages: if o.audio_only { Vec::new() } else { o.subtitles.clone() },
+            missing: false,
+        };
+        let library_result = library::add(item);
+
+        emit_task(&self.app_handle, &self.tasks, task_id, "download-complete");
+        if let Some(app) = self.app_handle.read().unwrap().as_ref() {
+            if library_result.is_ok() {
+                let _ = app.emit("library-changed", ());
+            }
+        }
+    }
+
+    fn fail_or_retry(&self, entry: QueueEntry, error: String) {
+        let task_id = entry.task_id.clone();
+        let (max_retries, backoff_ms) = {
+            let cfg = self.config.read().unwrap();
+            (cfg.max_retries, cfg.retry_backoff_ms)
+        };
+
+        if is_transient_error(&error) && entry.attempts < max_retries {
+            let next_attempt = entry.attempts + 1;
+            let backoff = backoff_ms.saturating_mul(1 << (next_attempt - 1).min(6));
+            if let Some(t) = self.tasks.write().unwrap().get_mut(&task_id) {
+                t.state = DownloadState::Queued;
+                t.speed_bytes_per_sec = 0;
+                t.eta_seconds = None;
+                t.stage = format!("Connection problem — retrying in {}s (attempt {} of {})", backoff / 1000, next_attempt, max_retries);
+                t.error_message = Some(error);
+            }
+            emit_task(&self.app_handle, &self.tasks, &task_id, "download-progress");
+
+            let tasks = self.tasks.clone();
+            let pending = self.pending.clone();
+            let notify = self.notify.clone();
+            let save_notify = self.save_notify.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(backoff)).await;
+                // The user may have paused, cancelled or removed it while we waited.
+                let still_queued = tasks.read().unwrap().get(&task_id).map_or(false, |t| t.state == DownloadState::Queued);
+                if !still_queued {
+                    return;
+                }
+                {
+                    let mut p = pending.lock().unwrap();
+                    p.retain(|e| e.task_id != task_id);
+                    p.push(QueueEntry { attempts: next_attempt, enqueued_at: now_ms(), ..entry });
+                    sort_pending(&mut p);
+                }
+                save_notify.notify_one();
+                notify.notify_one();
+            });
+            return;
+        }
+
+        if let Some(t) = self.tasks.write().unwrap().get_mut(&task_id) {
+            t.state = DownloadState::Failed;
+            t.speed_bytes_per_sec = 0;
+            t.eta_seconds = None;
+            t.stage = "Failed".to_string();
+            t.error_message = Some(error);
+        }
+        emit_task(&self.app_handle, &self.tasks, &task_id, "download-error");
+    }
+}
+
+/// yt-dlp format selector for the chosen quality/audio options.
+pub fn format_selector(o: &DownloadOptions) -> String {
+    if o.audio_only {
+        // Native M4A/AAC plays everywhere and needs no re-encode; fall back to the best audio.
+        return "ba[ext=m4a]/ba/b".to_string();
+    }
+    let cap = o.max_height.map(|h| format!("[height<={}]", h)).unwrap_or_default();
+    // MP4 output prefers AAC audio: Opus-in-MP4 is silent in some players and editors.
+    let mp4_output = o.audio_languages.len() <= 1 && o.subtitles.is_empty();
+    let aac_first = if mp4_output { format!("bv*{cap}+ba[ext=m4a]/") } else { String::new() };
+    let fallback = format!("{aac_first}bv*{cap}+ba/b{cap}/bv*+ba/b");
+    let languages: Vec<String> = o
+        .audio_languages
+        .iter()
+        .map(|l| l.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect::<String>())
+        .filter(|l| !l.is_empty())
+        .collect();
+    if languages.is_empty() {
+        return fallback;
+    }
+    let audio: String = languages.iter().map(|l| format!("+ba[language={}]", l)).collect();
+    format!("bv*{cap}{audio}/{fallback}")
+}
+
+/// Full yt-dlp argument list (without the executable). Pure, so it's unit-testable.
+fn build_args(
+    o: &DownloadOptions,
+    target_dir: &Path,
+    thumb_template: &Path,
+    ffmpeg: Option<&Path>,
+    cookie_file: Option<&Path>,
+) -> Vec<OsString> {
+    let mut args: Vec<OsString> = Vec::new();
+    let mut push = |s: &str| args.push(OsString::from(s));
+
+    for a in [
+        "--newline", "--no-playlist", "--no-simulate", "--progress", "--encoding", "utf-8",
+        "--no-mtime", "--windows-filenames", "--continue",
+        "--retries", "10", "--fragment-retries", "10", "--retry-sleep", "linear=1::5",
+        "--socket-timeout", "30", "--concurrent-fragments", "4",
+        "--print", "video:HSINFO %(filesize,filesize_approx|0)s %(width|0)s %(height|0)s %(ext)s",
+        "--print", "video:HSNAME %(filename)s",
+        "--print", "video:HSTITLE %(title)s",
+        "--print", "after_move:HSFILE %(filepath)s",
+        "--progress-template",
+        "download:HSPROG %(progress.downloaded_bytes|0)s %(progress.total_bytes,progress.total_bytes_estimate|0)s %(progress.speed|0)s",
+        "--progress-template", "postprocess:HSPOST %(progress.postprocessor)s",
+        "--write-thumbnail", "--convert-thumbnails", "jpg",
+    ] {
+        push(a);
+    }
+
+    push("-f");
+    push(&format_selector(o));
+
+    if o.audio_only {
+        // Keep the source codec when possible (no lossy re-encode).
+        push("-x");
+    } else {
+        if o.prefer_compatible {
+            push("-S");
+            push("res,fps,vcodec:h264,acodec:m4a");
+        }
+        let multi_audio = o.audio_languages.len() > 1;
+        if multi_audio {
+            push("--audio-multistreams");
+        }
+        push("--merge-output-format");
+        // MKV holds any codec plus multiple audio/subtitle tracks; otherwise prefer MP4.
+        push(if multi_audio || !o.subtitles.is_empty() { "mkv" } else { "mp4/mkv" });
+        if !o.subtitles.is_empty() {
+            // --embed-subs alone writes temporary files and removes them after embedding.
+            push("--sub-langs");
+            push(&o.subtitles.join(","));
+            push("--embed-subs");
+        }
+    }
+
+    if let Some(ff) = ffmpeg {
+        args.push("--ffmpeg-location".into());
+        args.push(ff.as_os_str().to_owned());
+    }
+    if let Some(cf) = cookie_file {
+        args.push("--cookies".into());
+        args.push(cf.as_os_str().to_owned());
+    }
+
+    args.push("-o".into());
+    args.push(target_dir.join("%(title).120B [%(id)s].%(ext)s").into_os_string());
+    let mut thumb = OsString::from("thumbnail:");
+    thumb.push(thumb_template.as_os_str());
+    args.push("-o".into());
+    args.push(thumb);
+
+    args.push("--".into());
+    args.push(o.url.clone().into());
+    args
+}
+
+/// Turns per-file progress (video, then audio, ...) into one overall progress figure.
+#[derive(Debug, Default)]
+struct ProgressTracker {
+    expected_total: u64,
+    completed_bytes: u64,
+    last_downloaded: u64,
+    last_total: u64,
+}
+
+impl ProgressTracker {
+    /// Returns (overall_downloaded, overall_total).
+    fn update(&mut self, downloaded: u64, total: u64) -> (u64, u64) {
+        if downloaded < self.last_downloaded {
+            // A new file started (e.g. the audio stream after the video stream).
+            self.completed_bytes += self.last_total.max(self.last_downloaded);
+        }
+        self.last_downloaded = downloaded;
+        self.last_total = total;
+        let overall = self.completed_bytes + downloaded;
+        let overall_total = self.expected_total.max(self.completed_bytes + total).max(overall);
+        (overall, overall_total)
+    }
+}
+
+fn extension_label(path: &str) -> String {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_uppercase())
+        .unwrap_or_default()
+}
+
+/// Deletes yt-dlp leftovers for a planned output: `.part`, `.ytdl`, `.fNNN.*` fragments.
+/// Never touches a completed file with the same name.
+fn remove_partial_files(planned: &Path) {
+    let (Some(dir), Some(stem)) = (planned.parent(), planned.file_stem().and_then(|s| s.to_str())) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefix = format!("{}.", stem);
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with(&prefix) {
+            continue;
+        }
+        let rest = &name[prefix.len()..];
+        let is_fragment = rest.starts_with('f') && rest[1..].split('.').next().map_or(false, |n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+        if name.ends_with(".part") || name.ends_with(".ytdl") || name.contains(".part-Frag") || name.ends_with(".temp") || is_fragment {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+async fn run_download_task(
+    task_id: &str,
+    entry: &QueueEntry,
+    tasks_ref: &TaskMap,
+    app: &AppHandle,
+    abort_rx: &mut tokio::sync::oneshot::Receiver<()>,
+) -> Result<DownloadOutcome, String> {
+    let options = &entry.options;
+    let target_dir = &entry.target_dir;
+    std::fs::create_dir_all(target_dir)
+        .map_err(|e| format!("Couldn't create the download folder {}: {}", target_dir.display(), e))?;
+
+    let cookies = match options.cookies.clone() {
+        Some(c) if !c.trim().is_empty() => Some(c),
+        _ => browser_cookies_async(app, &options.url).await,
+    };
+    let cookie_file = cookies.as_deref().and_then(BinaryManager::write_temp_cookie_file);
+    struct CookieGuard(Option<PathBuf>);
+    impl Drop for CookieGuard {
+        fn drop(&mut self) {
+            if let Some(p) = &self.0 {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+    }
+    let _cookie_guard = CookieGuard(cookie_file.clone());
+
+    let mut cmd = BinaryManager::create_command("yt-dlp")?;
+    BinaryManager::apply_utf8_env(&mut cmd);
+    let ffmpeg = BinaryManager::find_binary("ffmpeg");
+    let thumb_template = library::thumbnails_dir().join(format!("{}.%(ext)s", task_id));
+    cmd.args(build_args(options, target_dir, &thumb_template, ffmpeg.as_deref(), cookie_file.as_deref()));
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Couldn't start the download engine: {}", e))?;
+    let pid = child.id();
+    let stdout = child.stdout.take().ok_or("Couldn't read engine output")?;
+    let stderr = child.stderr.take().ok_or("Couldn't read engine output")?;
+
+    // stdout lines -> async channel (the reader thread blocks, the task doesn't).
+    let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut buf = Vec::new();
+        while reader.read_until(b'\n', &mut buf).map(|n| n > 0).unwrap_or(false) {
+            let _ = line_tx.send(String::from_utf8_lossy(&buf).trim().to_string());
+            buf.clear();
+        }
+    });
+    let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
+    let stderr_tail_writer = stderr_tail.clone();
+    let err_thread = std::thread::spawn(move || {
+        let mut reader = BufReader::new(stderr);
+        let mut buf = Vec::new();
+        while reader.read_until(b'\n', &mut buf).map(|n| n > 0).unwrap_or(false) {
+            let line = String::from_utf8_lossy(&buf).trim().to_string();
+            if !line.is_empty() {
+                let mut tail = stderr_tail_writer.lock().unwrap();
+                tail.push(line);
+                if tail.len() > 60 {
+                    tail.remove(0);
+                }
+            }
+            buf.clear();
+        }
+    });
+
+    let mut tracker = ProgressTracker::default();
+    let mut final_path: Option<String> = None;
+    let mut dims: (Option<u32>, Option<u32>) = (None, None);
+    let mut last_emit = Instant::now() - Duration::from_secs(1);
+    let mut abort_live = true;
+
+    loop {
+        tokio::select! {
+            biased;
+            res = &mut *abort_rx, if abort_live => {
+                if res.is_ok() {
+                    BinaryManager::kill_process_tree(pid);
+                    let _ = tokio::task::spawn_blocking(move || child.wait()).await;
+                    let _ = err_thread.join();
+                    return Err(ABORTED.to_string());
+                }
+                abort_live = false;
+            }
+            line = line_rx.recv() => {
+                let Some(line) = line else { break };
+                let mut parts = line.split_whitespace();
+                match parts.next() {
+                    Some("HSINFO") => {
+                        let total: u64 = parts.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) as u64;
+                        let w: u32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                        let h: u32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                        let ext = parts.next().unwrap_or("").to_ascii_uppercase();
+                        tracker.expected_total = total;
+                        if w > 0 && h > 0 {
+                            dims = (Some(w), Some(h));
+                        }
+                        let mut tasks = tasks_ref.write().unwrap();
+                        if let Some(t) = tasks.get_mut(task_id) {
+                            if total > 0 {
+                                t.total_bytes = Some(total);
+                            }
+                            if !options.audio_only && h > 0 {
+                                // Portrait videos: label by the short side (1080x1920 is "1080p").
+                                t.quality_label = Some(format!("{}p", if w > 0 { w.min(h) } else { h }));
+                            }
+                            if !options.audio_only && !ext.is_empty() {
+                                t.container = Some(ext);
+                            }
+                            t.stage = "Downloading".to_string();
+                        }
+                    }
+                    Some("HSNAME") => {
+                        let planned = line.trim_start_matches("HSNAME").trim().to_string();
+                        if let Some(t) = tasks_ref.write().unwrap().get_mut(task_id) {
+                            t.planned_path = Some(planned);
+                        }
+                    }
+                    Some("HSPROG") => {
+                        let downloaded = parts.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) as u64;
+                        let total = parts.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) as u64;
+                        let speed = parts.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0).max(0.0) as u64;
+                        let (overall, overall_total) = tracker.update(downloaded, total);
+                        if last_emit.elapsed() < Duration::from_millis(250) {
+                            continue;
+                        }
+                        last_emit = Instant::now();
+                        let mut tasks = tasks_ref.write().unwrap();
+                        if let Some(t) = tasks.get_mut(task_id) {
+                            if t.state != DownloadState::Downloading {
+                                continue;
+                            }
+                            t.downloaded_bytes = overall;
+                            t.total_bytes = (overall_total > 0).then_some(overall_total);
+                            t.speed_bytes_per_sec = speed;
+                            t.progress_percent = if overall_total > 0 {
+                                (overall as f64 / overall_total as f64 * 100.0).min(99.5)
+                            } else {
+                                0.0
+                            };
+                            t.eta_seconds = (speed > 0 && overall_total > overall).then(|| (overall_total - overall) / speed);
+                            t.stage = "Downloading".to_string();
+                            let _ = app.emit("download-progress", &t.clone());
+                        }
+                    }
+                    Some("HSPOST") => {
+                        let step = parts.next().unwrap_or("");
+                        let stage = match step {
+                            "Merger" => "Merging audio and video",
+                            "FFmpegEmbedSubtitle" => "Embedding subtitles",
+                            "FFmpegExtractAudio" => "Extracting audio",
+                            "MoveFiles" | "FFmpegConcat" => "Finishing",
+                            _ => continue,
+                        };
+                        let mut tasks = tasks_ref.write().unwrap();
+                        if let Some(t) = tasks.get_mut(task_id) {
+                            if t.state == DownloadState::Downloading || t.state == DownloadState::Remuxing {
+                                t.state = DownloadState::Remuxing;
+                                t.stage = stage.to_string();
+                                t.speed_bytes_per_sec = 0;
+                                t.eta_seconds = None;
+                                t.progress_percent = t.progress_percent.max(99.5);
+                                let _ = app.emit("download-progress", &t.clone());
+                            }
+                        }
+                    }
+                    Some("HSTITLE") => {
+                        // Batch/dropped links are queued before their title is known.
+                        let title = line.trim_start_matches("HSTITLE").trim().to_string();
+                        if !title.is_empty() && title != "NA" {
+                            let mut tasks = tasks_ref.write().unwrap();
+                            if let Some(t) = tasks.get_mut(task_id) {
+                                if t.title.trim().is_empty() || t.title == options.url {
+                                    t.title = title;
+                                }
+                            }
+                        }
+                    }
+                    Some("HSFILE") => {
+                        final_path = Some(line.trim_start_matches("HSFILE").trim().to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let status = tokio::task::spawn_blocking(move || child.wait())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("The download engine stopped unexpectedly: {}", e))?;
+    let _ = err_thread.join();
+
+    if !status.success() {
+        let tail = stderr_tail.lock().unwrap();
+        let errors: Vec<&String> = tail.iter().filter(|l| l.starts_with("ERROR") || l.contains("error:")).collect();
+        let details = if !errors.is_empty() {
+            errors.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")
         } else {
-            cmd.arg("-f");
-            cmd.arg("bestvideo+bestaudio/best");
-        }
-
-        // Remux into MKV/MP4 losslessly
-        cmd.arg("--merge-output-format");
-        cmd.arg("mkv");
-
-        if let Some(ffmpeg_path) = BinaryManager::find_binary("ffmpeg") {
-            cmd.arg("--ffmpeg-location");
-            cmd.arg(ffmpeg_path);
-        }
-
-        // Multi-socket acceleration with aria2c if available
-        if BinaryManager::find_binary("aria2c").is_some() {
-            cmd.arg("--downloader");
-            cmd.arg("aria2c");
-            cmd.arg("--downloader-args");
-            cmd.arg("aria2c:-x 16 -s 16 -k 1M");
-        }
-
-        let mut temp_cookie = None;
-        if let Some(ref cookies) = options.cookies {
-            if !cookies.trim().is_empty() {
-                let bin_dir = BinaryManager::get_bin_dir();
-                let nonce = uuid_simple();
-                let cf = bin_dir.join(format!("dl-cookies-{}.txt", nonce));
-                if std::fs::write(&cf, cookies).is_ok() {
-                    cmd.arg("--cookies");
-                    cmd.arg(cf.to_string_lossy().to_string());
-                    temp_cookie = Some(cf);
-                }
-            }
-        }
-
-        cmd.arg(&options.url);
-
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
-
-        let stdout = child.stdout.take().ok_or_else(|| "Failed to capture stdout".to_string())?;
-        let stderr = child.stderr.take().ok_or_else(|| "Failed to capture stderr".to_string())?;
-
-        let stderr_log = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let stderr_log_clone = stderr_log.clone();
-
-        let err_thread = std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() {
-                if let Ok(mut lock) = stderr_log_clone.lock() {
-                    lock.push(line);
-                }
-            }
-        });
-
-        let re_progress = Regex::new(r"\[download\]\s+([0-9.]+)%\s+of\s+(?:~\s*)?([0-9.]+)([KMG]iB)(?:\s+at\s+([0-9.]+)([KMG]iB/s))?").unwrap();
-        let re_dest = Regex::new(r"\[(?:Merger|download)\]\s+(?:Merging formats into|Destination:)\s+(.+)").unwrap();
-
-        let mut detected_output_file: Option<String> = None;
-        let reader = BufReader::new(stdout);
-
-        for line_res in reader.lines() {
-            // Check cancellation signal
-            if abort_rx.try_recv().is_ok() {
-                let _ = child.kill();
-                let _ = err_thread.join();
-                if let Some(cf) = temp_cookie {
-                    let _ = std::fs::remove_file(cf);
-                }
-                return Err("Download cancelled by user".to_string());
-            }
-
-            if let Ok(line) = line_res {
-                let line_str = line.trim();
-
-                if let Some(caps) = re_dest.captures(line_str) {
-                    if let Some(m) = caps.get(1) {
-                        detected_output_file = Some(m.as_str().trim_matches('"').to_string());
-                    }
-                }
-
-                if let Some(caps) = re_progress.captures(line_str) {
-                    let percent: f64 = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
-                    let speed_val: f64 = caps.get(4).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
-                    let speed_unit = caps.get(5).map(|m| m.as_str()).unwrap_or("MiB/s");
-
-                    let multiplier = match speed_unit {
-                        "KiB/s" => 1024,
-                        "MiB/s" => 1024 * 1024,
-                        "GiB/s" => 1024 * 1024 * 1024,
-                        _ => 1,
-                    };
-                    let speed_bytes = (speed_val * multiplier as f64) as u64;
-
-                    let mut tasks = tasks_ref.write().unwrap();
-                    if let Some(t) = tasks.get_mut(task_id) {
-                        t.state = DownloadState::Downloading;
-                        t.progress_percent = percent;
-                        t.speed_bytes_per_sec = speed_bytes;
-                        t.stage = format!("Downloading: {:.1}% at {}", percent, caps.get(4).map(|m| m.as_str()).unwrap_or(""));
-                        let _ = app.emit("download-progress", &t.clone());
-                    }
-                } else if line_str.contains("[Merger]") || line_str.contains("Merging formats") {
-                    let mut tasks = tasks_ref.write().unwrap();
-                    if let Some(t) = tasks.get_mut(task_id) {
-                        t.state = DownloadState::Remuxing;
-                        t.stage = "Remuxing video and audio tracks losslessly (-c copy)...".to_string();
-                        let _ = app.emit("download-progress", &t.clone());
-                    }
-                }
-            }
-        }
-
-        let status = child.wait().map_err(|e| format!("Failed to wait for process exit: {}", e))?;
-        let _ = err_thread.join();
-
-        if let Some(cf) = temp_cookie {
-            let _ = std::fs::remove_file(cf);
-        }
-
-        if !status.success() {
-            let error_details = {
-                let lock = stderr_log.lock().unwrap();
-                let filtered: Vec<String> = lock.iter()
-                    .filter(|l| l.contains("ERROR:") || l.contains("error:") || l.contains("Failed to") || l.contains("Unable to"))
-                    .cloned()
-                    .collect();
-                if !filtered.is_empty() {
-                    filtered.join("; ")
-                } else if let Some(last) = lock.last() {
-                    last.clone()
-                } else {
-                    "Download process exited with non-zero status code".to_string()
-                }
-            };
-            return Err(crate::downloader::classify_download_error(&error_details));
-        }
-
-        let final_file = detected_output_file.unwrap_or_else(|| {
-            target_dir.join(format!("{}.mkv", safe_title)).to_string_lossy().to_string()
-        });
-
-        Self::verify_output_integrity(task_id, &final_file, tasks_ref, app)?;
-
-        Ok(final_file)
+            tail.last().cloned().unwrap_or_else(|| "The download engine exited with an error.".to_string())
+        };
+        return Err(crate::downloader::classify_download_error(&details));
     }
 
-    fn verify_output_integrity(
-        task_id: &str,
-        final_file: &str,
-        tasks_ref: &Arc<RwLock<HashMap<String, DownloadProgress>>>,
-        app: &AppHandle,
-    ) -> Result<(), String> {
-        {
-            let mut tasks = tasks_ref.write().unwrap();
-            if let Some(t) = tasks.get_mut(task_id) {
-                t.stage = "Verifying file integrity...".to_string();
-                let _ = app.emit("download-progress", &t.clone());
-            }
-        }
+    // "Already downloaded" runs may skip after_move; fall back to the planned name.
+    let final_file = final_path
+        .or_else(|| tasks_ref.read().unwrap().get(task_id).and_then(|t| t.planned_path.clone()))
+        .filter(|p| Path::new(p).is_file())
+        .ok_or("The download finished but the file couldn't be found.")?;
 
-        let path = Path::new(final_file);
+    verify_output_integrity(&final_file)?;
 
-        let metadata = std::fs::metadata(path)
-            .map_err(|_| "Output file was not produced on disk.".to_string())?;
-        if metadata.len() == 0 {
-            return Err("Output file is empty (0 bytes) — the download did not complete.".to_string());
-        }
-
-        let is_iso = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| matches!(e.to_ascii_lowercase().as_str(), "mp4" | "m4v" | "m4a" | "mov"))
-            .unwrap_or(false);
-
-        if is_iso && !crate::downloader::FastAtomInspector::verify_file(path) {
-            return Err("Output file failed container validation — it may be corrupted.".to_string());
-        }
-
-        Ok(())
+    if let Some(t) = tasks_ref.write().unwrap().get_mut(task_id) {
+        t.container = Some(extension_label(&final_file));
     }
+
+    Ok(DownloadOutcome { file_path: final_file, width: dims.0, height: dims.1 })
+}
+
+fn verify_output_integrity(final_file: &str) -> Result<(), String> {
+    let path = Path::new(final_file);
+    let metadata = std::fs::metadata(path).map_err(|_| "The output file wasn't created.".to_string())?;
+    if metadata.len() == 0 {
+        return Err("The output file is empty — the download didn't complete.".to_string());
+    }
+    let is_iso = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "mp4" | "m4v" | "m4a" | "mov"))
+        .unwrap_or(false);
+    if is_iso && !crate::downloader::FastAtomInspector::verify_file(path) {
+        return Err("The output file failed validation and may be corrupted.".to_string());
+    }
+    Ok(())
 }
 
 fn uuid_simple() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{:x}", now)
+    static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    format!("{:x}{:04x}", now, COUNTER.fetch_add(1, Ordering::Relaxed) & 0xffff)
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_orchestrator_initial_state() {
-        let orchestrator = DownloadOrchestrator::new();
-        assert_eq!(orchestrator.get_tasks().len(), 0);
+    fn empty_orchestrator() -> DownloadOrchestrator {
+        let o = DownloadOrchestrator::new();
+        o.tasks.write().unwrap().clear();
+        o.pending.lock().unwrap().clear();
+        o.all_entries.write().unwrap().clear();
+        o
+    }
+
+    fn queued(o: &DownloadOrchestrator, id: &str) {
+        let options = DownloadOptions { url: "https://example.com/v".into(), title: "Sample".into(), ..Default::default() };
+        o.tasks.write().unwrap().insert(id.into(), progress_from_options(id, &options, DownloadState::Queued, "Waiting", 1));
+        let entry = QueueEntry {
+            task_id: id.into(),
+            options,
+            priority: 0,
+            enqueued_at: 100,
+            attempts: 0,
+            target_dir: PathBuf::from("downloads"),
+            had_cookies: false,
+        };
+        o.all_entries.write().unwrap().insert(id.into(), entry.clone());
+        o.pending.lock().unwrap().push(entry);
     }
 
     #[test]
-    fn test_progress_regex() {
-        let re_progress = Regex::new(r"\[download\]\s+([0-9.]+)%\s+of\s+(?:~\s*)?([0-9.]+)([KMG]iB)(?:\s+at\s+([0-9.]+)([KMG]iB/s))?").unwrap();
-        let sample_line = "[download]  45.2% of ~  1.20GiB at   15.42MiB/s ETA 00:45";
-        let caps = re_progress.captures(sample_line).unwrap();
-        assert_eq!(caps.get(1).unwrap().as_str(), "45.2");
-        assert_eq!(caps.get(4).unwrap().as_str(), "15.42");
-        assert_eq!(caps.get(5).unwrap().as_str(), "MiB/s");
+    fn cancel_queued_task_removes_it_from_pending() {
+        let o = empty_orchestrator();
+        queued(&o, "t1");
+        o.cancel_task("t1").unwrap();
+        assert!(o.pending.lock().unwrap().is_empty());
+        assert_eq!(o.get_task("t1").unwrap().state, DownloadState::Cancelled);
     }
 
     #[test]
-    fn test_cancel_queued_task_removes_from_pending() {
-        let orchestrator = DownloadOrchestrator::new();
-        let task_id = "test-dl-1";
+    fn pause_resume_and_retry_transitions() {
+        let o = empty_orchestrator();
+        queued(&o, "t2");
+        o.pause_task("t2").unwrap();
+        assert_eq!(o.get_task("t2").unwrap().state, DownloadState::Paused);
+        assert!(o.pending.lock().unwrap().is_empty());
 
-        {
-            let mut tasks = orchestrator.tasks.write().unwrap();
-            tasks.insert(task_id.to_string(), DownloadProgress {
-                task_id: task_id.to_string(),
-                title: "Queued Sample".to_string(),
-                state: DownloadState::Queued,
-                progress_percent: 0.0,
-                speed_bytes_per_sec: 0,
-                downloaded_bytes: 0,
-                total_bytes: None,
-                eta_seconds: None,
-                stage: "Queued".to_string(),
-                output_path: None,
-                error_message: None,
-            });
+        o.resume_task("t2").unwrap();
+        assert_eq!(o.get_task("t2").unwrap().state, DownloadState::Queued);
+        assert_eq!(o.pending.lock().unwrap().len(), 1);
+
+        o.cancel_task("t2").unwrap();
+        o.retry_task("t2").unwrap();
+        assert_eq!(o.get_task("t2").unwrap().state, DownloadState::Queued);
+        assert_eq!(o.pending.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn move_task_swaps_neighbours_only() {
+        let o = empty_orchestrator();
+        for id in ["a", "b", "c"] {
+            queued(&o, id);
         }
-
-        {
-            let mut pending = orchestrator.pending.lock().unwrap();
-            pending.push(QueueEntry {
-                task_id: task_id.to_string(),
-                options: DownloadOptions {
-                    url: "https://example.com/video".to_string(),
-                    title: "Queued Sample".to_string(),
-                    format_id: None,
-                    output_dir: None,
-                    audio_formats: vec![],
-                    subtitles: vec![],
-                    cookies: None,
-                },
-                priority: 0,
-                enqueued_at: 100,
-                attempts: 0,
-                target_dir: PathBuf::from("downloads"),
-                had_cookies: false,
-            });
+        // Same priority: order falls back to enqueue time, so make it distinct.
+        for (i, e) in o.pending.lock().unwrap().iter_mut().enumerate() {
+            e.enqueued_at = i as u64;
         }
+        o.move_task("c", true).unwrap();
+        let order: Vec<String> = o.pending.lock().unwrap().iter().map(|e| e.task_id.clone()).collect();
+        assert_eq!(order, vec!["a", "c", "b"]);
+        o.move_task("a", true).unwrap(); // already first: no-op
+        let order: Vec<String> = o.pending.lock().unwrap().iter().map(|e| e.task_id.clone()).collect();
+        assert_eq!(order, vec!["a", "c", "b"]);
+    }
 
-        assert_eq!(orchestrator.pending.lock().unwrap().len(), 1);
-        orchestrator.cancel_task(task_id).expect("cancel should succeed");
-        assert_eq!(orchestrator.pending.lock().unwrap().len(), 0);
-        let task = orchestrator.get_task(task_id).unwrap();
-        assert_eq!(task.state, DownloadState::Cancelled);
+    #[test]
+    fn remove_drops_finished_task() {
+        let o = empty_orchestrator();
+        queued(&o, "t3");
+        o.cancel_task("t3").unwrap();
+        o.remove_task("t3").unwrap();
+        assert!(o.get_task("t3").is_none());
+    }
+
+    #[test]
+    fn format_selector_always_includes_audio() {
+        let base = DownloadOptions::default();
+        assert_eq!(format_selector(&base), "bv*+ba[ext=m4a]/bv*+ba/b/bv*+ba/b");
+
+        let capped = DownloadOptions { max_height: Some(720), ..Default::default() };
+        assert_eq!(format_selector(&capped), "bv*[height<=720]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/bv*+ba/b");
+
+        // MKV output (subtitles or several languages) keeps the best audio codec.
+        let subbed = DownloadOptions { subtitles: vec!["en".into()], ..Default::default() };
+        assert_eq!(format_selector(&subbed), "bv*+ba/b/bv*+ba/b");
+
+        let dubbed = DownloadOptions { audio_languages: vec!["ja".into(), "en-US".into(), "bad]".into()], ..Default::default() };
+        assert_eq!(
+            format_selector(&dubbed),
+            "bv*+ba[language=ja]+ba[language=en-US]+ba[language=bad]/bv*+ba/b/bv*+ba/b"
+        );
+
+        let audio = DownloadOptions { audio_only: true, ..Default::default() };
+        assert_eq!(format_selector(&audio), "ba[ext=m4a]/ba/b");
+    }
+
+    #[test]
+    fn args_pick_container_and_subtitles() {
+        let o = DownloadOptions { url: "https://x.test/v".into(), subtitles: vec!["en".into(), "es".into()], ..Default::default() };
+        let args: Vec<String> = build_args(&o, Path::new("C:/out"), Path::new("C:/t/id.%(ext)s"), None, None)
+            .into_iter()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        let pos = args.iter().position(|a| a == "--merge-output-format").unwrap();
+        assert_eq!(args[pos + 1], "mkv");
+        assert!(args.contains(&"--embed-subs".to_string()));
+        assert!(args.contains(&"en,es".to_string()));
+        assert!(!args.contains(&"--write-subs".to_string()), "--write-subs would leave .vtt files behind");
+        assert_eq!(args.last().unwrap(), "https://x.test/v");
+        assert_eq!(args[args.len() - 2], "--");
+
+        let plain = DownloadOptions { url: "https://x.test/v".into(), ..Default::default() };
+        let args: Vec<String> = build_args(&plain, Path::new("C:/out"), Path::new("C:/t/x"), None, None)
+            .into_iter()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        let pos = args.iter().position(|a| a == "--merge-output-format").unwrap();
+        assert_eq!(args[pos + 1], "mp4/mkv");
+    }
+
+    #[test]
+    fn tracker_combines_video_and_audio_files() {
+        let mut t = ProgressTracker { expected_total: 1000, ..Default::default() };
+        assert_eq!(t.update(400, 800), (400, 1000));
+        assert_eq!(t.update(800, 800), (800, 1000));
+        // Audio stream starts: counter resets, overall keeps growing.
+        assert_eq!(t.update(50, 200), (850, 1000));
+        assert_eq!(t.update(200, 200), (1000, 1000));
+    }
+
+    #[test]
+    fn partial_cleanup_keeps_completed_files() {
+        let dir = std::env::temp_dir().join(format!("hs_partial_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        for name in ["Clip [id].mkv", "Clip [id].f137.mp4.part", "Clip [id].f251.webm", "Clip [id].mkv.ytdl", "Other.part"] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        remove_partial_files(&dir.join("Clip [id].mkv"));
+        let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        left.sort();
+        assert_eq!(left, vec!["Clip [id].mkv".to_string(), "Other.part".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
+

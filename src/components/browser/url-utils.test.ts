@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   resolveBrowserNavigation,
+  extensionStoreListing,
+  siteKey,
   formatDetectedStreamBadge,
   resolveWebEmbedUrl,
   normalizeUrl,
@@ -65,25 +67,15 @@ describe('url-utils', () => {
     expect(res.searchEngine).toBe('brave')
   })
 
-  it('formats detected stream badges cleanly', () => {
-    const streamWithRes: DetectedStream = {
-      id: 'stream-1',
-      url: 'https://video.example/master.m3u8',
-      title: 'Anime Livestream',
-      format: 'HLS',
-      resolution: '1080p60',
-      timestamp: Date.now()
-    }
-    expect(formatDetectedStreamBadge(streamWithRes)).toBe('1080p60 HLS')
-
-    const streamWithoutRes: DetectedStream = {
+  it('uses the site or container name as the badge', () => {
+    const stream: DetectedStream = {
       id: 'stream-2',
       url: 'https://video.example/stream.mpd',
-      title: 'DASH Stream',
+      title: 'DASH',
       format: 'DASH',
       timestamp: Date.now()
     }
-    expect(formatDetectedStreamBadge(streamWithoutRes)).toBe('DASH')
+    expect(formatDetectedStreamBadge(stream)).toBe('DASH')
   })
 
   it('resolves YouTube URLs to embed player', () => {
@@ -125,3 +117,27 @@ describe('url-utils', () => {
   })
 })
 
+
+describe('extension store links', () => {
+  it('recognises Chrome Web Store and Edge Add-ons listings', () => {
+    expect(extensionStoreListing('https://chromewebstore.google.com/detail/dark-reader/eimadpbcbfnmbkopoojfekhnkhdbieeh?hl=en')).toEqual({
+      store: 'chrome',
+      id: 'eimadpbcbfnmbkopoojfekhnkhdbieeh',
+    })
+    expect(
+      extensionStoreListing('https://microsoftedge.microsoft.com/addons/detail/ublock-origin/odfafepnkmbhccpbejgmiehpchacaeak'),
+    ).toEqual({ store: 'edge', id: 'odfafepnkmbhccpbejgmiehpchacaeak' })
+    expect(extensionStoreListing('https://chromewebstore.google.com/category/extensions')).toBeNull()
+    expect(extensionStoreListing('https://example.com/detail/eimadpbcbfnmbkopoojfekhnkhdbieeh')).toBeNull()
+  })
+
+  it('keys sites without www and ignores non-web pages', () => {
+    expect(siteKey('https://www.YouTube.com/watch?v=1')).toBe('youtube.com')
+    expect(siteKey('chrome-extension://abc/options.html')).toBe('')
+    expect(siteKey('about:blank')).toBe('')
+  })
+
+  it('opens extension pages as addresses, not searches', () => {
+    expect(resolveBrowserNavigation('chrome-extension://abc/options.html').url).toBe('chrome-extension://abc/options.html')
+  })
+})

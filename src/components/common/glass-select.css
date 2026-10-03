@@ -70,10 +70,10 @@
 
 /* Floating Glass Dropdown Menu — High Opacity Frosted Glass */
 .glass-select-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
   min-width: 135px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface-overlay);
   backdrop-filter: blur(32px) saturate(190%);
   -webkit-backdrop-filter: blur(32px) saturate(190%);
@@ -88,6 +88,10 @@
   gap: 2px;
   animation: glassDropdownFadeIn var(--duration-normal) var(--ease-out) both;
   transform-origin: top right;
+}
+
+.glass-select-menu.opens-up {
+  transform-origin: bottom right;
 }
 
 .glass-select-item {
@@ -129,7 +133,8 @@
 }
 
 /* Potato Mode Fallback */
-.potato-mode .glass-select-menu {
+.potato-mode .glass-select-menu,
+.glass-select-menu.is-potato {
   background: var(--surface-overlay) !important;
   border: 1px solid var(--border-normal) !important;
   border-top: 1px solid var(--border-specular-top) !important;

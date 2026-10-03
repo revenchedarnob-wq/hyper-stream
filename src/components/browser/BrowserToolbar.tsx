@@ -1,5 +1,6 @@
-import { useState, useRef, type FormEvent, type KeyboardEvent } from 'react'
-import type { DetectedStream, ShieldsMetrics } from './types'
+import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from 'react'
+import type { DetectedStream } from './types'
+import type { ExtensionStoreListing } from './url-utils'
 import {
   IconArrowLeft,
   IconArrowRight,
@@ -7,11 +8,12 @@ import {
   IconHome,
   IconLock,
   IconX,
-  IconBraveLion,
+  IconShieldCheck,
   IconPuzzlePiece,
 } from './Icons'
 import { StreamDetectorPill } from './StreamDetectorPill'
-import { BraveShieldsPopover } from './BraveShieldsPopover'
+import { ExtensionStorePill } from './ExtensionStorePill'
+import { ShieldsPopover } from './ShieldsPopover'
 import { handleBrowserSubmit } from './url-utils'
 import { playHapticClick, playHapticGlass } from '@/lib/sound'
 import './browser.css'
@@ -85,13 +87,13 @@ export function BrowserNavControls({
 
       <button
         type="button"
-        className={`browser-nav-btn ${isLoading ? 'is-loading' : ''}`}
+        className="browser-nav-btn"
         onClick={handleReload}
-        aria-label="Reload"
-        title="Reload page"
+        aria-label={isLoading ? 'Stop' : 'Reload'}
+        title={isLoading ? 'Stop loading' : 'Reload page'}
         data-testid="browser-btn-reload"
       >
-        <IconReload size={15} />
+        {isLoading ? <IconX size={15} /> : <IconReload size={15} />}
       </button>
 
       <button
@@ -99,7 +101,7 @@ export function BrowserNavControls({
         className="browser-nav-btn"
         onClick={handleHome}
         aria-label="Home"
-        title="Speed dial portal"
+        title="Start page"
         data-testid="browser-btn-home"
       >
         <IconHome size={16} />
@@ -110,6 +112,7 @@ export function BrowserNavControls({
 
 export interface BrowserToolbarProps {
   currentUrl: string
+  pageTitle?: string
   canGoBack: boolean
   canGoForward: boolean
   isLoading?: boolean
@@ -118,25 +121,28 @@ export interface BrowserToolbarProps {
   onReload: () => void
   onHome: () => void
   onNavigate: (url: string) => void
-  shieldsStats?: ShieldsMetrics
+  /** Shields apply to the current site. */
+  shieldsEnabled?: boolean
+  shieldsGlobalEnabled?: boolean
+  /** Current site (host without "www."), empty on the start page. */
+  shieldsSite?: string
   onToggleShields?: () => void
+  onToggleShieldsForSite?: () => void
+  /** The page is an extension's store listing. */
+  storeListing?: ExtensionStoreListing | null
   detectedStream?: DetectedStream | null
   onOpenInHub: (url: string) => void
-  onOpenInStudio: (url: string) => void
   onDismissStream?: () => void
   onOpenExtensions?: () => void
-}
-
-const DEFAULT_SHIELDS_STATS: ShieldsMetrics = {
-  adsBlocked: 238,
-  trackersBlocked: 142,
-  bandwidthSavedBytes: 29360128,
-  fingerprintingBlocked: 36,
-  isEnabled: true,
+  /** Fires when the Shields panel opens or closes (the native page must hide so it can't cover the panel). */
+  onShieldsPanelChange?: (open: boolean) => void
+  /** Increments to move focus to the address bar (Ctrl+L inside the page). */
+  focusAddressNonce?: number
 }
 
 export function BrowserToolbar({
   currentUrl,
+  pageTitle = '',
   canGoBack,
   canGoForward,
   isLoading = false,
@@ -145,13 +151,18 @@ export function BrowserToolbar({
   onReload,
   onHome,
   onNavigate,
-  shieldsStats = DEFAULT_SHIELDS_STATS,
+  shieldsEnabled = true,
+  shieldsGlobalEnabled = true,
+  shieldsSite = '',
   onToggleShields,
+  onToggleShieldsForSite,
+  storeListing = null,
   detectedStream = null,
   onOpenInHub,
-  onOpenInStudio,
   onDismissStream,
   onOpenExtensions,
+  onShieldsPanelChange,
+  focusAddressNonce = 0,
 }: BrowserToolbarProps) {
   const [prevUrl, setPrevUrl] = useState(currentUrl)
   const [inputValue, setInputValue] = useState(() =>
@@ -159,6 +170,18 @@ export function BrowserToolbar({
   )
   const [isShieldsOpen, setIsShieldsOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const onShieldsPanelChangeRef = useRef(onShieldsPanelChange)
+  onShieldsPanelChangeRef.current = onShieldsPanelChange
+  useEffect(() => {
+    onShieldsPanelChangeRef.current?.(isShieldsOpen)
+  }, [isShieldsOpen])
+
+  useEffect(() => {
+    if (focusAddressNonce === 0) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [focusAddressNonce])
 
   if (currentUrl !== prevUrl) {
     setPrevUrl(currentUrl)
@@ -194,12 +217,10 @@ export function BrowserToolbar({
 
   const isSecure =
     currentUrl.startsWith('https://') ||
+    currentUrl.startsWith('chrome-extension://') ||
     currentUrl.startsWith('http://localhost') ||
     currentUrl.startsWith('about:') ||
     !currentUrl
-
-  const totalBlocked =
-    (shieldsStats.adsBlocked || 0) + (shieldsStats.trackersBlocked || 0)
 
   return (
     <header className="browser-toolbar" role="toolbar" aria-label="Browser Navigation Bar">
@@ -234,13 +255,15 @@ export function BrowserToolbar({
           ref={inputRef}
           type="text"
           className="browser-omnibar-input"
-          placeholder="Search with Brave or enter URL..."
+          placeholder="Search or enter address"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={(e) => e.currentTarget.select()}
           autoComplete="off"
           spellCheck={false}
           aria-label="Address or search query"
+          title={pageTitle || undefined}
         />
 
         {inputValue.length > 0 && (
@@ -257,46 +280,50 @@ export function BrowserToolbar({
         )}
       </form>
 
+      {storeListing && (
+        <div className="browser-stream-detector-slot" data-testid="browser-store-slot">
+          <ExtensionStorePill key={storeListing.id} listing={storeListing} onManage={onOpenExtensions} />
+        </div>
+      )}
+
       {/* Active Stream Detector Pill Mount */}
-      {detectedStream && (
+      {detectedStream && !storeListing && (
         <div className="browser-stream-detector-slot" data-testid="browser-stream-slot">
           <StreamDetectorPill
             stream={detectedStream}
             onOpenInHub={onOpenInHub}
-            onOpenInStudio={onOpenInStudio}
             onDismiss={onDismissStream}
           />
         </div>
       )}
 
-      {/* Brave Shields Protection Button & Popover */}
       <div className="browser-shields-wrapper">
         <button
           type="button"
-          className={`browser-shields-btn ${shieldsStats.isEnabled ? 'is-active' : 'is-disabled'}`}
+          className={`browser-shields-btn ${shieldsEnabled ? 'is-active' : 'is-disabled'}`}
           onClick={handleToggleShieldsPopover}
-          aria-label="Brave Shields"
+          aria-label="Shields"
           aria-expanded={isShieldsOpen}
-          title={`Brave Shields: ${totalBlocked} ads and trackers blocked`}
+          title={shieldsEnabled ? 'Shields on: blocking ads and trackers' : shieldsSite && shieldsGlobalEnabled ? `Shields off for ${shieldsSite}` : 'Shields off'}
           data-testid="browser-shields-button"
         >
           <div className="browser-shields-lion-icon" aria-hidden="true">
-            <IconBraveLion size={17} />
+            <IconShieldCheck size={17} />
           </div>
-          <span
-            className="browser-shields-count-badge"
-            data-testid="browser-shields-badge"
-          >
-            {shieldsStats.isEnabled ? totalBlocked : 'OFF'}
-          </span>
+          {!shieldsEnabled && (
+            <span className="browser-shields-count-badge" data-testid="browser-shields-badge">
+              OFF
+            </span>
+          )}
         </button>
 
         {isShieldsOpen && (
-          <BraveShieldsPopover
-            stats={shieldsStats}
-            onToggleShields={() => {
-              onToggleShields?.()
-            }}
+          <ShieldsPopover
+            enabled={shieldsGlobalEnabled}
+            site={shieldsSite}
+            siteEnabled={shieldsEnabled}
+            onToggleShields={() => onToggleShields?.()}
+            onToggleSite={() => onToggleShieldsForSite?.()}
             onClose={() => setIsShieldsOpen(false)}
           />
         )}
@@ -308,14 +335,17 @@ export function BrowserToolbar({
         className="browser-extensions-btn"
         onClick={() => {
           playHapticClick()
+          setIsShieldsOpen(false)
           onOpenExtensions?.()
         }}
-        aria-label="Extension Store"
-        title="Extension Store (AdGuard, uBlock, SponsorBlock, Dark Reader)"
+        aria-label="Extensions"
+        title="Extensions"
         data-testid="browser-extensions-btn"
       >
         <IconPuzzlePiece size={16} />
       </button>
+
+      {isLoading && <div className="browser-loading-bar" aria-hidden="true" data-testid="browser-loading-bar" />}
     </header>
   )
 }

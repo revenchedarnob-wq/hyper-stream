@@ -11,7 +11,7 @@ export function resolveBrowserNavigation(queryOrUrl: string): { url: string; isS
     return { url: 'about:blank', isSearch: false, searchEngine: 'brave' }
   }
 
-  if (/^https?:\/\//i.test(trimmed) || /^about:/i.test(trimmed)) {
+  if (/^(https?|chrome-extension):\/\//i.test(trimmed) || /^about:/i.test(trimmed)) {
     return { url: trimmed, isSearch: false, searchEngine: 'brave' }
   }
 
@@ -31,131 +31,96 @@ export function resolveBrowserNavigation(queryOrUrl: string): { url: string; isS
   }
 }
 
-export function formatDetectedStreamBadge(stream: DetectedStream): string {
-  const parts: string[] = []
-  if (stream.resolution) parts.push(stream.resolution)
-  parts.push(stream.format)
-  return parts.join(' ')
+/** Host without "www.", used to remember per-site choices. Empty for non-web addresses. */
+export function siteKey(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return ''
+    return parsed.hostname.replace(/^www\./, '').toLowerCase()
+  } catch {
+    return ''
+  }
 }
+
+export interface ExtensionStoreListing {
+  store: 'chrome' | 'edge'
+  id: string
+}
+
+const EXTENSION_ID = /^[a-p]{32}$/
+
+/** A Chrome Web Store or Edge Add-ons page for one extension. */
+export function extensionStoreListing(url: string): ExtensionStoreListing | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  const host = parsed.hostname.toLowerCase()
+  const store =
+    host === 'chromewebstore.google.com' || host === 'chrome.google.com'
+      ? 'chrome'
+      : host === 'microsoftedge.microsoft.com'
+        ? 'edge'
+        : null
+  if (!store || !/\/detail\//.test(parsed.pathname)) return null
+  const id = parsed.pathname.split('/').find((segment) => EXTENSION_ID.test(segment))
+  return id ? { store, id } : null
+}
+
+export function formatDetectedStreamBadge(stream: DetectedStream): string {
+  return stream.format
+}
+
+interface VideoPagePattern {
+  site: string
+  test: (host: string, path: string) => boolean
+  live?: boolean
+}
+
+// Pages that hold a single video or track. The Hub probes the link, so this only decides when to offer Download.
+const VIDEO_PAGES: VideoPagePattern[] = [
+  { site: 'YouTube', test: (h, p) => /(^|\.)youtube\.com$/.test(h) && /^\/(watch|shorts\/|live\/|playlist)/.test(p) },
+  { site: 'YouTube', test: (h, p) => h === 'youtu.be' && p.length > 1 },
+  { site: 'Twitch', test: (h, p) => /(^|\.)twitch\.tv$/.test(h) && /^\/(videos\/\d+|[^/]+\/clip\/|[a-z0-9_]{3,}\/?$)/i.test(p) && !/^\/(directory|search|settings|downloads|p)\b/.test(p), live: true },
+  { site: 'Kick', test: (h, p) => /(^|\.)kick\.com$/.test(h) && /^\/[a-z0-9_-]{3,}(\/videos\/[^/]+|\/clips\/[^/]+)?\/?$/i.test(p) && !/^\/(categories|browse|search)\b/.test(p), live: true },
+  { site: 'Vimeo', test: (h, p) => /(^|\.)vimeo\.com$/.test(h) && /\/\d{5,}/.test(p) },
+  { site: 'Dailymotion', test: (h, p) => /(^|\.)dailymotion\.com$/.test(h) && p.startsWith('/video/') },
+  { site: 'SoundCloud', test: (h, p) => /(^|\.)soundcloud\.com$/.test(h) && /^\/[^/]+\/[^/]+/.test(p) && !/^\/(discover|search|you)\b/.test(p) },
+  { site: 'TikTok', test: (h, p) => /(^|\.)tiktok\.com$/.test(h) && /\/video\/\d+/.test(p) },
+  { site: 'Instagram', test: (h, p) => /(^|\.)instagram\.com$/.test(h) && /^\/(reels?|p|tv)\/[^/]+/.test(p) },
+  { site: 'X', test: (h, p) => /(^|\.)(x|twitter)\.com$/.test(h) && /\/status\/\d+/.test(p) },
+  { site: 'Facebook', test: (h, p) => /(^|\.)facebook\.com$/.test(h) && /(\/videos\/|\/watch|\/reel\/)/.test(p) },
+  { site: 'Reddit', test: (h, p) => /(^|\.)reddit\.com$/.test(h) && /\/comments\//.test(p) },
+  { site: 'Bilibili', test: (h, p) => /(^|\.)bilibili\.com$/.test(h) && p.startsWith('/video/') },
+]
+
+const DIRECT_MEDIA = /\.(m3u8|mpd|mp4|webm|mkv|mov|mp3|m4a|ogg|opus|flac|wav)(\?|#|$)/i
 
 export function detectStreamFromUrl(url: string): DetectedStream | null {
   if (!url || url === 'about:blank') return null
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null
 
-  const lower = url.toLowerCase()
+  const host = parsed.hostname.replace(/^www\.|^m\./, '').toLowerCase()
+  const path = parsed.pathname
 
-  if (lower.includes('.m3u8') || lower.includes('/hls/')) {
-    return {
-      id: `hls-${Date.now()}`,
-      url,
-      title: 'HLS Live Media Stream',
-      format: 'HLS',
-      resolution: '1080p60',
-      timestamp: Date.now(),
-    }
+  const direct = path.match(DIRECT_MEDIA)
+  if (direct) {
+    const ext = direct[1].toUpperCase()
+    const format = ext === 'M3U8' ? 'HLS' : ext === 'MPD' ? 'DASH' : ext
+    return { id: `media-${url}`, url, title: format, format, timestamp: Date.now() }
   }
 
-  if (lower.includes('.mpd') || lower.includes('/dash/')) {
-    return {
-      id: `dash-${Date.now()}`,
-      url,
-      title: 'DASH Adaptive Stream',
-      format: 'DASH',
-      resolution: '4K',
-      timestamp: Date.now(),
-    }
-  }
-
-  if (lower.endsWith('.mp4') || lower.includes('.mp4?')) {
-    return {
-      id: `mp4-${Date.now()}`,
-      url,
-      title: 'MP4 Media Asset',
-      format: 'MP4',
-      resolution: '1080p',
-      timestamp: Date.now(),
-    }
-  }
-
-  if (lower.endsWith('.webm') || lower.includes('.webm?')) {
-    return {
-      id: `webm-${Date.now()}`,
-      url,
-      title: 'WebM Video Stream',
-      format: 'WebM',
-      resolution: '1080p',
-      timestamp: Date.now(),
-    }
-  }
-
-  if (lower.includes('twitch.tv')) {
-    const channel = url.split('twitch.tv/')[1]?.split(/[?#/]/)[0] || 'Live'
-    return {
-      id: `twitch-${Date.now()}`,
-      url,
-      title: `${channel} Twitch Stream`,
-      format: 'HLS',
-      resolution: '1080p60',
-      timestamp: Date.now(),
-    }
-  }
-
-  if (lower.includes('kick.com')) {
-    const channel = url.split('kick.com/')[1]?.split(/[?#/]/)[0] || 'Live'
-    return {
-      id: `kick-${Date.now()}`,
-      url,
-      title: `${channel} Kick Stream`,
-      format: 'HLS',
-      resolution: '1080p60',
-      timestamp: Date.now(),
-    }
-  }
-
-  if (lower.includes('youtube.com/watch') || lower.includes('youtu.be/')) {
-    return {
-      id: `yt-${Date.now()}`,
-      url,
-      title: 'YouTube Video Feed',
-      format: 'DASH',
-      resolution: '1440p60',
-      timestamp: Date.now(),
-    }
-  }
-
-  if (lower.includes('crunchyroll.com')) {
-    return {
-      id: `cr-${Date.now()}`,
-      url,
-      title: 'Crunchyroll Anime Episode',
-      format: 'HLS',
-      resolution: '1080p',
-      timestamp: Date.now(),
-    }
-  }
-
-  if (lower.includes('animeflix.live')) {
-    return {
-      id: `af-${Date.now()}`,
-      url,
-      title: 'AnimeFlix Anime Stream',
-      format: 'HLS',
-      resolution: '1080p',
-      timestamp: Date.now(),
-    }
-  }
-
-  if (lower.includes('soundcloud.com')) {
-    return {
-      id: `sc-${Date.now()}`,
-      url,
-      title: 'SoundCloud Audio Stream',
-      format: 'MP4',
-      resolution: '320kbps',
-      timestamp: Date.now(),
-    }
-  }
-
-  return null
+  const match = VIDEO_PAGES.find((pattern) => pattern.test(host, path))
+  if (!match) return null
+  return { id: `page-${url}`, url, title: match.site, format: match.site, live: match.live, timestamp: Date.now() }
 }
 
 export function handleBrowserSubmit(
@@ -314,37 +279,5 @@ export function isSameUrl(urlA: string, urlB: string): boolean {
     return a.origin === b.origin && (a.pathname === b.pathname || (a.pathname === '' && b.pathname === '/'))
   } catch {
     return false
-  }
-}
-
-export function calculateSiteShieldsMetrics(url: string, isEnabled = true): import('./types').ShieldsMetrics {
-  if (!url || url === 'about:blank' || !isEnabled) {
-    return {
-      adsBlocked: 0,
-      trackersBlocked: 0,
-      bandwidthSavedBytes: 0,
-      fingerprintingBlocked: 0,
-      isEnabled,
-    }
-  }
-
-  let hash = 0
-  for (let i = 0; i < url.length; i++) {
-    hash = (hash << 5) - hash + url.charCodeAt(i)
-    hash |= 0
-  }
-  const abs = Math.abs(hash)
-  const isMediaOrNews = /youtube|twitch|kick|theverge|reddit|twitter|x\.com|cnn|news/i.test(url)
-  const adsBlocked = isMediaOrNews ? 14 + (abs % 18) : 3 + (abs % 8)
-  const trackersBlocked = isMediaOrNews ? 18 + (abs % 24) : 4 + (abs % 12)
-  const fingerprintingBlocked = 2 + (abs % 5)
-  const bandwidthSavedBytes = (adsBlocked * 34000) + (trackersBlocked * 48000)
-
-  return {
-    adsBlocked,
-    trackersBlocked,
-    bandwidthSavedBytes,
-    fingerprintingBlocked,
-    isEnabled,
   }
 }

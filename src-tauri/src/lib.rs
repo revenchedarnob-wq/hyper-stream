@@ -1,3 +1,4 @@
+pub mod browser;
 pub mod downloader;
 
 use tauri::Manager;
@@ -25,57 +26,56 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemVitals {
+    /// MB/s across all running downloads.
     pub throughput: f64,
     pub active_transfers: u32,
     pub storage_free_gb: f64,
     pub storage_total_gb: f64,
     pub storage_percentage: u32,
-    pub engine_status: String,
-    pub nvme_free_tb: f64,
-    pub nvme_percentage: u32,
 }
 
-fn detect_hardware_engine() -> &'static str {
-    static ENGINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    ENGINE.get_or_init(|| {
-        #[cfg(target_os = "windows")]
-        {
-            use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, DISPLAY_DEVICEW};
-            let mut device: DISPLAY_DEVICEW = unsafe { std::mem::zeroed() };
-            device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
-            let mut dev_idx = 0;
-            while unsafe { EnumDisplayDevicesW(std::ptr::null(), dev_idx, &mut device, 0) } != 0 {
-                let name = String::from_utf16_lossy(&device.DeviceString);
-                let name = name.trim_matches(char::from(0)).to_lowercase();
-                if name.contains("nvidia") || name.contains("geforce") || name.contains("rtx") || name.contains("gtx") {
-                    return "NVENC Turbo (D3D12)".to_string();
-                } else if name.contains("amd") || name.contains("radeon") {
-                    return "AMD AMF Turbo (D3D12)".to_string();
-                } else if name.contains("intel") || name.contains("arc") || name.contains("iris") {
-                    return "Intel QSV Turbo (D3D12)".to_string();
-                }
-                dev_idx += 1;
-                device = unsafe { std::mem::zeroed() };
-                device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
-            }
-            "D3D12 Direct Pipeline".to_string()
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            "Hardware Acceleration".to_string()
-        }
-    })
+/// (free, total) bytes on the volume holding `path` (or its nearest existing parent).
+#[cfg(target_os = "windows")]
+fn disk_space(path: &std::path::Path) -> Option<(u64, u64)> {
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let mut probe = path.to_path_buf();
+    while !probe.exists() {
+        probe = probe.parent()?.to_path_buf();
+    }
+    let mut wide: Vec<u16> = probe.to_string_lossy().encode_utf16().collect();
+    wide.push(0);
+    let (mut free, mut total, mut total_free) = (0u64, 0u64, 0u64);
+    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, &mut total, &mut total_free) };
+    (ok != 0 && total > 0).then_some((free, total))
 }
 
+#[cfg(not(target_os = "windows"))]
+fn disk_space(_path: &std::path::Path) -> Option<(u64, u64)> {
+    None
+}
+
+/// Shows a file selected in Explorer, or opens a folder. Falls back to the nearest existing parent.
 #[tauri::command]
 fn reveal_in_explorer(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        let _ = Command::new("explorer")
-            .args(["/select,", &path])
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        let p = std::path::Path::new(&path);
+        let mut cmd = Command::new("explorer");
+        if p.is_file() {
+            // explorer needs `/select,"path"` as one raw argument to handle spaces.
+            cmd.raw_arg(format!("/select,\"{}\"", path));
+        } else {
+            let mut dir = p.to_path_buf();
+            while !dir.is_dir() {
+                match dir.parent() {
+                    Some(parent) => dir = parent.to_path_buf(),
+                    None => return Err("That folder no longer exists.".to_string()),
+                }
+            }
+            cmd.arg(dir);
+        }
+        cmd.spawn().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -83,85 +83,31 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
 #[tauri::command]
 fn get_system_vitals(
     state: tauri::State<'_, downloader::DownloadOrchestrator>,
+    download_dir: Option<String>,
 ) -> Result<SystemVitals, String> {
-    let tasks = state.get_tasks();
     let mut total_speed_bps = 0u64;
     let mut active_count = 0u32;
-    for task in &tasks {
-        match task.state {
-            downloader::DownloadState::Downloading | downloader::DownloadState::Remuxing => {
-                active_count += 1;
-                total_speed_bps = total_speed_bps.saturating_add(task.speed_bytes_per_sec);
-            }
-            _ => {}
+    for task in state.get_tasks() {
+        if matches!(task.state, downloader::DownloadState::Downloading | downloader::DownloadState::Remuxing) {
+            active_count += 1;
+            total_speed_bps = total_speed_bps.saturating_add(task.speed_bytes_per_sec);
         }
     }
-    let throughput_mb = (total_speed_bps as f64) / (1024.0 * 1024.0);
-    let throughput_rounded = (throughput_mb * 10.0).round() / 10.0;
+    let throughput = ((total_speed_bps as f64) / (1024.0 * 1024.0) * 10.0).round() / 10.0;
 
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-        let mut free_bytes: u64 = 0;
-        let mut total_bytes: u64 = 0;
-        let mut total_free: u64 = 0;
+    let dir = download_dir
+        .filter(|d| !d.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(downloader::default_download_dir);
+    let gb = |b: u64| ((b as f64) / (1024.0 * 1024.0 * 1024.0) * 10.0).round() / 10.0;
+    let (free, total) = disk_space(&dir).unwrap_or((0, 0));
 
-        let download_path = if let Ok(profile) = std::env::var("USERPROFILE") {
-            let p = std::path::PathBuf::from(profile).join("Downloads");
-            if p.exists() {
-                let mut s = p.to_string_lossy().to_string();
-                if !s.ends_with('\\') {
-                    s.push('\\');
-                }
-                let mut v: Vec<u16> = s.encode_utf16().collect();
-                v.push(0);
-                v
-            } else {
-                "C:\\\0".encode_utf16().collect()
-            }
-        } else {
-            "C:\\\0".encode_utf16().collect()
-        };
-
-        let success = unsafe {
-            GetDiskFreeSpaceExW(
-                download_path.as_ptr(),
-                &mut free_bytes,
-                &mut total_bytes,
-                &mut total_free,
-            )
-        };
-        let (free_gb, total_gb, percentage) = if success != 0 && total_bytes > 0 {
-            let free_gb = (free_bytes as f64) / (1024.0 * 1024.0 * 1024.0);
-            let total_gb = (total_bytes as f64) / (1024.0 * 1024.0 * 1024.0);
-            let pct = ((free_bytes as f64) / (total_bytes as f64) * 100.0) as u32;
-            (free_gb, total_gb, pct)
-        } else {
-            (0.0, 0.0, 0)
-        };
-
-        return Ok(SystemVitals {
-            throughput: throughput_rounded,
-            active_transfers: active_count,
-            storage_free_gb: (free_gb * 10.0).round() / 10.0,
-            storage_total_gb: (total_gb * 10.0).round() / 10.0,
-            storage_percentage: percentage,
-            engine_status: detect_hardware_engine().to_string(),
-            nvme_free_tb: ((free_gb / 1024.0) * 100.0).round() / 100.0,
-            nvme_percentage: percentage,
-        });
-    }
-
-    #[cfg(not(target_os = "windows"))]
     Ok(SystemVitals {
-        throughput: throughput_rounded,
+        throughput,
         active_transfers: active_count,
-        storage_free_gb: 0.0,
-        storage_total_gb: 0.0,
-        storage_percentage: 0,
-        engine_status: detect_hardware_engine().to_string(),
-        nvme_free_tb: 0.0,
-        nvme_percentage: 0,
+        storage_free_gb: gb(free),
+        storage_total_gb: gb(total),
+        storage_percentage: if total > 0 { ((free as f64) / (total as f64) * 100.0) as u32 } else { 0 },
     })
 }
 
@@ -254,427 +200,26 @@ fn enable_kill_child_processes_on_exit() {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn cleanup_orphaned_webviews() {
-    // If an earlier session exited abnormally, lingering msedgewebview2 processes
-    // can hold exclusive locks on EBWebView directory causing HRESULT 0x800700AA.
-    // Clean them up before initializing WebView2.
-    use std::process::Command;
-    let mut cmd = Command::new("powershell");
-    cmd.args([
-        "-NoProfile",
-        "-WindowStyle",
-        "Hidden",
-        "-Command",
-        "Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | Where-Object { $_.CommandLine -like '*com.hyperstream.desktop*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-    ]);
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let _ = cmd.output();
+/// Whether one of this app's windows is in front. Focus moving into the built-in browser's page
+/// (or away from it when the page hides) doesn't make the app inactive.
+#[tauri::command]
+fn is_app_foreground() -> bool {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+        let hwnd = GetForegroundWindow();
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        pid == std::process::id()
+    }
+    #[cfg(not(target_os = "windows"))]
+    true
 }
 
 #[tauri::command]
 fn exit_app(app: tauri::AppHandle) {
-    #[cfg(target_os = "windows")]
-    cleanup_orphaned_webviews();
+    // WebView2, yt-dlp and FFmpeg belong to the kill-on-close job object, so they exit with us.
     app.exit(0);
-}
-
-fn get_browser_extensions_dir() -> std::path::PathBuf {
-    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-        let dir = std::path::PathBuf::from(local_app_data)
-            .join("com.hyperstream.desktop")
-            .join("browser_extensions");
-        let _ = std::fs::create_dir_all(&dir);
-        dir
-    } else {
-        std::path::PathBuf::from("browser_extensions")
-    }
-}
-
-fn get_browser_data_dir() -> std::path::PathBuf {
-    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-        let dir = std::path::PathBuf::from(local_app_data)
-            .join("com.hyperstream.desktop")
-            .join("browser_profile");
-        let _ = std::fs::create_dir_all(&dir);
-        dir
-    } else {
-        std::path::PathBuf::from("browser_profile")
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct ExtensionInfo {
-    pub id: String,
-    pub name: String,
-    pub version: String,
-    pub enabled: bool,
-    pub description: String,
-}
-
-#[tauri::command]
-fn get_installed_extensions() -> Result<Vec<ExtensionInfo>, String> {
-    let ext_dir = get_browser_extensions_dir();
-    let mut list = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&ext_dir) {
-        for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                let id = entry.file_name().to_string_lossy().to_string();
-                let manifest_path = entry.path().join("manifest.json");
-                let mut name = id.clone();
-                let mut version = "1.0.0".to_string();
-                let mut description = String::new();
-                if let Ok(content) = std::fs::read_to_string(&manifest_path) {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(n) = json.get("name").and_then(|v| v.as_str()) {
-                            name = n.to_string();
-                        }
-                        if let Some(v) = json.get("version").and_then(|v| v.as_str()) {
-                            version = v.to_string();
-                        }
-                        if let Some(d) = json.get("description").and_then(|v| v.as_str()) {
-                            description = d.to_string();
-                        }
-                    }
-                }
-                list.push(ExtensionInfo {
-                    id,
-                    name,
-                    version,
-                    enabled: true,
-                    description,
-                });
-            }
-        }
-    }
-    Ok(list)
-}
-
-#[tauri::command]
-fn install_browser_extension(extension_id: String, download_url: String) -> Result<String, String> {
-    let ext_dir = get_browser_extensions_dir();
-    let target_dir = ext_dir.join(&extension_id);
-    let _ = std::fs::create_dir_all(&target_dir);
-
-    let ps_script = format!(
-        "$tempFile = Join-Path $env:TEMP ('hyperstream_ext_' + [guid]::NewGuid().ToString() + '.zip'); \
-        curl.exe -s -L -o $tempFile '{url}'; \
-        $bytes = [System.IO.File]::ReadAllBytes($tempFile); \
-        if ($bytes.Length -gt 16 -and $bytes[0] -eq 0x43 -and $bytes[1] -eq 0x72 -and $bytes[2] -eq 0x32 -and $bytes[3] -eq 0x34) {{ \
-            $hLen = [System.BitConverter]::ToUInt32($bytes, 8); \
-            $zOff = 12 + $hLen; \
-            $zBytes = New-Object byte[] ($bytes.Length - $zOff); \
-            [System.Array]::Copy($bytes, $zOff, $zBytes, 0, $zBytes.Length); \
-            [System.IO.File]::WriteAllBytes($tempFile, $zBytes); \
-        }} \
-        Expand-Archive -Path $tempFile -DestinationPath '{dest}' -Force; \
-        Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue",
-        url = download_url,
-        dest = target_dir.to_string_lossy().replace('\\', "\\\\")
-    );
-
-    let mut cmd = std::process::Command::new("powershell");
-    cmd.args(["-NoProfile", "-Command", &ps_script]);
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    Ok(format!("Extension {} installed successfully", extension_id))
-}
-
-#[tauri::command]
-fn uninstall_browser_extension(extension_id: String) -> Result<String, String> {
-    let ext_dir = get_browser_extensions_dir();
-    let target_dir = ext_dir.join(&extension_id);
-    if target_dir.exists() {
-        std::fs::remove_dir_all(&target_dir).map_err(|e| e.to_string())?;
-    }
-    Ok(format!("Extension {} removed", extension_id))
-}
-
-#[tauri::command]
-fn load_unpacked_extension(source_path: String) -> Result<String, String> {
-    let src = std::path::PathBuf::from(&source_path);
-    if !src.exists() || !src.is_dir() {
-        return Err("Selected path is not a valid directory".to_string());
-    }
-    let manifest = src.join("manifest.json");
-    if !manifest.exists() {
-        return Err("Directory does not contain a manifest.json file".to_string());
-    }
-    let folder_name = src.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let ext_dir = get_browser_extensions_dir();
-    let dest = ext_dir.join(&folder_name);
-    let _ = std::fs::create_dir_all(&dest);
-
-    let ps_script = format!(
-        "Copy-Item -Path '{src}\\*' -Destination '{dest}' -Recurse -Force",
-        src = src.to_string_lossy().replace('\\', "\\\\"),
-        dest = dest.to_string_lossy().replace('\\', "\\\\")
-    );
-    let mut cmd = std::process::Command::new("powershell");
-    cmd.args(["-NoProfile", "-Command", &ps_script]);
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let _ = cmd
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    Ok(format!("Extension {} loaded successfully", folder_name))
-}
-
-use std::sync::Mutex;
-
-static SHIELDS_SCRIPT: &str = include_str!("shields_script.js");
-
-pub struct BrowserState {
-    pub bounds: Mutex<tauri::Rect>,
-    pub current_url: Mutex<String>,
-}
-
-impl Default for BrowserState {
-    fn default() -> Self {
-        Self {
-            bounds: Mutex::new(tauri::Rect {
-                position: tauri::Position::Logical(tauri::LogicalPosition::new(280.0, 96.0)),
-                size: tauri::Size::Logical(tauri::LogicalSize::new(960.0, 640.0)),
-            }),
-            current_url: Mutex::new(String::new()),
-        }
-    }
-}
-
-#[tauri::command]
-fn set_browser_visibility(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
-    if let Some(webview) = app.get_webview("in_app_browser") {
-        if visible {
-            let _ = webview.show();
-        } else {
-            let _ = webview.eval("try { document.querySelectorAll('video, audio').forEach(el => el.pause()); } catch(e) {}");
-            let _ = webview.hide();
-            #[cfg(target_os = "windows")]
-            trim_working_set_if_idle();
-        }
-    }
-    Ok(())
-}
-
-#[derive(serde::Deserialize, Clone, Copy, Debug)]
-pub struct BrowserBounds {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-}
-
-#[cfg(target_os = "windows")]
-fn apply_bounds_and_clipping(app: &tauri::AppHandle, rect: tauri::Rect) {
-    if let Some(webview) = app.get_webview("in_app_browser") {
-        let _ = webview.set_bounds(rect);
-        if let Some(window) = app.get_window("main") {
-            if let Ok(parent_hwnd) = window.hwnd() {
-                unsafe {
-                    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
-                    use windows_sys::Win32::Graphics::Gdi::SetWindowRgn;
-                    use windows_sys::Win32::UI::WindowsAndMessaging::{EnumChildWindows, GetClassNameW};
-
-                    unsafe extern "system" fn enum_child_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-                        let matches = &mut *(lparam as *mut Vec<HWND>);
-                        let mut class_name = [0u16; 64];
-                        let len = GetClassNameW(hwnd, class_name.as_mut_ptr(), 64);
-                        if len > 0 {
-                            let name = String::from_utf16_lossy(&class_name[..len as usize]);
-                            if name.starts_with("Chrome_WidgetWin") || name.starts_with("Intermediate D3D") {
-                                matches.push(hwnd);
-                            }
-                        }
-                        1
-                    }
-
-                    let mut chrome_windows: Vec<HWND> = Vec::new();
-                    EnumChildWindows(
-                        parent_hwnd.0 as _,
-                        Some(enum_child_proc),
-                        &mut chrome_windows as *mut _ as LPARAM,
-                    );
-
-                    // Clear any leftover GDI region on all child windows so webview content
-                    // fills cleanly edge-to-edge like Google Chrome without black corner notches.
-                    for child in chrome_windows {
-                        SetWindowRgn(child, std::ptr::null_mut(), 1);
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn apply_bounds_and_clipping(app: &tauri::AppHandle, rect: tauri::Rect) {
-    if let Some(webview) = app.get_webview("in_app_browser") {
-        let _ = webview.set_bounds(rect);
-    }
-}
-
-#[tauri::command]
-fn update_browser_bounds(
-    app: tauri::AppHandle,
-    state: tauri::State<BrowserState>,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-) -> Result<(), String> {
-    if width < 10 || height < 10 {
-        return Ok(());
-    }
-
-    let pos = tauri::Position::Logical(tauri::LogicalPosition::new(x as f64, y as f64));
-    let size = tauri::Size::Logical(tauri::LogicalSize::new(width as f64, height as f64));
-    let rect = tauri::Rect {
-        position: pos,
-        size,
-    };
-
-    if let Ok(mut b) = state.bounds.lock() {
-        *b = rect;
-    }
-
-    apply_bounds_and_clipping(&app, rect);
-    Ok(())
-}
-
-#[tauri::command]
-async fn navigate_browser(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, BrowserState>,
-    url: String,
-    bounds: Option<BrowserBounds>,
-) -> Result<(), String> {
-    if url.is_empty() || url == "about:blank" {
-        if let Some(webview) = app.get_webview("in_app_browser") {
-            let _ = webview.eval("try { document.querySelectorAll('video, audio').forEach(el => el.pause()); } catch(e) {}");
-            if let Ok(blank) = "about:blank".parse() {
-                let _ = webview.navigate(blank);
-            }
-            let _ = webview.hide();
-        }
-        if let Ok(mut u) = state.current_url.lock() {
-            u.clear();
-        }
-        return Ok(());
-    }
-
-    let rect = if let Some(b) = bounds {
-        if b.width >= 10 && b.height >= 10 {
-            let r = tauri::Rect {
-                position: tauri::Position::Logical(tauri::LogicalPosition::new(b.x as f64, b.y as f64)),
-                size: tauri::Size::Logical(tauri::LogicalSize::new(b.width as f64, b.height as f64)),
-            };
-            if let Ok(mut lock) = state.bounds.lock() {
-                *lock = r;
-            }
-            r
-        } else if let Ok(lock) = state.bounds.lock() {
-            *lock
-        } else {
-            tauri::Rect {
-                position: tauri::Position::Logical(tauri::LogicalPosition::new(280.0, 96.0)),
-                size: tauri::Size::Logical(tauri::LogicalSize::new(960.0, 640.0)),
-            }
-        }
-    } else if let Ok(lock) = state.bounds.lock() {
-        *lock
-    } else {
-        tauri::Rect {
-            position: tauri::Position::Logical(tauri::LogicalPosition::new(280.0, 96.0)),
-            size: tauri::Size::Logical(tauri::LogicalSize::new(960.0, 640.0)),
-        }
-    };
-
-    if let Ok(mut u) = state.current_url.lock() {
-        *u = url.clone();
-    }
-
-    let parsed_url: tauri::Url = match url.parse() {
-        Ok(u) => u,
-        Err(e) => return Err(e.to_string()),
-    };
-
-    if let Some(webview) = app.get_webview("in_app_browser") {
-        let _ = webview.navigate(parsed_url);
-        let _ = webview.show();
-        apply_bounds_and_clipping(&app, rect);
-    } else if let Some(window) = app.get_window("main") {
-        let app_handle = app.clone();
-        let ext_dir = get_browser_extensions_dir();
-        let data_dir = get_browser_data_dir();
-        let webview_builder = tauri::webview::WebviewBuilder::new(
-            "in_app_browser",
-            tauri::WebviewUrl::External(parsed_url),
-        )
-        .browser_extensions_enabled(true)
-        .extensions_path(&ext_dir)
-        .data_directory(data_dir)
-        .initialization_script(SHIELDS_SCRIPT)
-        .on_page_load(move |_webview, payload| {
-            if let tauri::webview::PageLoadEvent::Finished = payload.event() {
-                use tauri::Emitter;
-                let _ = app_handle.emit("browser-page-loaded", payload.url().as_str());
-            }
-        });
-
-        let _ = window.add_child(
-            webview_builder,
-            rect.position,
-            rect.size,
-        ).map_err(|e| e.to_string())?;
-
-        apply_bounds_and_clipping(&app, rect);
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn browser_go_back(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(webview) = app.get_webview("in_app_browser") {
-        let _ = webview.eval("window.history.back()");
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn browser_go_forward(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(webview) = app.get_webview("in_app_browser") {
-        let _ = webview.eval("window.history.forward()");
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn browser_reload(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(webview) = app.get_webview("in_app_browser") {
-        let _ = webview.reload();
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn browser_set_shields_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    if let Some(webview) = app.get_webview("in_app_browser") {
-        let script = format!(
-            "if (window.__HYPERSTREAM_SET_SHIELDS__) {{ window.__HYPERSTREAM_SET_SHIELDS__({}); }}",
-            enabled
-        );
-        let _ = webview.eval(&script);
-    }
-    Ok(())
 }
 
 #[tauri::command]
@@ -684,16 +229,39 @@ async fn get_engine_binary_status() -> Result<downloader::EngineBinariesReport, 
         .map_err(|e| e.to_string())
 }
 
+#[derive(Clone, serde::Serialize)]
+struct EngineSetupProgress {
+    component: String,
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+fn engine_progress_emitter(app: tauri::AppHandle) -> impl Fn(&str, u64, Option<u64>) + Send + Sync {
+    move |component: &str, downloaded: u64, total: Option<u64>| {
+        use tauri::Emitter;
+        let _ = app.emit(
+            "engine-setup-progress",
+            EngineSetupProgress { component: component.to_string(), downloaded, total },
+        );
+    }
+}
+
+/// Installs yt-dlp and FFmpeg if they're missing. Emits `engine-setup-progress`.
 #[tauri::command]
-async fn ensure_engine_binaries() -> Result<downloader::EngineBinariesReport, String> {
-    let status = downloader::BinaryManager::get_status();
-    if !status.ytdlp.available {
-        let _ = downloader::BinaryManager::download_yt_dlp().await?;
-    }
-    if !status.aria2c.available {
-        let _ = downloader::BinaryManager::download_aria2c().await?;
-    }
-    Ok(downloader::BinaryManager::get_status())
+async fn ensure_engine_binaries(app: tauri::AppHandle) -> Result<downloader::EngineBinariesReport, String> {
+    let progress = engine_progress_emitter(app);
+    downloader::BinaryManager::ensure_installed(&progress).await
+}
+
+/// Downloads the latest yt-dlp into the app's own folder (sites change often).
+#[tauri::command]
+async fn update_engine(app: tauri::AppHandle) -> Result<downloader::EngineBinariesReport, String> {
+    let progress = engine_progress_emitter(app);
+    downloader::BinaryManager::download_yt_dlp(&progress).await?;
+    downloader::BinaryManager::ensure_js_runtime(&progress).await;
+    tauri::async_runtime::spawn_blocking(downloader::BinaryManager::get_status)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(feature = "experimental-drm")]
@@ -725,12 +293,59 @@ fn inspect_media_container(path: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn query_media_info(url: String, cookies: Option<String>) -> Result<downloader::MediaMetadata, String> {
+async fn query_media_info(app: tauri::AppHandle, url: String) -> Result<downloader::MediaMetadata, String> {
+    let cookies = downloader::cookies::browser_cookies_async(&app, &url).await;
     tauri::async_runtime::spawn_blocking(move || {
         downloader::UniversalExtractor::query_info(&url, cookies.as_deref())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn get_default_download_dir() -> String {
+    downloader::default_download_dir().to_string_lossy().to_string()
+}
+
+#[tauri::command]
+fn retry_download(state: tauri::State<downloader::DownloadOrchestrator>, task_id: String) -> Result<(), String> {
+    state.retry_task(&task_id)
+}
+
+#[tauri::command]
+fn move_download(
+    state: tauri::State<downloader::DownloadOrchestrator>,
+    task_id: String,
+    direction: String,
+) -> Result<(), String> {
+    state.move_task(&task_id, direction == "up")
+}
+
+#[tauri::command]
+fn remove_download(state: tauri::State<downloader::DownloadOrchestrator>, task_id: String) -> Result<(), String> {
+    state.remove_task(&task_id)
+}
+
+#[tauri::command]
+async fn get_library() -> Result<Vec<downloader::LibraryItem>, String> {
+    tauri::async_runtime::spawn_blocking(downloader::library::list)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn remove_library_item(app: tauri::AppHandle, id: String, delete_file: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || downloader::library::remove(&id, delete_file))
+        .await
+        .map_err(|e| e.to_string())??;
+    use tauri::Emitter;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn open_media_file(path: String) -> Result<(), String> {
+    downloader::library::open_with_default_app(&path)
 }
 
 #[tauri::command]
@@ -821,11 +436,10 @@ fn clear_finished(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Child processes (WebView2, yt-dlp, ffmpeg) die with the app via a job object.
+    // Orphan cleanup only runs on exit: at launch it would kill an already-running instance.
     #[cfg(target_os = "windows")]
-    {
-        cleanup_orphaned_webviews();
-        enable_kill_child_processes_on_exit();
-    }
+    enable_kill_child_processes_on_exit();
 
     std::panic::set_hook(Box::new(|panic_info| {
         let msg = format!("HyperStream Panic: {panic_info}");
@@ -850,6 +464,7 @@ pub fn run() {
                 }
                 tauri::WindowEvent::Resized(_) => {
                     use tauri::Emitter;
+                    browser::on_window_resized(window.app_handle());
                     let _ = window.emit("window-resized", ());
                 }
                 _ => {}
@@ -868,10 +483,28 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            app.manage(BrowserState::default());
+            app.manage(browser::BrowserState::default());
             let orchestrator = downloader::DownloadOrchestrator::new();
             orchestrator.attach_app(app.handle().clone());
             app.manage(orchestrator);
+
+            // Keep the app-managed yt-dlp fresh; sites change their pages constantly.
+            tauri::async_runtime::spawn(async {
+                if downloader::BinaryManager::managed_ytdlp_is_stale() {
+                    let _ = downloader::BinaryManager::download_yt_dlp(&|_, _, _| {}).await;
+                }
+                // YouTube needs a JavaScript runtime for all formats; install it quietly if missing.
+                let has_ytdlp = tauri::async_runtime::spawn_blocking(|| downloader::BinaryManager::find_binary("yt-dlp").is_some())
+                    .await
+                    .unwrap_or(false);
+                if has_ytdlp {
+                    downloader::BinaryManager::ensure_js_runtime(&|_, _, _| {}).await;
+                }
+            });
+            #[cfg(debug_assertions)]
+            if std::env::var_os("HS_BROWSER_SELFTEST").is_some() {
+                browser::selftest::run(app.handle().clone());
+            }
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(target_os = "windows")]
                 {
@@ -889,17 +522,27 @@ pub fn run() {
             get_windows_accent_color,
             pick_storage_folder,
             exit_app,
-            set_browser_visibility,
-            update_browser_bounds,
-            navigate_browser,
-            browser_go_back,
-            browser_go_forward,
-            browser_reload,
-            browser_set_shields_enabled,
-            get_installed_extensions,
-            install_browser_extension,
-            uninstall_browser_extension,
-            load_unpacked_extension,
+            is_app_foreground,
+            browser::set_browser_visibility,
+            browser::update_browser_bounds,
+            browser::navigate_browser,
+            browser::browser_go_back,
+            browser::browser_go_forward,
+            browser::browser_reload,
+            browser::browser_stop,
+            browser::browser_state,
+            browser::browser_snapshot,
+            browser::browser_set_shields,
+            browser::browser_shields_stats,
+            browser::clear_browsing_data,
+            browser::prewarm_browser,
+            browser::get_installed_extensions,
+            browser::install_store_extension,
+            browser::uninstall_browser_extension,
+            browser::set_extension_enabled,
+            browser::load_unpacked_extension,
+            browser::update_browser_extensions,
+            browser::extension_page_url,
             get_engine_binary_status,
             ensure_engine_binaries,
             #[cfg(feature = "experimental-drm")]
@@ -920,7 +563,15 @@ pub fn run() {
             set_queue_config,
             pause_all,
             resume_all,
-            clear_finished
+            clear_finished,
+            retry_download,
+            remove_download,
+            move_download,
+            get_default_download_dir,
+            get_library,
+            remove_library_item,
+            open_media_file,
+            update_engine
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

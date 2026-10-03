@@ -26,7 +26,7 @@
 .extension-store-modal {
   width: 100%;
   max-width: 820px;
-  max-height: 85vh;
+  height: min(640px, 85vh);
   display: flex;
   flex-direction: column;
   background: var(--surface-level-1, #12141a);
@@ -436,4 +436,179 @@
   gap: 6px;
   font-size: 11px;
   color: var(--color-text-tertiary, #94a3b8);
+}
+
+/* Add by link / browse stores */
+.extension-add-form {
+  display: flex;
+  gap: 8px;
+}
+
+.extension-add-form .extension-install-btn {
+  flex-shrink: 0;
+  min-width: 72px;
+}
+
+.extension-install-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+  filter: none;
+}
+
+.extension-add-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: var(--font-size-2xs, 11px);
+  color: var(--color-text-tertiary, #94a3b8);
+}
+
+.extension-add-links-sep {
+  width: 1px;
+  height: 12px;
+  margin: 0 4px;
+  background: var(--border-normal, rgba(255, 255, 255, 0.15));
+}
+
+.extension-link-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  padding: 4px 8px;
+  font-size: var(--font-size-2xs, 11px);
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-brand-primary, #818cf8);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--duration-instant, 100ms) ease;
+}
+
+.extension-link-btn:hover:not(:disabled) {
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.06));
+}
+
+.extension-link-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.extension-notice {
+  font-size: var(--font-size-2xs, 11px);
+  line-height: 1.4;
+  padding: 8px 12px;
+  border-radius: var(--radius-md, 8px);
+  animation: bannerFadeIn 200ms ease;
+}
+
+.extension-notice.is-ok {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.extension-notice.is-error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.extension-store-tabs-bar {
+  padding: var(--space-3, 10px) var(--space-6, 24px) 0;
+}
+
+/* Installed list */
+.extension-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3, 12px) var(--space-6, 24px) var(--space-4, 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 160px;
+}
+
+.extension-empty {
+  margin: auto;
+  max-width: 420px;
+  text-align: center;
+  font-size: var(--font-size-xs, 12px);
+  line-height: 1.5;
+  color: var(--color-text-tertiary, #94a3b8);
+}
+
+.extension-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  padding: 10px 12px;
+  background: var(--surface-level-2, #181b22);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-lg, 12px);
+  transition: opacity var(--duration-normal, 180ms) ease;
+}
+
+.extension-row.is-off .extension-avatar,
+.extension-row.is-off .extension-meta {
+  opacity: 0.5;
+}
+
+.extension-row .extension-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.extension-row .extension-tagline,
+.extension-row-error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extension-row-error {
+  font-size: var(--font-size-2xs, 11px);
+  color: #f87171;
+}
+
+.extension-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.extension-switch-btn:disabled,
+.extension-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.extension-source {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full, 9999px);
+  background: var(--surface-level-3, rgba(255, 255, 255, 0.08));
+  color: var(--color-text-tertiary, #94a3b8);
+  white-space: nowrap;
+}
+
+.extension-avatar-img {
+  object-fit: contain;
+  background: var(--surface-level-3, rgba(255, 255, 255, 0.06));
+  padding: 6px;
+  box-shadow: none;
+}
+
+.extension-avatar-letter {
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold, 600);
+  color: #ffffff;
+}
+
+.extension-notice.is-warn {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
 }

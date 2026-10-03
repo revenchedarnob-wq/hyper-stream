@@ -16,13 +16,11 @@ describe('InAppBrowser Workspace Integration Suite', () => {
 
   it('renders correctly within the workspace container', () => {
     const onOpenInHub = vi.fn()
-    const onOpenInStudio = vi.fn()
 
     const html = renderToString(
       <InAppBrowser
         initialUrl="about:blank"
         onOpenInHub={onOpenInHub}
-        onOpenInStudio={onOpenInStudio}
         isWorkspaceActive={true}
       />
     )
@@ -30,21 +28,16 @@ describe('InAppBrowser Workspace Integration Suite', () => {
     expect(html).toContain('in-app-browser')
     expect(html).toContain('browser-toolbar')
     expect(html).toContain('speed-dial-container')
-    expect(html).toContain('Twitch')
-    expect(html).toContain('YouTube')
-    expect(html).toContain('Kick')
-    expect(html).toContain('Crunchyroll')
+    expect(html).toContain('speed-dial-add-tile')
   })
 
   it('contains zero emojis across all rendered markup', () => {
     const onOpenInHub = vi.fn()
-    const onOpenInStudio = vi.fn()
 
     const html = renderToString(
       <InAppBrowser
         initialUrl="about:blank"
         onOpenInHub={onOpenInHub}
-        onOpenInStudio={onOpenInStudio}
         isWorkspaceActive={true}
       />
     )

@@ -1,27 +1,27 @@
 import React from 'react'
-import { IconCheckCircle, IconPlay, IconFolder } from './Icons'
+import { convertFileSrc } from '@tauri-apps/api/core'
+import { IconCheckCircle, IconPlay, IconFolder, IconVolume2 } from './Icons'
 import { playHapticClick } from '@/lib/sound'
-
-export interface RecentItem {
-  id: string
-  title: string
-  quality: string
-  size: string
-  duration: string
-  timestamp: string
-}
+import type { LibraryItem } from '@/lib/tauri-bridge'
+import { formatBytes, qualityLabel, timeAgo } from '@/lib/format'
 
 interface RecentCapturesProps {
-  items: RecentItem[]
-  onPlay: (item: RecentItem) => void
-  onOpenFolder: (item: RecentItem) => void
+  items: LibraryItem[]
+  onPlay: (item: LibraryItem) => void
+  onReveal: (item: LibraryItem) => void
+  onShowAll: () => void
 }
 
-export const RecentCaptures: React.FC<RecentCapturesProps> = React.memo(({
-  items,
-  onPlay,
-  onOpenFolder,
-}) => {
+export function thumbnailSrc(item: LibraryItem): string | null {
+  if (!item.thumbnail_path) return null
+  try {
+    return convertFileSrc(item.thumbnail_path)
+  } catch {
+    return null
+  }
+}
+
+export const RecentCaptures: React.FC<RecentCapturesProps> = React.memo(({ items, onPlay, onReveal, onShowAll }) => {
   return (
     <div className="recent-captures-card">
       <div className="section-header">
@@ -29,72 +29,78 @@ export const RecentCaptures: React.FC<RecentCapturesProps> = React.memo(({
           <span>Recent</span>
           <span className="section-badge-count">{items.length}</span>
         </h3>
+        {items.length > 0 && (
+          <button type="button" className="recent-show-all" onClick={() => { playHapticClick(); onShowAll() }}>
+            Library
+          </button>
+        )}
       </div>
 
       <div className="recent-items-list">
         {items.length === 0 ? (
-          <div
-            style={{
-              padding: '24px 12px',
-              textAlign: 'center',
-              color: 'var(--color-text-tertiary, rgba(255, 255, 255, 0.45))',
-              fontSize: '12px',
-              lineHeight: '1.5',
-            }}
-          >
-            No recent captures yet. Completed transfers will appear here.
-          </div>
+          <div className="recent-empty">Finished downloads will appear here.</div>
         ) : (
-          items.map((item) => (
-          <div key={item.id} className="recent-item">
-            <div className="recent-item-left">
-              <div className="recent-icon-badge" aria-hidden="true">
-                <IconCheckCircle size={14} />
-              </div>
-
-              <div className="recent-details">
-                <div className="recent-name" title={item.title}>
-                  {item.title}
+          items.map((item) => {
+            const thumb = thumbnailSrc(item)
+            const quality = item.kind === 'audio' ? 'Audio' : qualityLabel(item.width, item.height)
+            return (
+              <div key={item.id} className={`recent-item ${item.missing ? 'is-missing' : ''}`}>
+                <div className="recent-item-left">
+                  <div className="recent-icon-badge" aria-hidden="true">
+                    {thumb ? (
+                      <img className="recent-thumb-img" src={thumb} alt="" />
+                    ) : item.kind === 'audio' ? (
+                      <IconVolume2 size={14} />
+                    ) : (
+                      <IconCheckCircle size={14} />
+                    )}
+                  </div>
+                  <div className="recent-details">
+                    <div className="recent-name" title={item.title}>
+                      {item.title}
+                    </div>
+                    <div className="recent-sub">
+                      {item.missing ? (
+                        <span className="recent-meta-pill">File missing</span>
+                      ) : (
+                        <>
+                          {quality && <span className="recent-meta-pill">{quality}</span>}
+                          {quality && <span className="recent-dot">·</span>}
+                          <span className="recent-meta-size">{formatBytes(item.size_bytes)}</span>
+                        </>
+                      )}
+                      <span className="recent-dot">·</span>
+                      <span className="recent-meta-time">{timeAgo(item.added_at)}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="recent-sub">
-                  <span className="recent-meta-pill">{item.quality}</span>
-                  <span className="recent-dot">·</span>
-                  <span className="recent-meta-size">{item.size}</span>
-                  <span className="recent-dot">·</span>
-                  <span className="recent-meta-time">{item.timestamp}</span>
-                </div>
+
+                {!item.missing && (
+                  <div className="recent-item-actions">
+                    <button
+                      type="button"
+                      className="recent-action-icon-btn play-btn"
+                      onClick={() => { playHapticClick(); onPlay(item) }}
+                      title="Play"
+                      aria-label={`Play ${item.title}`}
+                    >
+                      <IconPlay size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="recent-action-icon-btn folder-btn"
+                      onClick={() => { playHapticClick(); onReveal(item) }}
+                      title="Show in folder"
+                      aria-label={`Show ${item.title} in folder`}
+                    >
+                      <IconFolder size={13} />
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
-
-            <div className="recent-item-actions">
-              <button
-                type="button"
-                className="recent-action-icon-btn play-btn"
-                onClick={() => {
-                  playHapticClick()
-                  onPlay(item)
-                }}
-                title={`Quick Play: ${item.title}`}
-                aria-label={`Quick Play ${item.title}`}
-              >
-                <IconPlay size={12} />
-              </button>
-
-              <button
-                type="button"
-                className="recent-action-icon-btn folder-btn"
-                onClick={() => {
-                  playHapticClick()
-                  onOpenFolder(item)
-                }}
-                title={`Show in Folder: ${item.title}`}
-                aria-label={`Show in Folder ${item.title}`}
-              >
-                <IconFolder size={13} />
-              </button>
-            </div>
-          </div>
-        )))}
+            )
+          })
+        )}
       </div>
     </div>
   )

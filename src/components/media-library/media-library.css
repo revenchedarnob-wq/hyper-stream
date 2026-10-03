@@ -2302,3 +2302,122 @@
 [data-wallpaper-theme="dark"] .episode-progress-track {
   background: rgba(255, 255, 255, 0.10);
 }
+/* =========================================================
+   Library: real-file states and delete dialog
+========================================================= */
+.library-toast {
+  position: fixed;
+  z-index: 200;
+}
+
+.media-missing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: rgba(220, 38, 38, 0.88);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.media-card.is-missing .media-card-thumb,
+.media-list-row.is-missing .list-row-thumb {
+  filter: grayscale(0.9);
+  opacity: 0.6;
+  cursor: default;
+}
+
+.media-card.is-missing .media-card-title,
+.media-list-row.is-missing .list-row-title {
+  opacity: 0.65;
+}
+
+.media-ghost-play-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.library-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 10, 20, 0.45);
+  backdrop-filter: blur(4px);
+  animation: bannerSlideIn 160ms ease both;
+}
+
+.library-dialog {
+  width: min(440px, 100%);
+  padding: 22px 22px 18px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-overlay, rgba(255, 255, 255, 0.96));
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-elevated);
+  color: var(--color-text-primary);
+}
+
+.library-dialog-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+  margin-bottom: 12px;
+}
+
+.library-dialog-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.library-dialog-text {
+  margin: 0 0 18px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.library-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.library-dialog-btn {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-control);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-full);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.library-dialog-btn:hover {
+  background: var(--surface-control-hover, var(--surface-control));
+}
+
+.library-dialog-btn.is-danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.library-dialog-btn.is-danger:hover {
+  background: #b91c1c;
+}

@@ -3,7 +3,7 @@ import { renderToString } from 'react-dom/server'
 import { InAppBrowser } from './InAppBrowser'
 import { BrowserToolbar, BrowserNavControls } from './BrowserToolbar'
 import { detectStreamFromUrl, handleBrowserSubmit, createBrowserHistory } from './url-utils'
-import type { DetectedStream, ShieldsMetrics } from './types'
+import type { DetectedStream } from './types'
 import * as soundModule from '@/lib/sound'
 
 vi.mock('@/lib/sound', () => ({
@@ -13,14 +13,6 @@ vi.mock('@/lib/sound', () => ({
 }))
 
 describe('InAppBrowserCore Component Suite', () => {
-  const defaultShieldsStats: ShieldsMetrics = {
-    adsBlocked: 250,
-    trackersBlocked: 150,
-    bandwidthSavedBytes: 31457280, // 30.0 MB
-    fingerprintingBlocked: 40,
-    isEnabled: true,
-  }
-
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -28,12 +20,10 @@ describe('InAppBrowserCore Component Suite', () => {
   describe('Initial Mount & Speed Dial Rendering', () => {
     it('renders toolbar and speed dial on initial mount when URL is about:blank', () => {
       const onOpenInHub = vi.fn()
-      const onOpenInStudio = vi.fn()
 
       const html = renderToString(
         <InAppBrowser
           onOpenInHub={onOpenInHub}
-          onOpenInStudio={onOpenInStudio}
           isWorkspaceActive={true}
         />
       )
@@ -42,7 +32,7 @@ describe('InAppBrowserCore Component Suite', () => {
       expect(html).toContain('in-app-browser')
       expect(html).toContain('browser-toolbar')
       expect(html).toContain('id="browser-url-input"')
-      expect(html).toContain('placeholder="Search with Brave or enter URL..."')
+      expect(html).toContain('placeholder="Search or enter address"')
 
       // Navigation controls
       expect(html).toContain('data-testid="browser-btn-back"')
@@ -53,14 +43,14 @@ describe('InAppBrowserCore Component Suite', () => {
       // Initial state has no back/forward history
       expect(html).toContain('disabled=""')
 
-      // Brave Shields button with badge
+      // Shields button; the OFF badge only shows when disabled
       expect(html).toContain('data-testid="browser-shields-button"')
-      expect(html).toContain('data-testid="browser-shields-badge"')
+      expect(html).not.toContain('data-testid="browser-shields-badge"')
 
       // SpeedDial is mounted when currentUrl is about:blank
       expect(html).toContain('speed-dial-container')
-      expect(html).toContain('Decentralized Streaming Gateway')
-      expect(html).toContain('Brave Privacy Workspace')
+      expect(html).toContain('Find something to download')
+      expect(html).not.toContain('Brave')
 
       // Viewport container is stably mounted with is-hidden while on speed dial to ensure ref coordinates are valid
       expect(html).toContain('id="browser-viewport"')
@@ -96,9 +86,8 @@ describe('InAppBrowserCore Component Suite', () => {
           onReload={vi.fn()}
           onHome={vi.fn()}
           onNavigate={vi.fn()}
-          shieldsStats={defaultShieldsStats}
+          shieldsEnabled={false}
           onOpenInHub={vi.fn()}
-          onOpenInStudio={vi.fn()}
         />
       )
 
@@ -106,7 +95,7 @@ describe('InAppBrowserCore Component Suite', () => {
       expect(html).toContain('value="https://twitch.tv"')
       expect(html).toContain('browser-omnibar-clear-btn')
       expect(html).toContain('data-testid="browser-shields-button"')
-      expect(html).toContain('400') // 250 + 150 = 400
+      expect(html).toContain('data-testid="browser-shields-badge"')
     })
 
     it('renders #browser-viewport and dev preview when a URL is active', () => {
@@ -114,7 +103,6 @@ describe('InAppBrowserCore Component Suite', () => {
         <InAppBrowser
           initialUrl="https://twitch.tv"
           onOpenInHub={vi.fn()}
-          onOpenInStudio={vi.fn()}
           isWorkspaceActive={true}
         />
       )
@@ -141,12 +129,10 @@ describe('InAppBrowserCore Component Suite', () => {
         url: 'https://video.example.com/hls/live.m3u8',
         title: 'Championship Live Stream',
         format: 'HLS',
-        resolution: '1080p60',
         timestamp: 1710000000000,
       }
 
       const onOpenInHub = vi.fn()
-      const onOpenInStudio = vi.fn()
       const onDismissStream = vi.fn()
 
       const html = renderToString(
@@ -161,16 +147,15 @@ describe('InAppBrowserCore Component Suite', () => {
           onNavigate={vi.fn()}
           detectedStream={mockStream}
           onOpenInHub={onOpenInHub}
-          onOpenInStudio={onOpenInStudio}
           onDismissStream={onDismissStream}
         />
       )
 
       expect(html).toContain('browser-stream-slot')
       expect(html).toContain('stream-detector-pill')
-      expect(html).toContain('1080p60 HLS')
-      expect(html).toContain('Send to Hub')
-      expect(html).toContain('Studio')
+      expect(html).toContain('HLS')
+      expect(html).toContain('Download')
+      expect(html).not.toContain('Studio')
     })
 
     it('auto-detects live stream formats from streaming URLs in InAppBrowser', () => {
@@ -178,44 +163,39 @@ describe('InAppBrowserCore Component Suite', () => {
         <InAppBrowser
           initialUrl="https://stream.provider.net/live/master.m3u8"
           onOpenInHub={vi.fn()}
-          onOpenInStudio={vi.fn()}
         />
       )
 
       expect(html).toContain('stream-detector-pill')
-      expect(html).toContain('1080p60 HLS')
-      expect(html).toContain('Send to Hub')
-      expect(html).toContain('Studio')
+      expect(html).toContain('HLS')
+      expect(html).toContain('Download')
+      expect(html).not.toContain('Studio')
     })
 
-    it('detectStreamFromUrl accurately identifies streaming protocols and domains', () => {
+    it('detectStreamFromUrl recognises direct media and video pages only', () => {
       expect(detectStreamFromUrl('about:blank')).toBeNull()
       expect(detectStreamFromUrl('')).toBeNull()
+      expect(detectStreamFromUrl('not a url')).toBeNull()
 
-      const hls = detectStreamFromUrl('https://edge.cdn/channel.m3u8')
-      expect(hls?.format).toBe('HLS')
-      expect(hls?.resolution).toBe('1080p60')
+      expect(detectStreamFromUrl('https://edge.cdn/channel.m3u8')?.format).toBe('HLS')
+      expect(detectStreamFromUrl('https://edge.cdn/manifest.mpd')?.format).toBe('DASH')
+      expect(detectStreamFromUrl('https://edge.cdn/clip.mp4?token=1')?.format).toBe('MP4')
 
-      const dash = detectStreamFromUrl('https://edge.cdn/manifest.mpd')
-      expect(dash?.format).toBe('DASH')
-      expect(dash?.resolution).toBe('4K')
+      expect(detectStreamFromUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')?.format).toBe('YouTube')
+      expect(detectStreamFromUrl('https://www.youtube.com/shorts/abc123')?.format).toBe('YouTube')
+      expect(detectStreamFromUrl('https://youtu.be/dQw4w9WgXcQ')?.format).toBe('YouTube')
+      expect(detectStreamFromUrl('https://www.youtube.com/')).toBeNull()
+      expect(detectStreamFromUrl('https://www.youtube.com/results?search_query=x')).toBeNull()
 
-      const mp4 = detectStreamFromUrl('https://edge.cdn/clip.mp4')
-      expect(mp4?.format).toBe('MP4')
-
-      const twitch = detectStreamFromUrl('https://twitch.tv/riotgames')
-      expect(twitch?.format).toBe('HLS')
-      expect(twitch?.title).toContain('riotgames')
-
-      const kick = detectStreamFromUrl('https://kick.com/xqc')
-      expect(kick?.format).toBe('HLS')
-      expect(kick?.title).toContain('xqc')
-
-      const yt = detectStreamFromUrl('https://youtube.com/watch?v=dQw4w9WgXcQ')
-      expect(yt?.format).toBe('DASH')
-
-      const anime = detectStreamFromUrl('https://crunchyroll.com/series/frieren')
-      expect(anime?.format).toBe('HLS')
+      expect(detectStreamFromUrl('https://twitch.tv/riotgames')?.format).toBe('Twitch')
+      expect(detectStreamFromUrl('https://www.twitch.tv/directory')).toBeNull()
+      expect(detectStreamFromUrl('https://kick.com/xqc')?.format).toBe('Kick')
+      expect(detectStreamFromUrl('https://vimeo.com/76979871')?.format).toBe('Vimeo')
+      expect(detectStreamFromUrl('https://www.instagram.com/reel/Cabc123/')?.format).toBe('Instagram')
+      expect(detectStreamFromUrl('https://www.instagram.com/someone/')).toBeNull()
+      expect(detectStreamFromUrl('https://x.com/user/status/123456')?.format).toBe('X')
+      expect(detectStreamFromUrl('https://soundcloud.com/artist/track')?.format).toBe('SoundCloud')
+      expect(detectStreamFromUrl('https://example.com/article')).toBeNull()
     })
   })
 
@@ -326,7 +306,6 @@ describe('InAppBrowserCore Component Suite', () => {
       const htmlInitial = renderToString(
         <InAppBrowser
           onOpenInHub={vi.fn()}
-          onOpenInStudio={vi.fn()}
           isWorkspaceActive={true}
         />
       )
@@ -335,7 +314,6 @@ describe('InAppBrowserCore Component Suite', () => {
         <InAppBrowser
           initialUrl="https://twitch.tv"
           onOpenInHub={vi.fn()}
-          onOpenInStudio={vi.fn()}
           isWorkspaceActive={true}
         />
       )
