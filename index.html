@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" style="background: transparent !important; background-color: transparent !important;">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -8,9 +8,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      try {
+        if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+          document.documentElement.classList.add('is-tauri');
+        }
+      } catch {}
+    </script>
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="background: transparent !important; background-color: transparent !important; margin: 0; padding: 0; overflow: hidden;">
+    <div id="root" style="background: transparent !important; background-color: transparent !important;"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

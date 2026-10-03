@@ -401,12 +401,15 @@ html, body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background-color: transparent;
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
-/* In native Windows Tauri app, keep root and body transparent for native Windows acrylic and studio glass */
+/* In native Windows Tauri app and browser simulator, keep html and body 100% transparent */
 html.is-tauri,
-body.is-tauri {
+body.is-tauri,
+html.is-browser-environment,
+body.is-browser-environment {
   background: transparent !important;
   background-color: transparent !important;
 }
@@ -419,6 +422,7 @@ body.is-tauri {
   overflow: hidden;
   position: relative;
   background: transparent !important;
+  background-color: transparent !important;
 }
 
 /* Refinement: selection & keyboard focus affordances */

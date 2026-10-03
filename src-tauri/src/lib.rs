@@ -506,11 +506,6 @@ pub fn run() {
                 browser::selftest::run(app.handle().clone());
             }
             if let Some(window) = app.get_webview_window("main") {
-                #[cfg(target_os = "windows")]
-                {
-                    use window_vibrancy::apply_acrylic;
-                    let _ = apply_acrylic(&window, Some((15, 20, 30, 20)));
-                }
                 let _ = window.show();
                 let _ = window.set_focus();
             }

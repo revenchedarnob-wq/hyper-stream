@@ -13,6 +13,15 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html.is-tauri .hyperstream-root-wrapper,
+body.is-tauri .hyperstream-root-wrapper,
+body:not(.is-browser-environment) .hyperstream-root-wrapper {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 /* Bulletproof DOM-level Desktop Wallpaper & Smooth Cross-Fade */
@@ -214,7 +223,8 @@ body.is-browser-dragging * {
   position: relative;
   overflow: hidden;
   border-radius: var(--radius-window, 24px);
-  background: transparent;
+  background: transparent !important;
+  background-color: transparent !important;
   flex-shrink: 0;
   isolation: isolate;
   contain: paint;
@@ -227,15 +237,20 @@ body.is-browser-dragging * {
 .window-container.is-maximized {
   width: 100vw;
   height: 100vh;
-  border-radius: 0px;
+  border-radius: 0px !important;
+  clip-path: none !important;
   box-shadow: none;
 }
 
-body.is-tauri .window-container:not(.is-maximized) {
+body.is-tauri .window-container:not(.is-maximized),
+html.is-tauri .window-container:not(.is-maximized),
+body:not(.is-browser-environment) .window-container:not(.is-maximized) {
   clip-path: inset(0 round var(--radius-window, 24px));
 }
 
-body.is-tauri .window-container.is-maximized {
+body.is-tauri .window-container.is-maximized,
+html.is-tauri .window-container.is-maximized,
+body:not(.is-browser-environment) .window-container.is-maximized {
   clip-path: none;
 }
 
