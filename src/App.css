@@ -1004,58 +1004,11 @@ body.is-browser-dragging * {
   column-gap: 0px;
 }
 
-/* Chrome-like Full-Bleed Edge-to-Edge Browser Mode (When sidebar is collapsed in browser) */
-.app-shell.browser-fullbleed {
-  padding: 0 !important;
-  column-gap: 0 !important;
-  row-gap: 0 !important;
-  border: none !important;
-  border-radius: var(--radius-window, 12px) !important;
-  box-shadow: none !important;
-  background: transparent !important;
+/* In browser mode, let the omnibar stretch comfortably across the toolbar */
+.app-shell.is-browser-mode .browser-omnibar-form {
+  max-width: none;
 }
 
-.window-container.is-maximized .app-shell.browser-fullbleed {
-  border-radius: 0 !important;
-}
-
-.app-shell.browser-fullbleed .topbar {
-  padding: 2px 8px 0 8px !important;
-  height: 36px;
-  background: var(--surface-level-1) !important;
-  border-bottom: 1px solid var(--border-subtle) !important;
-}
-
-.app-shell.browser-fullbleed .content-pane {
-  border-radius: 0 !important;
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-}
-
-/* In full-bleed browser mode, let the omnibar stretch comfortably across the toolbar like Chrome */
-.app-shell.browser-fullbleed .browser-omnibar-form {
-  max-width: none !important;
-}
-
-.app-shell.browser-fullbleed .browser-toolbar {
-  padding: 6px 14px !important;
-}
-
-.window-container.potato-mode .app-shell.browser-fullbleed {
-  padding: 0 !important;
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-}
-
-.window-container.potato-mode .app-shell.browser-fullbleed .content-pane {
-  padding: 0 !important;
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  border-radius: 0 !important;
-}
 
 /* Topbar */
 .topbar {

@@ -667,7 +667,7 @@ export default function App() {
           {/* Unified, Window-Wide Beautiful Optical Frosted Glass Layer */}
           <div className="window-glass-frosted-overlay" aria-hidden="true" />
         </div>
-      <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''} ${activeNav === 'browser' && !sidebarOpen ? 'browser-fullbleed' : ''}`}>
+      <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''}`}>
         {/* Topbar with real-time 120 FPS pointer drag handler and smooth maximize toggle */}
         <header
           className="topbar"
