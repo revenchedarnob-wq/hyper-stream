@@ -231,8 +231,17 @@ body.is-browser-dragging * {
   box-shadow: none;
 }
 
+body.is-tauri .window-container:not(.is-maximized) {
+  clip-path: inset(0 round var(--radius-window, 24px));
+}
+
+body.is-tauri .window-container.is-maximized {
+  clip-path: none;
+}
+
 .window-container.is-maximized .app-shell {
   border-radius: 0;
+  clip-path: none;
   border: none;
   box-shadow: none;
   padding: 6px 14px 14px 14px;
@@ -242,6 +251,7 @@ body.is-browser-dragging * {
   position: absolute;
   inset: 0;
   border-radius: var(--radius-window, 24px);
+  clip-path: inset(0 round var(--radius-window, 24px));
   pointer-events: none;
   z-index: 0;
   overflow: hidden;
@@ -252,6 +262,7 @@ body.is-browser-dragging * {
 
 .window-container.is-maximized .window-backdrop-layer {
   border-radius: 0;
+  clip-path: none;
 }
 
 .wallpaper-parallax-bg {
@@ -975,6 +986,7 @@ body.is-browser-dragging * {
     inset 0 1px 1px 0 var(--border-specular-top),
     0 25px 60px -15px var(--env-shadow-ambient, rgba(10, 15, 30, 0.30));
   border-radius: var(--radius-window, 24px);
+  clip-path: inset(0 round var(--radius-window, 24px));
   overflow: hidden;
   isolation: isolate;
   display: grid;
