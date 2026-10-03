@@ -138,6 +138,14 @@ export interface BrowserToolbarProps {
   onShieldsPanelChange?: (open: boolean) => void
   /** Increments to move focus to the address bar (Ctrl+L inside the page). */
   focusAddressNonce?: number
+  /** Unified header: Brand and sidebar toggle slot on the left. */
+  sidebarArea?: React.ReactNode
+  /** Unified header: Windows 11 window controls on the right. */
+  windowControls?: React.ReactNode
+  onTopBarPointerDown?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarPointerMove?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarPointerUp?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarDoubleClick?: (e: React.MouseEvent<HTMLElement>) => void
 }
 
 export function BrowserToolbar({
@@ -163,6 +171,12 @@ export function BrowserToolbar({
   onOpenExtensions,
   onShieldsPanelChange,
   focusAddressNonce = 0,
+  sidebarArea,
+  windowControls,
+  onTopBarPointerDown,
+  onTopBarPointerMove,
+  onTopBarPointerUp,
+  onTopBarDoubleClick,
 }: BrowserToolbarProps) {
   const [prevUrl, setPrevUrl] = useState(currentUrl)
   const [inputValue, setInputValue] = useState(() =>
@@ -223,7 +237,22 @@ export function BrowserToolbar({
     !currentUrl
 
   return (
-    <header className="browser-toolbar" role="toolbar" aria-label="Browser Navigation Bar">
+    <header
+      className={`browser-toolbar ${sidebarArea || windowControls ? 'is-unified-header' : ''}`}
+      role="toolbar"
+      aria-label="Browser Navigation Bar"
+      data-tauri-drag-region
+      onPointerDown={onTopBarPointerDown}
+      onPointerMove={onTopBarPointerMove}
+      onPointerUp={onTopBarPointerUp}
+      onPointerCancel={onTopBarPointerUp}
+      onDoubleClick={onTopBarDoubleClick}
+    >
+      {sidebarArea && (
+        <div className="browser-toolbar-sidebar-slot" data-tauri-drag-region>
+          {sidebarArea}
+        </div>
+      )}
       {/* Navigation Controls */}
       <BrowserNavControls
         canGoBack={canGoBack}
@@ -344,6 +373,15 @@ export function BrowserToolbar({
       >
         <IconPuzzlePiece size={16} />
       </button>
+
+      {/* Drag spacer for native window dragging across empty toolbar space */}
+      <div className="browser-toolbar-drag-spacer" data-tauri-drag-region />
+
+      {windowControls && (
+        <div className="browser-toolbar-win-controls" data-tauri-drag-region>
+          {windowControls}
+        </div>
+      )}
 
       {isLoading && <div className="browser-loading-bar" aria-hidden="true" data-testid="browser-loading-bar" />}
     </header>

@@ -27,6 +27,12 @@ export interface InAppBrowserProps {
   isWorkspaceActive?: boolean
   isMaximized?: boolean
   isSidebarOpen?: boolean
+  sidebarArea?: React.ReactNode
+  windowControls?: React.ReactNode
+  onTopBarPointerDown?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarPointerMove?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarPointerUp?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarDoubleClick?: (e: React.MouseEvent<HTMLElement>) => void
 }
 
 /** Longest the UI waits for a picture of the page before covering it anyway. */
@@ -39,6 +45,12 @@ export function InAppBrowser({
   isWorkspaceActive = true,
   isMaximized = false,
   isSidebarOpen = true,
+  sidebarArea,
+  windowControls,
+  onTopBarPointerDown,
+  onTopBarPointerMove,
+  onTopBarPointerUp,
+  onTopBarDoubleClick,
 }: InAppBrowserProps) {
   const inTauri = isTauri()
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -268,6 +280,12 @@ export function InAppBrowser({
         onOpenInHub={onOpenInHub}
         onDismissStream={() => setDismissedStreamUrl(currentUrl)}
         focusAddressNonce={focusAddressNonce}
+        sidebarArea={sidebarArea}
+        windowControls={windowControls}
+        onTopBarPointerDown={onTopBarPointerDown}
+        onTopBarPointerMove={onTopBarPointerMove}
+        onTopBarPointerUp={onTopBarPointerUp}
+        onTopBarDoubleClick={onTopBarDoubleClick}
       />
 
       <main className="browser-content-area">

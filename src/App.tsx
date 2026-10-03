@@ -667,56 +667,8 @@ export default function App() {
           {/* Unified, Window-Wide Beautiful Optical Frosted Glass Layer */}
           <div className="window-glass-frosted-overlay" aria-hidden="true" />
         </div>
-      <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''}`}>
-        {/* Topbar with real-time 120 FPS pointer drag handler and smooth maximize toggle */}
-        <header
-          className="topbar"
-          data-tauri-drag-region
-          onPointerDown={handleTopBarPointerDown}
-          onPointerMove={handleTopBarPointerMove}
-          onPointerUp={handleTopBarPointerUp}
-          onPointerCancel={handleTopBarPointerUp}
-          onDoubleClick={handleTopBarDoubleClick}
-        >
-          <div className={`topbar-sidebar-area ${sidebarOpen ? 'open' : 'closed'}`} data-tauri-drag-region>
-            <div className="topbar-brand" data-tauri-drag-region>
-              <span className="topbar-logo" data-tauri-drag-region>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm2 .5v8h8V4H4z" opacity="0.3"/>
-                  <path d="M5 6.5A1.5 1.5 0 0 1 6.5 5h3A1.5 1.5 0 0 1 11 6.5v3A1.5 1.5 0 0 1 9.5 11h-3A1.5 1.5 0 0 1 5 9.5v-3z" />
-                </svg>
-              </span>
-              <span className="app-title" data-tauri-drag-region>HyperStream</span>
-            </div>
-
-            <button
-              type="button"
-              className={`sidebar-toggle-btn ${sidebarOpen ? 'open' : 'closed'}`}
-              onClick={() => {
-                playHapticClick()
-                setSidebarOpen((prev) => !prev)
-              }}
-              aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-              title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="sidebar-toggle-svg">
-                <rect x="2" y="2.5" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
-                <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
-                <path
-                  d={sidebarOpen ? 'M10.5 6L8.5 8L10.5 10' : 'M8.5 6L10.5 8L8.5 10'}
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          </div>
-
-          {/* Native Drag Spacer */}
-          <div className="topbar-drag-spacer" data-tauri-drag-region />
-
-          {/* Windows 11 window controls: clean native minimize, maximize, close */}
+      {(() => {
+        const windowControlsElement = (
           <div className="window-controls">
             <button
               className="win-btn"
@@ -773,7 +725,63 @@ export default function App() {
               </svg>
             </button>
           </div>
-        </header>
+        )
+
+        const sidebarAreaElement = (
+          <div className={`topbar-sidebar-area ${sidebarOpen ? 'open' : 'closed'}`} data-tauri-drag-region>
+            <div className="topbar-brand" data-tauri-drag-region>
+              <span className="topbar-logo" data-tauri-drag-region>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm2 .5v8h8V4H4z" opacity="0.3"/>
+                  <path d="M5 6.5A1.5 1.5 0 0 1 6.5 5h3A1.5 1.5 0 0 1 11 6.5v3A1.5 1.5 0 0 1 9.5 11h-3A1.5 1.5 0 0 1 5 9.5v-3z" />
+                </svg>
+              </span>
+              <span className="app-title" data-tauri-drag-region>HyperStream</span>
+            </div>
+
+            <button
+              type="button"
+              className={`sidebar-toggle-btn ${sidebarOpen ? 'open' : 'closed'}`}
+              onClick={() => {
+                playHapticClick()
+                setSidebarOpen((prev) => !prev)
+              }}
+              aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+              title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="sidebar-toggle-svg">
+                <rect x="2" y="2.5" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+                <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
+                <path
+                  d={sidebarOpen ? 'M10.5 6L8.5 8L10.5 10' : 'M8.5 6L10.5 8L8.5 10'}
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        )
+
+        return (
+          <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''}`}>
+            {/* Topbar: Rendered in standard mode for Hub, Library, Settings */}
+            {activeNav !== 'browser' && (
+              <header
+                className="topbar"
+                data-tauri-drag-region
+                onPointerDown={handleTopBarPointerDown}
+                onPointerMove={handleTopBarPointerMove}
+                onPointerUp={handleTopBarPointerUp}
+                onPointerCancel={handleTopBarPointerUp}
+                onDoubleClick={handleTopBarDoubleClick}
+              >
+                {sidebarAreaElement}
+                <div className="topbar-drag-spacer" data-tauri-drag-region />
+                {windowControlsElement}
+              </header>
+            )}
 
         {/* Sidebar with jelly sliding glass pill & bottom utility dock */}
         <nav className="sidebar" aria-label="Main Navigation">
@@ -865,10 +873,18 @@ export default function App() {
               isWorkspaceActive={activeNav === 'browser'}
               isMaximized={isMaximized}
               isSidebarOpen={sidebarOpen}
+              sidebarArea={sidebarAreaElement}
+              windowControls={windowControlsElement}
+              onTopBarPointerDown={handleTopBarPointerDown}
+              onTopBarPointerMove={handleTopBarPointerMove}
+              onTopBarPointerUp={handleTopBarPointerUp}
+              onTopBarDoubleClick={handleTopBarDoubleClick}
             />
           </div>
         </main>
       </div>
+    )
+  })()}
     </div>
 
       {/* Browser-preview-only dev controls; the native app picks wallpapers in Settings. */}

@@ -1266,6 +1266,55 @@
   box-sizing: border-box;
 }
 
+/* Unified Arc-style browser header */
+.browser-toolbar.is-unified-header {
+  height: 44px;
+  min-height: 44px;
+  padding: 0 4px 0 10px;
+  gap: 8px;
+  background: var(--surface-level-1);
+  border-top: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-top-left-radius: var(--radius-window, 24px);
+  border-top-right-radius: var(--radius-window, 24px);
+  backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 120%));
+  -webkit-backdrop-filter: blur(var(--env-backdrop-blur, 24px)) saturate(var(--env-backdrop-saturate, 120%));
+}
+
+.window-container.is-maximized .browser-toolbar.is-unified-header {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.browser-toolbar-sidebar-slot {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.browser-toolbar-sidebar-slot .topbar-sidebar-area {
+  width: 230px;
+  padding-right: 6px;
+  transition: width 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.app-shell.sidebar-collapsed .browser-toolbar-sidebar-slot .topbar-sidebar-area {
+  width: 148px;
+}
+
+.browser-toolbar-drag-spacer {
+  flex: 1;
+  min-width: 16px;
+  height: 100%;
+}
+
+.browser-toolbar-win-controls {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  flex-shrink: 0;
+}
+
 .browser-nav-group {
   display: flex;
   align-items: center;
@@ -1568,7 +1617,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 10;
-  background: var(--surface-level-1);
+  background: transparent;
 }
 
 .browser-viewport {
@@ -1684,7 +1733,10 @@
   height: 100%;
   position: relative;
   min-height: 0;
-  background: #ffffff;
+  background: var(--surface-level-1, #0f172a);
+  border-bottom-right-radius: inherit;
+  border-bottom-left-radius: inherit;
+  overflow: hidden;
 }
 
 .browser-dev-iframe {
@@ -1692,6 +1744,8 @@
   height: 100%;
   border: none;
   display: block;
+  border-bottom-right-radius: inherit;
+  border-bottom-left-radius: inherit;
 }
 
 .browser-viewport-native {
