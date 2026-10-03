@@ -332,10 +332,21 @@ body.is-browser-dragging * {
   transition: background 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
 }
 
-/* Deep Inactivity Sleep: Freeze all CSS animations and GPU wakeups when blurred */
-.window-container.is-unfocused *,
-.window-container.is-unfocused *::before,
-.window-container.is-unfocused *::after {
+/* Inactivity sleep: freeze only the looping animations while blurred. One-shot entrance
+   animations must keep running, or a view opened in the background stays at frame 0 (invisible). */
+.window-container.is-unfocused :is(
+  .status-beacon-dot,
+  .shields-status-dot,
+  .stream-pulse-ring,
+  .hub-status-dot,
+  .omnibar-spin-icon,
+  .telemetry-pulse-dot,
+  .meta-status-pulse,
+  .spin-slow,
+  .batch-status-pulse,
+  .pipeline-progress-bar
+),
+.window-container.is-unfocused :is(.browser-loading-bar, .pipeline-progress-bar, .batch-progress-bar)::after {
   animation-play-state: paused !important;
 }
 

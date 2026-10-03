@@ -211,7 +211,7 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
         }
     }
 
-    // Ctrl+L / Alt+D / F6 jump to the address bar even while the page has focus.
+    // Ctrl+L / Alt+D / F6 jump to the address bar even while the page has focus; Ctrl+D saves a shortcut.
     {
         let app = app.clone();
         controller.add_AcceleratorKeyPressed(
@@ -226,17 +226,48 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
                 args.VirtualKey(&mut key)?;
                 let ctrl = GetKeyState(VK_CONTROL.0 as i32) < 0;
                 let alt = GetKeyState(VK_MENU.0 as i32) < 0;
-                if (ctrl && !alt && key == u32::from(b'L')) || (alt && !ctrl && key == u32::from(b'D')) || key == u32::from(VK_F6.0) {
+                let action = if (ctrl && !alt && key == u32::from(b'L')) || (alt && !ctrl && key == u32::from(b'D')) || key == u32::from(VK_F6.0) {
+                    Some("focus-address")
+                } else if ctrl && !alt && key == u32::from(b'D') {
+                    Some("bookmark")
+                } else {
+                    None
+                };
+                if let Some(action) = action {
                     args.SetHandled(true)?;
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
-                        if let Some(main) = app.get_webview("main") {
-                            let _ = main.set_focus();
+                        if action == "focus-address" {
+                            if let Some(main) = app.get_webview("main") {
+                                let _ = main.set_focus();
+                            }
                         }
-                        let _ = app.emit("browser-shortcut", "focus-address");
+                        let _ = app.emit("browser-shortcut", action);
                     });
                 }
                 Ok(())
+            })),
+            &mut token,
+        )?;
+    }
+
+    // Keep each visited site's icon for the start page; covers sites that refuse direct requests.
+    if let Ok(core15) = core.cast::<ICoreWebView2_15>() {
+        core15.add_FaviconChanged(
+            &FaviconChangedEventHandler::create(Box::new(move |sender, _| {
+                let Some(core15) = sender.and_then(|c| c.cast::<ICoreWebView2_15>().ok()) else { return Ok(()) };
+                let page = read_string(|p| core15.Source(p));
+                core15.GetFavicon(
+                    COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG,
+                    &GetFaviconCompletedHandler::create(Box::new(move |result, stream| {
+                        if let (Ok(()), Some(stream)) = (result, stream) {
+                            if let Ok(bytes) = read_stream(&stream) {
+                                super::site_icon::remember_from_browser(&page, bytes);
+                            }
+                        }
+                        Ok(())
+                    })),
+                )
             })),
             &mut token,
         )?;

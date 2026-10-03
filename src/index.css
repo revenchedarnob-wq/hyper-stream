@@ -407,6 +407,17 @@ html, body {
   background-color: transparent !important;
 }
 
+/* Native window: Windows 11 rounds and shadows the window itself (8px, clips the page view too). */
+html.is-tauri {
+  --radius-window: 8px;
+}
+
+/* Inner panels never rounder than the window around them. */
+html.is-tauri .sidebar,
+html.is-tauri .content-pane {
+  border-radius: var(--radius-md);
+}
+
 /* In native Windows Tauri app and browser simulator, keep html and body 100% transparent */
 html.is-tauri,
 body.is-tauri,
@@ -476,4 +487,16 @@ body.is-browser-environment {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
+}
+
+/* Windows "Animation effects" off: no movement, only instant state changes. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }

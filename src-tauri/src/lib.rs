@@ -115,29 +115,29 @@ fn get_system_vitals(
 async fn get_windows_accent_color() -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        tauri::async_runtime::spawn_blocking(|| {
-            use std::process::Command;
-            let mut cmd = Command::new("powershell");
-            cmd.args([
-                "-NoProfile",
-                "-Command",
-                "(Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\DWM' -Name 'AccentColor' -ErrorAction SilentlyContinue).AccentColor",
-            ]);
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            let output = cmd.output();
-            if let Ok(out) = output {
-                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if let Ok(color_num) = s.parse::<u32>() {
-                    let r = (color_num & 0xFF) as u8;
-                    let g = ((color_num >> 8) & 0xFF) as u8;
-                    let b = ((color_num >> 16) & 0xFF) as u8;
-                    return format!("#{:02x}{:02x}{:02x}", r, g, b);
-                }
-            }
-            "#3b82f6".to_string()
-        })
-        .await
-        .map_err(|e| e.to_string())
+        // Read the DWM accent straight from the registry (starting PowerShell took ~0.7 s).
+        use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+        let key: Vec<u16> = r"Software\Microsoft\Windows\DWM".encode_utf16().chain(Some(0)).collect();
+        let name: Vec<u16> = "AccentColor".encode_utf16().chain(Some(0)).collect();
+        let mut value = 0u32;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                key.as_ptr(),
+                name.as_ptr(),
+                RRF_RT_REG_DWORD,
+                std::ptr::null_mut(),
+                (&mut value as *mut u32).cast(),
+                &mut size,
+            )
+        };
+        if status == 0 {
+            // Stored as 0xAABBGGRR.
+            let (r, g, b) = (value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF);
+            return Ok(format!("#{r:02x}{g:02x}{b:02x}"));
+        }
+        Ok("#3b82f6".to_string())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -218,8 +218,75 @@ fn is_app_foreground() -> bool {
 
 #[tauri::command]
 fn exit_app(app: tauri::AppHandle) {
-    // WebView2, yt-dlp and FFmpeg belong to the kill-on-close job object, so they exit with us.
-    app.exit(0);
+    shut_down(&app);
+}
+
+/// Set once the page engines have had their chance to save; the next exit request goes through.
+static EXIT_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SHUTTING_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Quit without losing data. WebView2 writes localStorage (settings, shortcuts) and cookies in
+/// batches several seconds apart, so killing it with the job object dropped recent changes.
+/// Windows hide at once; the engines are closed and given up to 3 s to finish writing.
+fn shut_down(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    if SHUTTING_DOWN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    for w in app.webview_windows().values() {
+        let _ = w.hide();
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        for w in app.webview_windows().values() {
+            let _ = w.destroy();
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while webview_engines_running() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        EXIT_READY.store(true, Ordering::SeqCst);
+        // yt-dlp and FFmpeg still belong to the kill-on-close job object, so they exit with us.
+        app.exit(0);
+    });
+}
+
+/// Whether a WebView2 browser process started by this app is still running.
+#[cfg(target_os = "windows")]
+fn webview_engines_running() -> bool {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    let me = std::process::id();
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return false;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        let mut ok = Process32FirstW(snap, &mut entry) != 0;
+        while ok {
+            if entry.th32ParentProcessID == me {
+                let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+                let name = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                if name.eq_ignore_ascii_case("msedgewebview2.exe") {
+                    found = true;
+                    break;
+                }
+            }
+            ok = Process32NextW(snap, &mut entry) != 0;
+        }
+        CloseHandle(snap);
+        found
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn webview_engines_running() -> bool {
+    false
 }
 
 #[tauri::command]
@@ -477,6 +544,17 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
+        .plugin(tauri_plugin_notification::init())
+        // Reopen at the size and place the user left it (not visibility: setup shows the window).
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
@@ -531,6 +609,7 @@ pub fn run() {
             browser::browser_shields_stats,
             browser::clear_browsing_data,
             browser::prewarm_browser,
+            browser::site_icon::site_icon,
             browser::get_installed_extensions,
             browser::install_store_extension,
             browser::uninstall_browser_extension,
@@ -568,6 +647,15 @@ pub fn run() {
             open_media_file,
             update_engine
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // Closing the last window, Alt+F4 or the title-bar X: let the engines save first.
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                if !EXIT_READY.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                    shut_down(app);
+                }
+            }
+        });
 }

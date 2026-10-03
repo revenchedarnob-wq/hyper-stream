@@ -2819,7 +2819,7 @@
 .recent-show-all {
   border: 1px solid var(--border-subtle);
   background: var(--surface-control);
-  color: var(--color-brand-primary);
+  color: var(--color-text-secondary);
   border-radius: var(--radius-full);
   padding: 3px 10px;
   font-size: 11px;
@@ -2832,6 +2832,7 @@
 .omnibar-inline-action:hover,
 .recent-show-all:hover {
   background: var(--surface-control-active, var(--surface-control));
+  color: var(--color-text-primary);
 }
 
 .engine-setup-track {

@@ -106,3 +106,14 @@ Over recent iterations, the HyperStream application underwent major visual, arch
 5. **Windows Node & Vitest Memory Note**:
    - When running Vitest on Windows, parallel worker forks can exhaust process handles or heap memory (`spawn UNKNOWN` / `out of memory`).
    - Run tests sequentially using: `npm test -- --run --fileParallelism=false` or with `$env:NODE_OPTIONS="--max-old-space-size=4096"`.
+
+---
+
+## 5. Update (Claude, Oct 3 2026) — invariants added
+
+* **Window corners:** native window uses Windows 11 DWM rounding (`"shadow": true` in `tauri.conf.json`) with `--radius-window: 8px` under `html.is-tauri`. DWM clips the native browser page too. Do not set `shadow: false` or re-add CSS clip-paths/HWND regions.
+* **Unfocused window:** only looping animations are paused (`App.css`, the `:is(...)` list). Never pause all animations — entrance animations start at opacity 0 and views go blank. Add new infinite animations to that list.
+* **Start-page shortcuts:** single store in `src/components/browser/shortcuts.ts` (`useShortcuts`, `setShortcuts`, `findShortcut`, `detectSite`). Used by the start page and the address-bar star / Ctrl+D. Do not read `hyperstream_speed_dial_custom` directly elsewhere.
+* **Site logos:** `site_icon` command (`src-tauri/src/browser/site_icon.rs`) fetches from the site itself (never a third-party favicon service), caches in `%LOCALAPPDATA%\com.hyperstream.desktop\site-icons`. The built-in browser also saves each visited site's favicon there (`native.rs`, FaviconChanged).
+* **Colours:** use `tint(color, pct)` (color-mix) — never append hex alpha to a colour string.
+* **Taskbar & notifications:** taskbar progress from `StreamHub` via `setTaskbarProgress`; "Download finished" notification + taskbar flash from `orchestrator.rs` only when the window is not focused. Window size/position/maximized persisted by `tauri-plugin-window-state`; sidebar state in `hyperstream_sidebar_open`.

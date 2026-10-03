@@ -4,7 +4,7 @@
  * with seamless fallbacks for browser development and testing.
  */
 
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getCurrentWindow, ProgressBarStatus } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
 
@@ -523,8 +523,47 @@ export async function browserSnapshot(): Promise<string | null> {
   }
 }
 
+export type TaskbarProgress = { status: 'none' } | { status: 'normal' | 'paused' | 'indeterminate'; percent: number }
+
+/** Download progress on the app's taskbar button. */
+export async function setTaskbarProgress(p: TaskbarProgress): Promise<void> {
+  if (!isTauri()) return
+  const status = {
+    none: ProgressBarStatus.None,
+    normal: ProgressBarStatus.Normal,
+    paused: ProgressBarStatus.Paused,
+    indeterminate: ProgressBarStatus.Indeterminate,
+  }[p.status]
+  try {
+    await getCurrentWindow().setProgressBar(p.status === 'none' ? { status } : { status, progress: Math.round(p.percent) })
+  } catch {
+    // Older shells without taskbar progress: nothing to show.
+  }
+}
+
+/** Overall progress of the active downloads, as the taskbar shows it. */
+export function taskbarProgressFor(tasks: Pick<NativeDownloadProgress, 'state' | 'progress_percent'>[]): TaskbarProgress {
+  const active = tasks.filter((t) => t.state === 'queued' || t.state === 'downloading' || t.state === 'remuxing' || t.state === 'paused')
+  if (active.length === 0) return { status: 'none' }
+  const percent = active.reduce((sum, t) => sum + (t.state === 'remuxing' ? 100 : t.progress_percent || 0), 0) / active.length
+  const running = active.some((t) => t.state === 'downloading' || t.state === 'remuxing')
+  if (running) return { status: 'normal', percent }
+  if (active.every((t) => t.state === 'paused')) return { status: 'paused', percent }
+  return { status: 'indeterminate', percent: 0 }
+}
+
 /** Starts the browser engine in the background so the first site opens instantly. */
 export const prewarmBrowser = () => command('prewarm_browser')
+
+/** The site's logo as a `data:` URL, fetched from the site once and cached on disk; null when it has none. */
+export async function getSiteIcon(url: string): Promise<string | null> {
+  if (!isTauri()) return null
+  try {
+    return (await invoke<string | null>('site_icon', { url })) ?? null
+  } catch {
+    return null
+  }
+}
 
 /** Signs out of every site in the built-in browser and clears its cache and history. */
 export async function clearBrowsingData(): Promise<void> {

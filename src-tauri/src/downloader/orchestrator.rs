@@ -121,6 +121,19 @@ fn sort_pending(pending: &mut [QueueEntry]) {
     pending.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.enqueued_at.cmp(&b.enqueued_at)));
 }
 
+/// When the user is elsewhere: a Windows notification plus one flash of the taskbar button.
+fn announce_finished(app: &AppHandle, title: &str) {
+    use tauri::Manager;
+    use tauri_plugin_notification::NotificationExt;
+    let Some(main) = app.get_webview_window("main") else { return };
+    if main.is_focused().unwrap_or(false) {
+        return;
+    }
+    let _ = main.request_user_attention(Some(tauri::UserAttentionType::Informational));
+    let body = if title.trim().is_empty() { "Saved to your library." } else { title };
+    let _ = app.notification().builder().title("Download finished").body(body).show();
+}
+
 fn emit_task(app_handle: &Arc<RwLock<Option<AppHandle>>>, tasks: &TaskMap, task_id: &str, event: &str) {
     if let Some(app) = app_handle.read().unwrap().as_ref() {
         if let Some(t) = tasks.read().unwrap().get(task_id) {
@@ -732,6 +745,7 @@ impl RunContext {
             (t.title.clone(), t.container.clone())
         };
 
+        let finished_title = title.clone();
         let size_bytes = std::fs::metadata(&outcome.file_path).map(|m| m.len()).unwrap_or(0);
         let item = LibraryItem {
             id: task_id.clone(),
@@ -759,6 +773,7 @@ impl RunContext {
             if library_result.is_ok() {
                 let _ = app.emit("library-changed", ());
             }
+            announce_finished(app, &finished_title);
         }
     }
 

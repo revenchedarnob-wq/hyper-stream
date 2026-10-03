@@ -1,83 +1,66 @@
-import { useState, useEffect, type CSSProperties, type FormEvent, type MouseEvent } from 'react'
+import { useState, useEffect, type CSSProperties, type DragEvent, type FormEvent, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { SpeedDialItem } from './types'
-import {
-  IconPlus,
-  IconX,
-  IconGlobe,
-  IconBookmark,
-} from './Icons'
+import { IconPlus, IconX, IconGlobe, IconBookmark } from './Icons'
 import { IconSearch } from '../stream-hub/Icons'
 import { playHapticClick, playHapticGlass, playHapticPop } from '@/lib/sound'
 import { DEFAULT_SPEED_DIAL_PRESETS, renderSpeedDialIcon } from './speed-dial-presets'
 import { resolveBrowserNavigation } from './url-utils'
+import {
+  detectSite,
+  hostOf,
+  setShortcuts,
+  getShortcuts,
+  tint,
+  useDebounced,
+  useShortcuts,
+  useSiteLogo,
+  withScheme,
+} from './shortcuts'
 import './browser.css'
 
-export function detectPreset(inputUrl: string): { title: string; iconKey: string; accentColor: string; category: SpeedDialItem['category'] } | null {
-  if (!inputUrl) return null
-  let host = ''
-  try {
-    const withProto = /^https?:\/\//i.test(inputUrl) ? inputUrl : `https://${inputUrl}`
-    host = new URL(withProto).hostname.toLowerCase().replace(/^www\./, '')
-  } catch {
-    host = inputUrl.toLowerCase().trim()
+/** The site's real logo when it has loaded, otherwise its brand mark or a globe. */
+function SiteIcon({ url, iconKey, accentColor, size }: { url: string; iconKey: string; accentColor?: string; size: number }) {
+  const logo = useSiteLogo(url)
+  const accent = logo?.accent ?? accentColor ?? 'var(--color-brand-primary, #6366f1)'
+  if (logo) {
+    return (
+      <span
+        className={`site-icon has-logo ${logo.fullBleed ? 'is-full-bleed' : 'is-mark'}`}
+        style={{ '--site-accent': accent } as CSSProperties}
+      >
+        <img src={logo.src} alt="" draggable={false} />
+      </span>
+    )
   }
-
-  const match = DEFAULT_SPEED_DIAL_PRESETS.find((p) => {
-    try {
-      const pHost = new URL(p.url).hostname.replace(/^www\./, '')
-      return host === pHost || host.endsWith(`.${pHost}`)
-    } catch {
-      return false
-    }
-  })
-  if (match) {
-    return {
-      title: match.title,
-      iconKey: match.iconKey,
-      accentColor: match.accentColor ?? 'var(--color-brand-primary, #6366f1)',
-      category: match.category,
-    }
-  }
-
-  if (host.includes('twitch')) return { title: 'Twitch', iconKey: 'twitch', accentColor: '#9146FF', category: 'streaming' }
-  if (host.includes('kick')) return { title: 'Kick', iconKey: 'kick', accentColor: '#53FC18', category: 'streaming' }
-  if (host.includes('vimeo')) return { title: 'Vimeo', iconKey: 'vimeo', accentColor: '#1AB7EA', category: 'video' }
-  if (host.includes('soundcloud')) return { title: 'SoundCloud', iconKey: 'soundcloud', accentColor: '#FF5500', category: 'music' }
-  if (host.includes('bilibili')) return { title: 'Bilibili', iconKey: 'bilibili', accentColor: '#00A1D6', category: 'video' }
-  if (host.includes('reddit')) return { title: 'Reddit', iconKey: 'reddit', accentColor: '#FF4500', category: 'social' }
-  if (host.includes('github')) return { title: 'GitHub', iconKey: 'github', accentColor: '#ffffff', category: 'custom' }
-  if (host.includes('spotify')) return { title: 'Spotify', iconKey: 'spotify', accentColor: '#1DB954', category: 'music' }
-  if (host.includes('tiktok')) return { title: 'TikTok', iconKey: 'tiktok', accentColor: '#00F2FE', category: 'social' }
-
-  if (host && host.includes('.')) {
-    const parts = host.split('.')
-    const domainName = parts[0]
-    if (domainName && domainName.length > 1) {
-      const pretty = domainName.charAt(0).toUpperCase() + domainName.slice(1)
-      return { title: pretty, iconKey: 'custom', accentColor: 'var(--color-brand-primary, #6366f1)', category: 'custom' }
-    }
-  }
-
-  return null
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
+  return (
+    <span
+      className="site-icon"
+      style={{ '--site-accent': accent, color: accent, background: tint(accent, 10), borderColor: tint(accent, 22) } as CSSProperties}
+    >
+      {renderSpeedDialIcon(iconKey, size)}
+    </span>
+  )
 }
 
 export interface SpeedDialTileProps {
   item: SpeedDialItem
   onSelect: (url: string) => void
   onRemove?: (id: string) => void
+  onContextMenu?: (item: SpeedDialItem, e: MouseEvent<HTMLElement>) => void
   isCustom?: boolean
+  /** Drag-to-reorder wiring from the grid. */
+  dragProps?: {
+    draggable: boolean
+    onDragStart: (e: DragEvent<HTMLDivElement>) => void
+    onDragOver: (e: DragEvent<HTMLDivElement>) => void
+    onDrop: (e: DragEvent<HTMLDivElement>) => void
+    onDragEnd: () => void
+  }
+  isDragging?: boolean
 }
 
-export function SpeedDialTile({ item, onSelect, onRemove, isCustom = false }: SpeedDialTileProps) {
+export function SpeedDialTile({ item, onSelect, onRemove, onContextMenu, isCustom = false, dragProps, isDragging }: SpeedDialTileProps) {
   const handleClick = () => {
     playHapticClick()
     onSelect(item.url)
@@ -89,26 +72,23 @@ export function SpeedDialTile({ item, onSelect, onRemove, isCustom = false }: Sp
     onRemove?.(item.id)
   }
 
-  const iconStyle = item.accentColor
-    ? {
-        color: item.accentColor,
-        background: `${item.accentColor}18`,
-        borderColor: `${item.accentColor}33`,
-      }
-    : undefined
-
   // The remove button sits beside the tile button (a button can't contain another button).
   return (
-    <div className="speed-dial-tile-wrap">
+    <div
+      className={`speed-dial-tile-wrap ${isDragging ? 'is-dragging' : ''}`}
+      role="listitem"
+      onContextMenu={onContextMenu ? (e) => onContextMenu(item, e) : undefined}
+      {...dragProps}
+    >
       <button
         type="button"
         className="speed-dial-tile"
         onClick={handleClick}
-        title={`${item.title} (${item.url})`}
+        title={`${item.title} (${item.url.replace(/^https?:\/\//, '')})`}
         data-testid={`speed-dial-tile-${item.id}`}
       >
-        <div className="speed-dial-tile-icon" style={iconStyle}>
-          {renderSpeedDialIcon(item.iconKey, 24)}
+        <div className="speed-dial-tile-icon">
+          <SiteIcon url={item.url} iconKey={item.iconKey} accentColor={item.accentColor} size={24} />
         </div>
 
         <div className="speed-dial-tile-info">
@@ -137,25 +117,24 @@ export interface SpeedDialProps {
   onSelectUrl: (url: string) => void
 }
 
-export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
-  const [customTiles, setCustomTiles] = useState<SpeedDialItem[]>(() => {
-    if (typeof window === 'undefined') return []
-    try {
-      const saved = localStorage.getItem('hyperstream_speed_dial_custom')
-      if (saved) {
-        return JSON.parse(saved)
-      }
-    } catch {
-      // Ignore storage access errors
-    }
-    return []
-  })
+interface MenuState {
+  item: SpeedDialItem
+  x: number
+  y: number
+}
 
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
+  const shortcuts = useShortcuts()
+
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  /** The shortcut being edited; null while adding a new one. */
+  const [editing, setEditing] = useState<SpeedDialItem | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [newUrl, setNewUrl] = useState('')
   const [userEditedTitle, setUserEditedTitle] = useState(false)
   const [query, setQuery] = useState('')
+  const [menu, setMenu] = useState<MenuState | null>(null)
+  const [dragId, setDragId] = useState<string | null>(null)
   const [suggestHidden, setSuggestHidden] = useState(() => {
     try {
       return localStorage.getItem('hyperstream_speed_dial_hide_suggest') === '1'
@@ -183,175 +162,167 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
   }
 
   useEffect(() => {
+    if (!isModalOpen && !menu) return
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && isAddModalOpen) {
-        setIsAddModalOpen(false)
-      }
+      if (e.key !== 'Escape') return
+      setMenu(null)
+      setIsModalOpen(false)
     }
-    if (isAddModalOpen) {
-      window.addEventListener('keydown', handleKeyDown)
-      return () => window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isAddModalOpen])
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isModalOpen, menu])
 
-  const saveCustomTiles = (tiles: SpeedDialItem[]) => {
-    setCustomTiles(tiles)
-    try {
-      localStorage.setItem('hyperstream_speed_dial_custom', JSON.stringify(tiles))
-    } catch {
-      // Ignore storage write errors
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('blur', close)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('blur', close)
+      window.removeEventListener('resize', close)
     }
-  }
+  }, [menu])
 
-  const handleOpenAddModal = () => {
+  const openModal = (item: SpeedDialItem | null) => {
     playHapticClick()
-    setNewTitle('')
-    setNewUrl('')
-    setUserEditedTitle(false)
-    setIsAddModalOpen(true)
+    setEditing(item)
+    setNewTitle(item?.title ?? '')
+    setNewUrl(item ? item.url.replace(/^https:\/\//, '') : '')
+    setUserEditedTitle(Boolean(item))
+    setIsModalOpen(true)
   }
 
-  const handleCloseAddModal = () => {
+  const closeModal = () => {
     playHapticPop()
-    setIsAddModalOpen(false)
-    setNewTitle('')
-    setNewUrl('')
-    setUserEditedTitle(false)
+    setIsModalOpen(false)
   }
 
   const handleUrlChange = (val: string) => {
     setNewUrl(val)
-    if (!userEditedTitle) {
-      const detected = detectPreset(val)
-      if (detected?.title) {
-        setNewTitle(detected.title)
-      }
-    }
+    if (!userEditedTitle) setNewTitle(detectSite(val)?.title ?? '')
   }
 
-  const handleSelectPresetSuggestion = (preset: SpeedDialItem) => {
+  const handlePickPreset = (preset: SpeedDialItem) => {
     playHapticClick()
-    setNewUrl(preset.url)
+    setNewUrl(preset.url.replace(/^https:\/\//, ''))
     setNewTitle(preset.title)
-    setUserEditedTitle(true)
+    setUserEditedTitle(false)
   }
 
-  const handleAddBookmark = (e: FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
-    const trimmedTitle = newTitle.trim()
-    let trimmedUrl = newUrl.trim()
-    if (!trimmedTitle || !trimmedUrl) return
+    const title = newTitle.trim()
+    const url = withScheme(newUrl)
+    if (!title || !newUrl.trim()) return
 
-    if (!/^https?:\/\//i.test(trimmedUrl)) {
-      trimmedUrl = `https://${trimmedUrl}`
-    }
-
-    const detected = detectPreset(trimmedUrl)
-    const newBookmark: SpeedDialItem = {
-      id: `custom-${Date.now()}`,
-      title: trimmedTitle,
-      url: trimmedUrl,
+    const detected = detectSite(url)
+    const saved: SpeedDialItem = {
+      id: editing?.id ?? `custom-${Date.now()}`,
+      title,
+      url,
       category: detected?.category ?? 'custom',
       iconKey: detected?.iconKey ?? 'custom',
-      accentColor: detected?.accentColor ?? 'var(--color-brand-primary, #6366f1)',
+      accentColor: detected?.accentColor,
     }
-
     playHapticGlass()
-    saveCustomTiles([...customTiles, newBookmark])
-    setNewTitle('')
-    setNewUrl('')
-    setUserEditedTitle(false)
-    setIsAddModalOpen(false)
+    const list = getShortcuts()
+    setShortcuts(editing ? list.map((s) => (s.id === editing.id ? saved : s)) : [...list, saved])
+    setIsModalOpen(false)
   }
 
   const handleQuickAdd = (preset: SpeedDialItem) => {
     playHapticGlass()
-    saveCustomTiles([...customTiles, { ...preset, id: `custom-${Date.now()}` }])
+    setShortcuts([...getShortcuts(), { ...preset, id: `custom-${Date.now()}` }])
   }
 
-  const addedHosts = new Set(customTiles.map((t) => hostOf(t.url)))
+  const handleRemove = (id: string) => {
+    setShortcuts(getShortcuts().filter((tile) => tile.id !== id))
+  }
+
+  const handleContextMenu = (item: SpeedDialItem, e: MouseEvent<HTMLElement>) => {
+    e.preventDefault()
+    // Keep the menu inside the window.
+    setMenu({ item, x: Math.min(e.clientX, window.innerWidth - 168), y: Math.min(e.clientY, window.innerHeight - 96) })
+  }
+
+  const dragPropsFor = (item: SpeedDialItem): SpeedDialTileProps['dragProps'] => ({
+    draggable: true,
+    onDragStart: (e) => {
+      setDragId(item.id)
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', item.url)
+    },
+    onDragOver: (e) => {
+      if (!dragId || dragId === item.id) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+    },
+    onDrop: (e) => {
+      e.preventDefault()
+      if (!dragId || dragId === item.id) return
+      const list = [...getShortcuts()]
+      const from = list.findIndex((s) => s.id === dragId)
+      const to = list.findIndex((s) => s.id === item.id)
+      if (from < 0 || to < 0) return
+      const [moved] = list.splice(from, 1)
+      list.splice(to, 0, moved)
+      playHapticClick()
+      setShortcuts(list)
+    },
+    onDragEnd: () => setDragId(null),
+  })
+
+  const addedHosts = new Set(shortcuts.map((t) => hostOf(t.url)))
   const suggestions = DEFAULT_SPEED_DIAL_PRESETS.filter((p) => !addedHosts.has(hostOf(p.url)))
 
-  const handleRemoveCustomTile = (id: string) => {
-    saveCustomTiles(customTiles.filter((tile) => tile.id !== id))
-  }
+  // Only look a logo up once the address has stopped changing.
+  const settledUrl = useDebounced(newUrl.trim(), 450)
+  const previewSite = detectSite(newUrl)
+  const previewLooksValid = /\.[a-z]{2,}/i.test(settledUrl)
 
-  const detectedPreview = detectPreset(newUrl)
-  const previewIconKey = detectedPreview?.iconKey ?? 'custom'
-  const previewColor = detectedPreview?.accentColor ?? 'var(--color-brand-primary, #6366f1)'
-
-  const modalElement = isAddModalOpen ? (
-    <div
-      className="speed-dial-modal-backdrop"
-      onClick={handleCloseAddModal}
-      role="presentation"
-    >
+  const modalElement = isModalOpen ? (
+    <div className="speed-dial-modal-backdrop" onClick={closeModal} role="presentation">
       <div
         className="speed-dial-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Add Bookmark"
+        aria-labelledby="speed-dial-modal-title"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="speed-dial-modal-header">
-          <div className="speed-dial-modal-heading-wrap">
-            <h2 className="speed-dial-modal-title">Add Shortcut</h2>
-            <span className="speed-dial-modal-pill-tag">Start page</span>
-          </div>
-          <button
-            type="button"
-            className="speed-dial-modal-close"
-            onClick={handleCloseAddModal}
-            aria-label="Close dialog"
-          >
+          <h2 id="speed-dial-modal-title" className="speed-dial-modal-title">
+            {editing ? 'Edit shortcut' : 'Add shortcut'}
+          </h2>
+          <button type="button" className="speed-dial-modal-close" onClick={closeModal} aria-label="Close dialog">
             <IconX size={14} />
           </button>
         </div>
 
-        {/* Live Interactive Preview Tile Stage (Horizontal Luxury Showcase) */}
-        <div
-          className="speed-dial-modal-preview-stage"
-          style={{ '--preview-glow': previewColor } as CSSProperties}
-        >
-          <div
-            className="speed-dial-preview-icon"
-            style={{
-              color: previewColor,
-              backgroundColor: `${previewColor}1f`,
-              borderColor: `${previewColor}45`,
-            }}
-          >
-            {renderSpeedDialIcon(previewIconKey, 24)}
-          </div>
-          <div className="speed-dial-preview-info">
-            <div className="speed-dial-preview-title-row">
-              <span className="speed-dial-preview-title">
-                {newTitle.trim() || detectedPreview?.title || (newUrl.trim() ? hostOf(newUrl) : 'New Shortcut')}
-              </span>
-              {detectedPreview?.title && !userEditedTitle && (
-                <span className="speed-dial-preview-badge">Auto-detected</span>
-              )}
-            </div>
-            <span className="speed-dial-preview-url">
-              {newUrl.trim() ? newUrl.trim().replace(/^https?:\/\//, '') : 'Enter an address below or pick a preset'}
-            </span>
-          </div>
-        </div>
-
-        <form onSubmit={handleAddBookmark} className="speed-dial-modal-form">
+        <form onSubmit={handleSubmit} className="speed-dial-modal-form">
           <div className="speed-dial-form-group">
             <label htmlFor="portal-url-input" className="speed-dial-form-label">
-              Web Address
+              Web address
             </label>
             <div className="speed-dial-input-box">
-              <span className="speed-dial-input-icon">
-                <IconGlobe size={16} />
+              <span className="speed-dial-input-icon is-site" aria-hidden="true">
+                {previewLooksValid ? (
+                  <SiteIcon
+                    url={settledUrl}
+                    iconKey={previewSite?.iconKey ?? 'custom'}
+                    accentColor={previewSite?.accentColor}
+                    size={14}
+                  />
+                ) : (
+                  <IconGlobe size={16} />
+                )}
               </span>
               <input
                 id="portal-url-input"
                 type="text"
                 className="speed-dial-form-input"
-                placeholder="e.g. twitch.tv or https://..."
+                placeholder="twitch.tv"
                 value={newUrl}
                 onChange={(e) => handleUrlChange(e.target.value)}
                 autoFocus
@@ -378,23 +349,18 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
           </div>
 
           <div className="speed-dial-form-group">
-            <div className="speed-dial-form-label-row">
-              <label htmlFor="portal-title-input" className="speed-dial-form-label">
-                Name
-              </label>
-              {!userEditedTitle && newTitle && (
-                <span className="speed-dial-auto-badge">Auto-filled</span>
-              )}
-            </div>
+            <label htmlFor="portal-title-input" className="speed-dial-form-label">
+              Name
+            </label>
             <div className="speed-dial-input-box">
-              <span className="speed-dial-input-icon">
+              <span className="speed-dial-input-icon" aria-hidden="true">
                 <IconBookmark size={16} />
               </span>
               <input
                 id="portal-title-input"
                 type="text"
                 className="speed-dial-form-input"
-                placeholder="e.g. Twitch"
+                placeholder="Twitch"
                 value={newTitle}
                 onChange={(e) => {
                   setNewTitle(e.target.value)
@@ -407,44 +373,40 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
             </div>
           </div>
 
-          {/* Popular Shortcuts Quick-Pick */}
-          <div className="speed-dial-modal-presets">
-            <span className="speed-dial-modal-presets-label">Popular</span>
-            <div className="speed-dial-modal-chips">
-              {DEFAULT_SPEED_DIAL_PRESETS.map((preset) => {
-                const isSelected = newUrl === preset.url || newUrl === preset.url.replace(/^https?:\/\//, '')
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className={`speed-dial-modal-chip ${isSelected ? 'is-selected' : ''}`}
-                    onClick={() => handleSelectPresetSuggestion(preset)}
-                  >
-                    <span style={{ color: preset.accentColor, display: 'inline-flex' }}>
-                      {renderSpeedDialIcon(preset.iconKey, 13)}
-                    </span>
-                    <span>{preset.title}</span>
-                  </button>
-                )
-              })}
+          {!editing && (
+            <div className="speed-dial-modal-presets">
+              <span className="speed-dial-modal-presets-label">Popular</span>
+              <div className="speed-dial-modal-chips">
+                {DEFAULT_SPEED_DIAL_PRESETS.map((preset) => {
+                  const isSelected = hostOf(newUrl) === hostOf(preset.url)
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`speed-dial-modal-chip ${isSelected ? 'is-selected' : ''}`}
+                      onClick={() => handlePickPreset(preset)}
+                    >
+                      <span style={{ color: preset.accentColor, display: 'inline-flex' }}>
+                        {renderSpeedDialIcon(preset.iconKey, 13)}
+                      </span>
+                      <span>{preset.title}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="speed-dial-modal-actions">
-            <button
-              type="button"
-              className="speed-dial-btn speed-dial-btn-cancel"
-              onClick={handleCloseAddModal}
-            >
+            <button type="button" className="speed-dial-btn speed-dial-btn-cancel" onClick={closeModal}>
               Cancel
             </button>
             <button
               type="submit"
               className="speed-dial-btn speed-dial-btn-submit"
               disabled={!newTitle.trim() || !newUrl.trim()}
-              aria-label="Add Bookmark"
             >
-              Add Shortcut
+              {editing ? 'Save' : 'Add'}
             </button>
           </div>
         </form>
@@ -452,13 +414,48 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
     </div>
   ) : null
 
+  const menuElement = menu ? (
+    <div
+      className="speed-dial-menu"
+      role="menu"
+      style={{ left: menu.x, top: menu.y }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        className="speed-dial-menu-item"
+        onClick={() => {
+          const item = menu.item
+          setMenu(null)
+          openModal(item)
+        }}
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className="speed-dial-menu-item is-danger"
+        onClick={() => {
+          playHapticPop()
+          handleRemove(menu.item.id)
+          setMenu(null)
+        }}
+      >
+        Remove
+      </button>
+    </div>
+  ) : null
+
+  const portal = (node: ReactNode) =>
+    node && (typeof document !== 'undefined' ? createPortal(node, document.body) : node)
+
   return (
     <section className="speed-dial-container" aria-label="Start page">
       <header className="speed-dial-header">
         <h1 className="speed-dial-title">Find something to download</h1>
-        <p className="speed-dial-subtitle">
-          Open a video page, then press Download.
-        </p>
+        <p className="speed-dial-subtitle">Open a video page, then press Download.</p>
       </header>
 
       <form className="speed-dial-search" role="search" onSubmit={handleSearch}>
@@ -475,32 +472,31 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
         />
       </form>
 
-      {/* Speed Dial Grid */}
       <div className="speed-dial-grid" role="list" aria-label="Sites">
-        {customTiles.map((custom) => (
+        {shortcuts.map((item) => (
           <SpeedDialTile
-            key={custom.id}
-            item={custom}
+            key={item.id}
+            item={item}
             onSelect={onSelectUrl}
-            onRemove={handleRemoveCustomTile}
+            onRemove={handleRemove}
+            onContextMenu={handleContextMenu}
+            dragProps={dragPropsFor(item)}
+            isDragging={dragId === item.id}
             isCustom
           />
         ))}
 
-        {/* Custom Tile Slot / Add Button */}
         <button
           type="button"
           className="speed-dial-add-tile"
-          onClick={handleOpenAddModal}
-          aria-label="Add bookmark"
+          onClick={() => openModal(null)}
+          aria-label="Add site"
           data-testid="speed-dial-add-button"
         >
           <div className="speed-dial-add-icon">
             <IconPlus size={22} />
           </div>
-          <span className="speed-dial-add-text">
-            {customTiles.length === 0 ? 'Add your first site' : 'Add site'}
-          </span>
+          <span className="speed-dial-add-text">{shortcuts.length === 0 ? 'Add your first site' : 'Add site'}</span>
         </button>
       </div>
 
@@ -534,8 +530,9 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
         </div>
       )}
 
-      {/* Render modal into document.body to cover the entire window uniformly */}
-      {modalElement && (typeof document !== 'undefined' ? createPortal(modalElement, document.body) : modalElement)}
+      {/* Portaled so the dim and the menu cover the whole window, not just the content pane. */}
+      {portal(modalElement)}
+      {portal(menuElement)}
     </section>
   )
 }

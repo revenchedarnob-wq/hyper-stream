@@ -25,7 +25,9 @@ import {
   retryDownload,
   revealInExplorer,
   setMaxConcurrent,
+  setTaskbarProgress,
   startDownload,
+  taskbarProgressFor,
   type LibraryItem,
   type NativeDownloadOptions,
   type NativeDownloadProgress,
@@ -225,6 +227,15 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed,
   const queuedCount = tasks.filter((t) => t.state === 'queued').length
   const recent = library.items.slice(0, 5)
 
+  // Mirror overall progress on the taskbar button; only whole-percent changes reach Windows.
+  const taskbar = taskbarProgressFor(tasks)
+  const taskbarKey = taskbar.status === 'none' ? 'none' : `${taskbar.status}:${Math.round(taskbar.percent)}`
+  const taskbarRef = useRef(taskbar)
+  taskbarRef.current = taskbar
+  useEffect(() => {
+    void setTaskbarProgress(taskbarRef.current)
+  }, [taskbarKey])
+
   const engineReady = !!engine.status?.all_ready
   const engineLabel = !engine.status
     ? isTauri() ? 'Checking…' : 'Desktop only'
@@ -250,12 +261,6 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed,
       <div className="stream-hub-content">
         <div className="stream-hub-header">
           <h1 className="stream-hub-title">Stream Hub</h1>
-          <div className="hub-status-pill">
-            <span className={`hub-status-dot ${activeCount > 0 ? 'is-active' : ''}`} />
-            <span className="hub-status-throughput">
-              {activeCount > 0 ? `${activeCount} downloading · ${formatBytes(speed)}/s` : engineReady ? 'Engine Ready' : engineLabel}
-            </span>
-          </div>
         </div>
 
         {isTauri() && engine.status && !engineReady && (

@@ -121,9 +121,13 @@ impl BinaryManager {
     }
 
     pub fn get_status() -> EngineBinariesReport {
-        let ytdlp = Self::status_for("yt-dlp", "--version");
-        let ffmpeg = Self::status_for("ffmpeg", "-version");
-        let deno = Self::status_for("deno", "--version");
+        // Each check starts a program (yt-dlp takes ~1 s cold); run them side by side.
+        let (ytdlp, ffmpeg, deno) = std::thread::scope(|scope| {
+            let ytdlp = scope.spawn(|| Self::status_for("yt-dlp", "--version"));
+            let ffmpeg = scope.spawn(|| Self::status_for("ffmpeg", "-version"));
+            let deno = Self::status_for("deno", "--version");
+            (ytdlp.join().unwrap(), ffmpeg.join().unwrap(), deno)
+        });
         let all_ready = ytdlp.available && ffmpeg.available;
         EngineBinariesReport { ytdlp, ffmpeg, deno, all_ready }
     }

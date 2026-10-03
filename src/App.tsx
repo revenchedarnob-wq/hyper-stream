@@ -55,7 +55,20 @@ export default function App() {
   const [activeNav, setActiveNav] = useState('hub')
   const [browserHandoffUrl, setBrowserHandoffUrl] = useState('')
   const [browserRequest, setBrowserRequest] = useState<{ url: string; nonce: number } | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      return localStorage.getItem('hyperstream_sidebar_open') !== '0'
+    } catch {
+      return true
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('hyperstream_sidebar_open', sidebarOpen ? '1' : '0')
+    } catch {
+      // Storage unavailable: the sidebar just opens next time.
+    }
+  }, [sidebarOpen])
   const [isMaximized, setIsMaximized] = useState(false)
   const [isWindowFocused, setIsWindowFocused] = useState(true)
   const [wallpapersList, setWallpapersList] = useState<WallpaperOption[]>(() => getAllWallpapers())

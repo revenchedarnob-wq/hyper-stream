@@ -43,3 +43,24 @@ describe('Tauri Bridge Native Window & Move Listeners', () => {
     expect(downloads.length).toBe(0)
   })
 })
+
+describe('taskbarProgressFor', () => {
+  it('averages active downloads and ignores finished ones', async () => {
+    const { taskbarProgressFor } = await import('./tauri-bridge')
+    expect(taskbarProgressFor([])).toEqual({ status: 'none' })
+    expect(taskbarProgressFor([{ state: 'completed', progress_percent: 100 }])).toEqual({ status: 'none' })
+    expect(
+      taskbarProgressFor([
+        { state: 'downloading', progress_percent: 40 },
+        { state: 'remuxing', progress_percent: 0 },
+        { state: 'failed', progress_percent: 10 },
+      ]),
+    ).toEqual({ status: 'normal', percent: 70 })
+  })
+
+  it('shows paused and waiting states', async () => {
+    const { taskbarProgressFor } = await import('./tauri-bridge')
+    expect(taskbarProgressFor([{ state: 'paused', progress_percent: 30 }])).toEqual({ status: 'paused', percent: 30 })
+    expect(taskbarProgressFor([{ state: 'queued', progress_percent: 0 }])).toEqual({ status: 'indeterminate', percent: 0 })
+  })
+})

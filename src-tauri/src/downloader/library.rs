@@ -171,6 +171,9 @@ pub fn open_with_default_app(path: &str) -> Result<(), String> {
     if !Path::new(path).exists() {
         return Err("The file was moved or deleted.".to_string());
     }
+    if !is_openable_media(path) {
+        return Err("HyperStream only opens downloaded media files.".to_string());
+    }
     let verb = wide("open");
     let file = wide(path);
     let result = unsafe {
@@ -189,9 +192,32 @@ pub fn open_with_default_app(path: &str) -> Result<(), String> {
     std::process::Command::new("xdg-open").arg(path).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// "Open" hands the file to Windows, which would also run programs and scripts. Only media,
+/// subtitles and images (what yt-dlp produces) are passed on.
+pub fn is_openable_media(path: &str) -> bool {
+    const ALLOWED: &[&str] = &[
+        "mp4", "m4v", "mkv", "webm", "mov", "avi", "flv", "ts", "3gp", "wmv", "mpg", "mpeg",
+        "m4a", "mp3", "aac", "opus", "ogg", "oga", "flac", "wav", "alac", "wma",
+        "srt", "vtt", "ass", "ssa", "lrc", "jpg", "jpeg", "png", "webp", "gif",
+    ];
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ALLOWED.iter().any(|a| a.eq_ignore_ascii_case(e)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opens_media_but_never_programs() {
+        assert!(is_openable_media("C:/Videos/clip.MP4"));
+        assert!(is_openable_media("song.opus"));
+        assert!(!is_openable_media("C:/Users/x/evil.exe"));
+        assert!(!is_openable_media("run.bat"));
+        assert!(!is_openable_media("noext"));
+    }
 
     #[test]
     fn roundtrip_and_missing_detection() {

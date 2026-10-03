@@ -6,6 +6,7 @@ mod native;
 mod package;
 #[cfg(debug_assertions)]
 pub mod selftest;
+pub mod site_icon;
 mod shields;
 
 use std::path::{Path, PathBuf};

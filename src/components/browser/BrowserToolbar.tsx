@@ -10,6 +10,7 @@ import {
   IconX,
   IconShieldCheck,
   IconPuzzlePiece,
+  IconStar,
 } from './Icons'
 import { StreamDetectorPill } from './StreamDetectorPill'
 import { ExtensionStorePill } from './ExtensionStorePill'
@@ -138,6 +139,10 @@ export interface BrowserToolbarProps {
   onShieldsPanelChange?: (open: boolean) => void
   /** Increments to move focus to the address bar (Ctrl+L inside the page). */
   focusAddressNonce?: number
+  /** The current page is on the start page (filled star). */
+  isSaved?: boolean
+  /** Star / Ctrl+D: save or remove the current page as a start-page shortcut. */
+  onToggleSaved?: () => void
   /** Unified header: Brand and sidebar toggle slot on the left. */
   sidebarArea?: React.ReactNode
   /** Unified header: Windows 11 window controls on the right. */
@@ -171,6 +176,8 @@ export function BrowserToolbar({
   onOpenExtensions,
   onShieldsPanelChange,
   focusAddressNonce = 0,
+  isSaved = false,
+  onToggleSaved,
   sidebarArea,
   windowControls,
   onTopBarPointerDown,
@@ -305,6 +312,23 @@ export function BrowserToolbar({
             data-testid="browser-omnibar-clear"
           >
             <IconX size={12} />
+          </button>
+        )}
+
+        {onToggleSaved && /^https?:\/\//i.test(currentUrl) && (
+          <button
+            type="button"
+            className={`browser-omnibar-star ${isSaved ? 'is-saved' : ''}`}
+            onClick={() => {
+              playHapticClick()
+              onToggleSaved()
+            }}
+            aria-label={isSaved ? 'Remove from start page' : 'Add to start page'}
+            aria-pressed={isSaved}
+            title={isSaved ? 'Remove from start page (Ctrl+D)' : 'Add to start page (Ctrl+D)'}
+            data-testid="browser-omnibar-star"
+          >
+            <IconStar size={15} filled={isSaved} />
           </button>
         )}
       </form>

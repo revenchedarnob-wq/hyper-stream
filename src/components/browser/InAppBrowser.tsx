@@ -17,6 +17,8 @@ import { ExtensionStoreModal } from './ExtensionStoreModal'
 import { IconLock } from './Icons'
 import { detectStreamFromUrl, extensionStoreListing, resolveWebEmbedUrl, siteKey } from './url-utils'
 import { BLANK, useBrowserNavigation } from './use-browser-navigation'
+import { detectSite, findShortcut, getShortcuts, setShortcuts, shortcutTitle, useShortcuts } from './shortcuts'
+import { playHapticGlass } from '@/lib/sound'
 import './browser.css'
 
 export interface InAppBrowserProps {
@@ -92,6 +94,33 @@ export function InAppBrowser({
   const nav = useBrowserNavigation(initialUrl, getBounds)
   const { currentUrl } = nav
   const isHome = currentUrl === BLANK
+
+  // Star / Ctrl+D: keep the current page on the start page.
+  useShortcuts() // re-render when shortcuts change anywhere
+  const isSaved = !isHome && Boolean(findShortcut(currentUrl))
+  const toggleSaved = () => {
+    if (!/^https?:\/\//i.test(currentUrl)) return
+    const existing = findShortcut(currentUrl)
+    if (existing) {
+      setShortcuts(getShortcuts().filter((s) => s.id !== existing.id))
+      return
+    }
+    const site = detectSite(currentUrl)
+    playHapticGlass()
+    setShortcuts([
+      ...getShortcuts(),
+      {
+        id: `custom-${Date.now()}`,
+        title: shortcutTitle(currentUrl, nav.title),
+        url: currentUrl,
+        category: site?.category ?? 'custom',
+        iconKey: site?.iconKey ?? 'custom',
+        accentColor: site?.accentColor,
+      },
+    ])
+  }
+  const toggleSavedRef = useRef(toggleSaved)
+  toggleSavedRef.current = toggleSaved
 
   const settings = useSettings()
   const site = siteKey(currentUrl)
@@ -224,7 +253,11 @@ export function InAppBrowser({
           else unlisteners.push(fn)
         })
         .catch(() => {})
-    keep(listen('browser-shortcut', () => setFocusAddressNonce((n) => n + 1)))
+    keep(
+      listen<string>('browser-shortcut', (e) =>
+        e.payload === 'bookmark' ? toggleSavedRef.current() : setFocusAddressNonce((n) => n + 1),
+      ),
+    )
     keep(listen<string>('browser-download-request', (e) => e.payload && onOpenInHubRef.current(e.payload)))
     return () => {
       disposed = true
@@ -244,6 +277,9 @@ export function InAppBrowser({
       if ((e.ctrlKey && key === 'l') || (e.altKey && key === 'd') || e.key === 'F6') {
         e.preventDefault()
         setFocusAddressNonce((n) => n + 1)
+      } else if (e.ctrlKey && !e.altKey && key === 'd') {
+        e.preventDefault()
+        toggleSavedRef.current()
       } else if (e.key === 'F5' || (e.ctrlKey && key === 'r')) {
         e.preventDefault()
         if (!navRef.current.isLoading) navRef.current.reloadOrStop()
@@ -303,6 +339,8 @@ export function InAppBrowser({
         onOpenInHub={onOpenInHub}
         onDismissStream={() => setDismissedStreamUrl(currentUrl)}
         focusAddressNonce={focusAddressNonce}
+        isSaved={isSaved}
+        onToggleSaved={toggleSaved}
         sidebarArea={sidebarArea}
         windowControls={windowControls}
         onTopBarPointerDown={onTopBarPointerDown}
