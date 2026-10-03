@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import {
   errorMessage,
   extensionPageUrl,
@@ -223,7 +224,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
     onOpenPage?.(url)
   }
 
-  return (
+  const modalNode = (
     <div className="extension-store-overlay" data-testid="extension-store-overlay">
       <div className="extension-store-modal" ref={modalRef} role="dialog" aria-label="Browser extensions">
         <header className="extension-store-header">
@@ -447,4 +448,6 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
       </div>
     </div>
   )
+
+  return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode
 }

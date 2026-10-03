@@ -3,10 +3,10 @@
 .extension-store-overlay {
   position: fixed;
   inset: 0;
-  z-index: 60;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  z-index: 99999;
+  background: rgba(7, 9, 15, 0.70);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -29,11 +29,14 @@
   height: min(640px, 85vh);
   display: flex;
   flex-direction: column;
-  background: var(--surface-level-1, #12141a);
-  border: 1px solid var(--border-normal, rgba(255, 255, 255, 0.12));
-  border-top: 1.5px solid var(--border-specular-top, rgba(255, 255, 255, 0.22));
+  background: rgba(18, 22, 34, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.45);
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--radius-xl, 20px);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 1px rgba(255, 255, 255, 0.2);
+  box-shadow: 0 28px 70px -10px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.20);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
   overflow: hidden;
   animation: ext-pop-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -611,4 +614,117 @@
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.3);
   color: #fbbf24;
+}
+
+/* Light Theme Overrides */
+[data-wallpaper-theme="light"] .extension-store-overlay {
+  background: rgba(240, 242, 248, 0.65);
+}
+
+[data-wallpaper-theme="light"] .extension-store-modal {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 28px 70px -10px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  color: #1e293b;
+}
+
+[data-wallpaper-theme="light"] .extension-store-header {
+  background: rgba(248, 250, 252, 0.95);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+[data-wallpaper-theme="light"] .extension-store-title {
+  color: #0f172a;
+}
+
+[data-wallpaper-theme="light"] .extension-load-unpacked-btn {
+  background: rgba(241, 245, 249, 0.9);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #334155;
+}
+
+[data-wallpaper-theme="light"] .extension-load-unpacked-btn:hover {
+  background: rgba(226, 232, 240, 0.9);
+  color: var(--color-brand-primary, #6366f1);
+}
+
+[data-wallpaper-theme="light"] .extension-store-close-btn {
+  color: #64748b;
+}
+
+[data-wallpaper-theme="light"] .extension-store-close-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+}
+
+[data-wallpaper-theme="light"] .extension-store-controls {
+  background: rgba(241, 245, 249, 0.8);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+[data-wallpaper-theme="light"] .extension-tab-btn {
+  color: #64748b;
+}
+
+[data-wallpaper-theme="light"] .extension-tab-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #0f172a;
+}
+
+[data-wallpaper-theme="light"] .extension-tab-btn.is-active {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+[data-wallpaper-theme="light"] .extension-search-input {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #0f172a;
+}
+
+[data-wallpaper-theme="light"] .extension-card {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+[data-wallpaper-theme="light"] .extension-card:hover {
+  background: #ffffff;
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.08);
+}
+
+[data-wallpaper-theme="light"] .extension-name {
+  color: #0f172a;
+}
+
+[data-wallpaper-theme="light"] .extension-tagline {
+  color: #64748b;
+}
+
+[data-wallpaper-theme="light"] .extension-author {
+  color: #94a3b8;
+}
+
+[data-wallpaper-theme="light"] .extension-row {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-wallpaper-theme="light"] .extension-row:hover {
+  background: #ffffff;
+}
+
+[data-wallpaper-theme="light"] .extension-toggle-text {
+  color: #475569;
+}
+
+[data-wallpaper-theme="light"] .extension-store-footer {
+  background: rgba(248, 250, 252, 0.95);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  color: #64748b;
 }

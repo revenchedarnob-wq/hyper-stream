@@ -120,12 +120,12 @@
 .omnibar-card {
   position: relative;
   z-index: 50;
-  height: 46px;
+  height: 48px;
   background: var(--surface-level-3);
   border: 1px solid var(--border-subtle);
-  border-top: 1px solid var(--border-specular-top);
+  border-top: 1.5px solid var(--border-specular-top);
   border-left: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl, 16px);
   padding: 0 10px 0 16px;
   box-shadow:
     var(--shadow-inset-subtle),
@@ -153,7 +153,8 @@
   box-shadow:
     var(--shadow-inset-subtle),
     var(--shadow-card),
-    0 0 0 1px color-mix(in srgb, var(--color-brand-primary, #4f46e5) 24%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--color-brand-primary, #4f46e5) 35%, transparent),
+    0 12px 28px -4px color-mix(in srgb, var(--color-brand-primary, #4f46e5) 18%, transparent);
   transform: translateY(-1px);
 }
 
@@ -516,13 +517,15 @@
   width: 100%;
   background: var(--surface-level-3);
   border: 1px solid var(--border-subtle);
-  border-top: 1px solid var(--border-specular-top);
-  border-radius: var(--radius-md);
-  padding: 6px 18px;
+  border-top: 1.5px solid var(--border-specular-top);
+  border-radius: var(--radius-xl, 14px);
+  padding: 8px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  box-shadow: var(--shadow-card);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    var(--shadow-card);
   box-sizing: border-box;
 }
 
@@ -1008,11 +1011,11 @@
 
 .pipeline-progress-track {
   width: 100%;
-  height: 4px;
+  height: 6px;
   border-radius: 999px;
-  background: var(--surface-control, rgba(255, 255, 255, 0.30));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.45));
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+  background: var(--surface-control, rgba(255, 255, 255, 0.20));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.35));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
   overflow: hidden;
   position: relative;
 }
@@ -1021,7 +1024,7 @@
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #3b82f6 0%, #6366f1 100%);
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.45);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.50);
   position: relative;
   transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1), filter 240ms ease, opacity 240ms ease;
 }
@@ -2160,7 +2163,13 @@
 [data-wallpaper-theme="dark"] .app-title {
   color: #ffffff !important;
   font-weight: 650 !important;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65) !important;
+}
+
+[data-wallpaper-theme="dark"] .recent-icon-badge {
+  background: rgba(99, 102, 241, 0.16) !important;
+  border: 1px solid rgba(99, 102, 241, 0.32) !important;
+  border-top: 1px solid rgba(165, 180, 252, 0.50) !important;
+  color: #818cf8 !important;
 }
 
 [data-wallpaper-theme="dark"] .pipeline-meta-line,

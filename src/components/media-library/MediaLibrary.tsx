@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import './media-library.css'
 import { MediaGrid } from './MediaGrid'
 import { MediaList } from './MediaList'
@@ -305,42 +306,46 @@ export const MediaLibrary: React.FC = () => {
         )}
       </div>
 
-      {pendingDelete && (
-        <div className="library-dialog-backdrop" onClick={() => setPendingDelete(null)}>
-          <div
-            className="library-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="library-dialog-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="library-dialog-icon">
-              <IconTrash size={16} />
-            </div>
-            <h2 id="library-dialog-title" className="library-dialog-title">
-              Delete “{pendingDelete.title}”?
-            </h2>
-            <p className="library-dialog-text">
-              {pendingDelete.missing
-                ? 'The file is already gone. This removes it from your library.'
-                : 'Remove it from the library only, or also move the file to the Recycle Bin.'}
-            </p>
-            <div className="library-dialog-actions">
-              <button type="button" className="library-dialog-btn" onClick={() => setPendingDelete(null)} autoFocus>
-                Cancel
-              </button>
-              <button type="button" className="library-dialog-btn" onClick={() => confirmDelete(false)}>
-                Remove from library
-              </button>
-              {!pendingDelete.missing && (
-                <button type="button" className="library-dialog-btn is-danger" onClick={() => confirmDelete(true)}>
-                  Move to Recycle Bin
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {pendingDelete &&
+        (typeof document !== 'undefined'
+          ? createPortal(
+              <div className="library-dialog-backdrop" onClick={() => setPendingDelete(null)}>
+                <div
+                  className="library-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="library-dialog-title"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="library-dialog-icon">
+                    <IconTrash size={18} />
+                  </div>
+                  <h2 id="library-dialog-title" className="library-dialog-title">
+                    Delete “{pendingDelete.title}”?
+                  </h2>
+                  <p className="library-dialog-text">
+                    {pendingDelete.missing
+                      ? 'The file is already gone. This removes it from your library.'
+                      : 'Remove it from the library only, or also move the file to the Recycle Bin.'}
+                  </p>
+                  <div className="library-dialog-actions">
+                    <button type="button" className="library-dialog-btn" onClick={() => setPendingDelete(null)} autoFocus>
+                      Cancel
+                    </button>
+                    <button type="button" className="library-dialog-btn" onClick={() => confirmDelete(false)}>
+                      Remove from library
+                    </button>
+                    {!pendingDelete.missing && (
+                      <button type="button" className="library-dialog-btn is-danger" onClick={() => confirmDelete(true)}>
+                        Move to Recycle Bin
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )
+          : null)}
     </div>
   )
 }
