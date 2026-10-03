@@ -906,7 +906,9 @@
 }
 
 [data-wallpaper-theme="light"] .settings-section-title {
-  color: #334155 !important;
+  color: #1e293b !important;
+  font-weight: 700 !important;
+  opacity: 1 !important;
 }
 
 [data-wallpaper-theme="light"] .settings-card-group,
@@ -922,7 +924,7 @@
 }
 
 [data-wallpaper-theme="light"] .settings-row-desc {
-  color: #64748b !important;
+  color: #475569 !important;
 }
 
 [data-wallpaper-theme="light"] .tactile-toggle {

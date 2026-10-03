@@ -593,6 +593,9 @@ export default function App() {
   const activeIndex = Math.max(0, NAV_ITEMS.findIndex((item) => item.id === activeNav))
 
   const currentWallpaperObj = wallpapersList.find((w) => w.url === browserWallpaper) || SIMULATOR_WALLPAPERS[0]
+  const prevWallpaperObj = prevWallpaper ? wallpapersList.find((w) => w.url === prevWallpaper) : null
+  const frostedBgUrl = currentWallpaperObj?.frostedUrl || browserWallpaper
+  const prevFrostedBgUrl = prevWallpaperObj?.frostedUrl || prevWallpaper
 
   useEffect(() => {
     const theme = currentWallpaperObj?.theme || 'dark'
@@ -631,7 +634,7 @@ export default function App() {
           transform: !isNative && !isMaximized && (windowPos.x !== 0 || windowPos.y !== 0)
             ? `translate3d(${windowPos.x}px, ${windowPos.y}px, 0)`
             : undefined,
-          ['--potato-bg-url' as string]: `url("${browserWallpaper}")`,
+          ['--potato-bg-url' as string]: `url("${frostedBgUrl}")`,
           ...(!isNative ? {
             ['--bg-parallax-x' as string]: `${computeNormalizedParallax(windowPos.x, windowPos.y, true).parallaxX}px`,
             ['--bg-parallax-y' as string]: `${computeNormalizedParallax(windowPos.x, windowPos.y, true).parallaxY}px`,
@@ -642,11 +645,11 @@ export default function App() {
       >
         {/* Optical Glass Base Layer with Interactive Drag Parallax & Unified Blur */}
         <div className="window-backdrop-layer" aria-hidden="true">
-          {prevWallpaper && isTransitioningWallpaper && (
+          {prevFrostedBgUrl && isTransitioningWallpaper && (
             <div
               className="wallpaper-parallax-bg prev"
               style={{
-                backgroundImage: `url("${prevWallpaper}")`,
+                backgroundImage: `url("${prevFrostedBgUrl}")`,
               }}
               aria-hidden="true"
             />
@@ -655,7 +658,7 @@ export default function App() {
             key={browserWallpaper}
             className={`wallpaper-parallax-bg ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
             style={{
-              backgroundImage: `url("${browserWallpaper}")`,
+              backgroundImage: `url("${frostedBgUrl}")`,
             }}
             aria-hidden="true"
           />

@@ -284,11 +284,11 @@ body.is-browser-dragging * {
 }
 
 .window-container[data-wallpaper-theme="dark"] .window-glass-frosted-overlay {
-  background: rgba(10, 14, 25, 0.12);
+  background: rgba(10, 14, 25, 0.22);
 }
 
 .window-container[data-wallpaper-theme="light"] .window-glass-frosted-overlay {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .wallpaper-optical-frost {
@@ -357,6 +357,18 @@ body.is-browser-dragging * {
   box-shadow:
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.30),
     0 25px 60px -15px rgba(0, 0, 0, 0.25);
+}
+
+.window-container:not(.potato-mode)[data-wallpaper-theme="light"] .app-shell {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 35%, transparent 75%),
+    rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.98);
+  border-left: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow:
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.80),
+    0 25px 60px -15px rgba(15, 23, 42, 0.10);
 }
 
 /* Studio Glass Mode: Cross-fade to pre-baked frosted wallpaper when idle/unfocused instead of total flat gray */
@@ -1567,10 +1579,10 @@ body.is-browser-dragging * {
 
 .window-container[data-wallpaper-theme="light"] .nav-jelly-indicator,
 [data-wallpaper-theme="light"] .nav-jelly-indicator {
-  background: rgba(255, 255, 255, 0.32) !important;
-  border: 1px solid rgba(255, 255, 255, 0.48) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.75) !important;
-  box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.50) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  border: 1px solid rgba(255, 255, 255, 0.85) !important;
+  border-top: 1.5px solid #ffffff !important;
+  box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff !important;
 }
 
 .window-container[data-wallpaper-theme="light"] .nav-item,

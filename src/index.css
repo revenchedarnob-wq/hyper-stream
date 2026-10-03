@@ -358,6 +358,36 @@
   --color-text-inverse: #090d16;
 }
 
+/* Universal light environment variables (Ghibli Meadow, Silk Loop, Amber Flow, etc.) */
+.window-container[data-wallpaper-theme="light"],
+[data-wallpaper-theme="light"] {
+  --surface-level-1: rgba(255, 255, 255, 0.35);
+  --surface-level-2: rgba(255, 255, 255, 0.45);
+  --surface-level-3: rgba(255, 255, 255, 0.72);
+  --surface-level-3-hover: rgba(255, 255, 255, 0.88);
+  --surface-level-3-active: rgba(255, 255, 255, 0.95);
+  --surface-control: rgba(0, 0, 0, 0.05);
+  --surface-control-hover: rgba(0, 0, 0, 0.09);
+  --surface-control-active: rgba(0, 0, 0, 0.14);
+  --surface-overlay: rgba(255, 255, 255, 0.97);
+  --surface-badge: rgba(0, 0, 0, 0.05);
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-normal: rgba(0, 0, 0, 0.14);
+  --border-elevated: rgba(0, 0, 0, 0.18);
+  --border-specular-top: rgba(255, 255, 255, 0.95);
+
+  --shadow-card: 0 8px 24px -4px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-elevated: 0 20px 48px -8px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-inset-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-tertiary: #475569;
+  --color-text-disabled: #64748b;
+  --color-text-inverse: #ffffff;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
