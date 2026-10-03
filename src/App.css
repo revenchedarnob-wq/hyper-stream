@@ -238,25 +238,11 @@ body.is-browser-dragging * {
   width: 100vw;
   height: 100vh;
   border-radius: 0px !important;
-  clip-path: none !important;
   box-shadow: none;
-}
-
-body.is-tauri .window-container:not(.is-maximized),
-html.is-tauri .window-container:not(.is-maximized),
-body:not(.is-browser-environment) .window-container:not(.is-maximized) {
-  clip-path: inset(0 round var(--radius-window, 24px));
-}
-
-body.is-tauri .window-container.is-maximized,
-html.is-tauri .window-container.is-maximized,
-body:not(.is-browser-environment) .window-container.is-maximized {
-  clip-path: none;
 }
 
 .window-container.is-maximized .app-shell {
   border-radius: 0;
-  clip-path: none;
   border: none;
   box-shadow: none;
   padding: 6px 14px 14px 14px;
@@ -266,7 +252,6 @@ body:not(.is-browser-environment) .window-container.is-maximized {
   position: absolute;
   inset: 0;
   border-radius: var(--radius-window, 24px);
-  clip-path: inset(0 round var(--radius-window, 24px));
   pointer-events: none;
   z-index: 0;
   overflow: hidden;
@@ -277,7 +262,6 @@ body:not(.is-browser-environment) .window-container.is-maximized {
 
 .window-container.is-maximized .window-backdrop-layer {
   border-radius: 0;
-  clip-path: none;
 }
 
 .wallpaper-parallax-bg {
@@ -382,7 +366,7 @@ body:not(.is-browser-environment) .window-container.is-maximized {
     linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 65%),
     rgba(15, 20, 32, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-top: 1.5px solid rgba(255, 255, 255, 0.38);
+  border-top: 1px solid rgba(255, 255, 255, 0.38);
   border-left: 1px solid rgba(255, 255, 255, 0.22);
   box-shadow:
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.30),
@@ -394,7 +378,7 @@ body:not(.is-browser-environment) .window-container.is-maximized {
     linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.03) 35%, transparent 75%),
     rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.50);
-  border-top: 1.5px solid rgba(255, 255, 255, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.95);
   border-left: 1px solid rgba(255, 255, 255, 0.65);
   box-shadow:
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.75),
@@ -454,7 +438,7 @@ body:not(.is-browser-environment) .window-container.is-maximized {
     linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 70%),
     rgba(15, 20, 32, 0.04) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-top: 1.5px solid var(--border-specular-top) !important;
+  border-top: 1px solid var(--border-specular-top) !important;
   border-left: 1px solid rgba(255, 255, 255, 0.35) !important;
   box-shadow:
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.35),
@@ -470,7 +454,7 @@ body:not(.is-browser-environment) .window-container.is-maximized {
     linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 35%, transparent 75%),
     rgba(255, 255, 255, 0.02) !important;
   border: 1px solid rgba(255, 255, 255, 0.45) !important;
-  border-top: 1.5px solid rgba(255, 255, 255, 0.75) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.75) !important;
   border-left: 1px solid rgba(255, 255, 255, 0.55) !important;
   box-shadow:
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.60),
@@ -483,7 +467,7 @@ body:not(.is-browser-environment) .window-container.is-maximized {
     linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 65%),
     rgba(15, 20, 32, 0.06) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-top: 1.5px solid var(--border-specular-top) !important;
+  border-top: 1px solid var(--border-specular-top) !important;
   border-left: 1px solid rgba(255, 255, 255, 0.30) !important;
   box-shadow:
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.35),
@@ -1001,7 +985,6 @@ body:not(.is-browser-environment) .window-container.is-maximized {
     inset 0 1px 1px 0 var(--border-specular-top),
     0 25px 60px -15px var(--env-shadow-ambient, rgba(10, 15, 30, 0.30));
   border-radius: var(--radius-window, 24px);
-  clip-path: inset(0 round var(--radius-window, 24px));
   overflow: hidden;
   isolation: isolate;
   display: grid;
