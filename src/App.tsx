@@ -604,26 +604,28 @@ export default function App() {
 
   return (
     <div className="hyperstream-root-wrapper">
-      {/* Explicit DOM-level Desktop Wallpaper — Crisp 2K master across all environments */}
-      <div className="hyperstream-wallpaper-container" aria-hidden="true">
-        {prevWallpaper && isTransitioningWallpaper && (
+      {/* Desktop wallpaper simulation backdrop — strictly for browser preview */}
+      {!isNative && (
+        <div className="hyperstream-wallpaper-container" aria-hidden="true">
+          {prevWallpaper && isTransitioningWallpaper && (
+            <div
+              className="hyperstream-wallpaper-backdrop prev"
+              style={{
+                backgroundImage: `url("${prevWallpaper}")`,
+              }}
+              aria-hidden="true"
+            />
+          )}
           <div
-            className="hyperstream-wallpaper-backdrop prev"
+            key={browserWallpaper}
+            className={`hyperstream-wallpaper-backdrop ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
             style={{
-              backgroundImage: `url("${prevWallpaper}")`,
+              backgroundImage: `url("${browserWallpaper}")`,
             }}
             aria-hidden="true"
           />
-        )}
-        <div
-          key={browserWallpaper}
-          className={`hyperstream-wallpaper-backdrop ${isTransitioningWallpaper ? 'wallpaper-fade-enter' : ''}`}
-          style={{
-            backgroundImage: `url("${browserWallpaper}")`,
-          }}
-          aria-hidden="true"
-        />
-      </div>
+        </div>
+      )}
 
       <div
         ref={windowContainerRef}

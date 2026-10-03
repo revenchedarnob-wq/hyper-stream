@@ -1224,6 +1224,10 @@
   overflow: hidden;
 }
 
+[data-wallpaper-theme="light"] .in-app-browser {
+  background: transparent;
+}
+
 .browser-toolbar {
   position: relative;
   display: flex;
@@ -1862,11 +1866,18 @@
 }
 
 [data-wallpaper-theme="light"] .speed-dial-search {
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(0, 0, 0, 0.10);
-  border-top-color: #ffffff;
-  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.50);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(24px) saturate(125%);
+  -webkit-backdrop-filter: blur(24px) saturate(125%);
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.80);
   color: #64748b;
+}
+
+[data-wallpaper-theme="light"] .speed-dial-search:hover {
+  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.65);
 }
 
 .speed-dial-search-icon {
@@ -1984,10 +1995,18 @@
 }
 
 [data-wallpaper-theme="light"] .speed-dial-tile-wrap .speed-dial-tile-icon {
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(0, 0, 0, 0.08);
-  border-top-color: #ffffff;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.40);
+  backdrop-filter: blur(20px) saturate(125%);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
+  border: 1px solid rgba(255, 255, 255, 0.50);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.80);
+}
+
+[data-wallpaper-theme="light"] .speed-dial-tile:hover .speed-dial-tile-icon {
+  background: rgba(255, 255, 255, 0.65);
+  border-color: rgba(255, 255, 255, 0.70);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
 .speed-dial-tile-wrap .speed-dial-tile-info {
@@ -2050,15 +2069,18 @@
 }
 
 [data-wallpaper-theme="light"] .speed-dial-add-icon {
-  background: rgba(0, 0, 0, 0.02);
-  border-color: rgba(0, 0, 0, 0.15);
-  color: #64748b;
+  background: rgba(255, 255, 255, 0.25);
+  border: 1.5px dashed rgba(0, 0, 0, 0.18);
+  color: #475569;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 [data-wallpaper-theme="light"] .speed-dial-add-tile:hover .speed-dial-add-icon {
-  border-color: rgba(0, 0, 0, 0.35);
-  background: rgba(0, 0, 0, 0.05);
-  color: #0f172a;
+  border-color: rgba(99, 102, 241, 0.50);
+  border-style: solid;
+  background: rgba(255, 255, 255, 0.50);
+  color: var(--color-brand-primary);
 }
 
 .speed-dial-add-tile {
@@ -2184,17 +2206,19 @@
 }
 
 [data-wallpaper-theme="light"] .speed-dial-chip {
-  background: rgba(255, 255, 255, 0.75);
-  border-color: rgba(0, 0, 0, 0.08);
-  border-top-color: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.40);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.50);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.90);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.70);
   color: #1e293b;
   font-weight: 500;
 }
 
 [data-wallpaper-theme="light"] .speed-dial-chip:hover {
   color: #0f172a;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.75);
   border-color: rgba(99, 102, 241, 0.35);
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
 }
