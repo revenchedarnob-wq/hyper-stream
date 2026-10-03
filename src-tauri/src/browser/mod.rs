@@ -101,10 +101,16 @@ static VISIBILITY_GEN: AtomicU64 = AtomicU64::new(0);
 /// How long a hidden page stays live before it's suspended (quick tab switches stay instant).
 const SLEEP_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
 /// After this long away, the browser is shut down completely (its processes and memory are freed).
-/// The page comes back when the Browser tab is opened again.
+/// The page comes back when the Browser tab is opened again. PCs with 4 GB of RAM or less get the
+/// memory back after a minute; elsewhere five minutes keeps quick returns instant.
 fn unload_after() -> std::time::Duration {
-    let secs = std::env::var("HYPERSTREAM_BROWSER_UNLOAD_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(300);
+    let default = if is_low_memory_pc() { 60 } else { 300 };
+    let secs = std::env::var("HYPERSTREAM_BROWSER_UNLOAD_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(default);
     std::time::Duration::from_secs(secs)
+}
+
+fn is_low_memory_pc() -> bool {
+    total_ram_gb().is_some_and(|gb| gb <= 4.5)
 }
 /// The page that was open when the browser was unloaded.
 static PARKED_URL: Mutex<Option<tauri::Url>> = Mutex::new(None);
@@ -191,7 +197,7 @@ fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> 
 /// caps page processes, and turns on Chromium's low-memory mode on PCs with 4 GB of RAM or less.
 fn browser_args() -> String {
     let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --renderer-process-limit=4");
-    if total_ram_gb().is_some_and(|gb| gb <= 4.5) {
+    if is_low_memory_pc() {
         args.push_str(" --enable-low-end-device-mode");
     }
     args

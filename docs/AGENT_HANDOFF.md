@@ -117,3 +117,7 @@ Over recent iterations, the HyperStream application underwent major visual, arch
 * **Site logos:** `site_icon` command (`src-tauri/src/browser/site_icon.rs`) fetches from the site itself (never a third-party favicon service), caches in `%LOCALAPPDATA%\com.hyperstream.desktop\site-icons`. The built-in browser also saves each visited site's favicon there (`native.rs`, FaviconChanged).
 * **Colours:** use `tint(color, pct)` (color-mix) — never append hex alpha to a colour string.
 * **Taskbar & notifications:** taskbar progress from `StreamHub` via `setTaskbarProgress`; "Download finished" notification + taskbar flash from `orchestrator.rs` only when the window is not focused. Window size/position/maximized persisted by `tauri-plugin-window-state`; sidebar state in `hyperstream_sidebar_open`.
+* **Shutdown:** never call `app.exit` directly from UI paths — use `shut_down()` in `lib.rs` (hides windows, closes WebView2 engines, waits ≤3 s so localStorage/cookies are written). `RunEvent::ExitRequested` routes through it.
+* **Engine downloads:** every download passes `download_to_file(url, sums_url, …)`, which refuses files whose SHA-256 doesn't match the published list. Versions are cached in `bin/versions.json` keyed by file size + mtime.
+* **Fonts:** bundled via `@fontsource-variable/*` (imported in `main.tsx`). CSP no longer allows Google Fonts; don't add remote font/style links.
+* **Opening files:** `open_media_file` only accepts media/subtitle/image extensions (`library::is_openable_media`).

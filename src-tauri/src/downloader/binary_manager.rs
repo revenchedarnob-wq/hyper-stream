@@ -18,6 +18,11 @@ const FFMPEG_ZIP_URL: &str =
     "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
 /// JavaScript runtime yt-dlp uses for YouTube; without it some formats (and audio tracks) go missing.
 const DENO_ZIP_URL: &str = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip";
+/// SHA-256 lists published next to each download; installs are refused when the file doesn't match.
+const YTDLP_SUMS_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
+const FFMPEG_SUMS_URL: &str = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/checksums.sha256";
+const DENO_SUMS_URL: &str =
+    "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip.sha256sum";
 /// Sites change constantly; a managed yt-dlp older than this is refreshed in the background.
 const YTDLP_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -44,6 +49,19 @@ pub struct EngineBinariesReport {
 pub type InstallProgress<'a> = &'a (dyn Fn(&str, u64, Option<u64>) + Send + Sync);
 
 pub struct BinaryManager;
+
+/// Size and modified time of a program file; its version is re-read only when these change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct FileStamp {
+    size: u64,
+    modified_ns: u64,
+}
+
+type VersionCache = std::collections::HashMap<String, (FileStamp, String)>;
+
+/// Versions of engine programs, persisted in `bin/versions.json`. Asking yt-dlp for its version
+/// takes ~1.4 s (it unpacks itself), which used to delay every launch.
+static VERSION_CACHE: std::sync::Mutex<Option<VersionCache>> = std::sync::Mutex::new(None);
 
 impl BinaryManager {
     pub fn get_bin_dir() -> PathBuf {
@@ -85,6 +103,39 @@ impl BinaryManager {
         path.is_file().then_some(path)
     }
 
+    fn file_stamp(path: &Path) -> Option<FileStamp> {
+        let meta = std::fs::metadata(path).ok()?;
+        let modified_ns = meta.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_nanos() as u64;
+        Some(FileStamp { size: meta.len(), modified_ns })
+    }
+
+    /// `get_version`, remembered until the program file changes (update, reinstall, new PATH copy).
+    fn cached_version(path: &Path, version_flag: &str) -> Option<String> {
+        let stamp = Self::file_stamp(path)?;
+        let key = path.to_string_lossy().to_lowercase();
+        let file = Self::get_bin_dir().join("versions.json");
+        let load = || -> VersionCache {
+            std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        };
+        if let Ok(mut cache) = VERSION_CACHE.lock() {
+            if let Some((known, version)) = cache.get_or_insert_with(load).get(&key) {
+                if *known == stamp {
+                    return Some(version.clone());
+                }
+            }
+        }
+        // Only working programs are remembered; a broken one is asked again next time.
+        let version = Self::get_version(path, version_flag)?;
+        if let Ok(mut cache) = VERSION_CACHE.lock() {
+            let cache = cache.get_or_insert_with(load);
+            cache.insert(key, (stamp, version.clone()));
+            if let Ok(bytes) = serde_json::to_vec(cache) {
+                let _ = std::fs::write(&file, bytes);
+            }
+        }
+        Some(version)
+    }
+
     pub fn get_version(path: &Path, version_flag: &str) -> Option<String> {
         let mut cmd = Command::new(path);
         cmd.arg(version_flag);
@@ -109,7 +160,7 @@ impl BinaryManager {
     fn status_for(name: &str, version_flag: &str) -> BinaryStatus {
         let bin_dir = Self::get_bin_dir();
         let path = Self::find_binary(name);
-        let version = path.as_deref().and_then(|p| Self::get_version(p, version_flag));
+        let version = path.as_deref().and_then(|p| Self::cached_version(p, version_flag));
         BinaryStatus {
             name: name.to_string(),
             managed: path.as_ref().map(|p| p.starts_with(&bin_dir)).unwrap_or(false),
@@ -164,18 +215,56 @@ impl BinaryManager {
         }
     }
 
-    /// Streams `url` into `dest` atomically (temp file + rename), reporting progress.
+    /// Expected SHA-256 for `file_name` from a published checksum list. Handles the
+    /// "<hash>  <name>" lists and Deno's single-hash format.
+    pub(crate) fn expected_sha256(sums: &str, file_name: &str) -> Option<String> {
+        let hash_in = |line: &str| {
+            line.split(|c: char| !c.is_ascii_hexdigit())
+                .find(|w| w.len() == 64)
+                .map(|w| w.to_ascii_lowercase())
+        };
+        let named = sums.lines().find(|l| {
+            l.split_whitespace().any(|w| w.trim_start_matches('*') == file_name)
+        });
+        if let Some(line) = named {
+            return hash_in(line);
+        }
+        let all: Vec<String> = sums.lines().filter_map(hash_in).collect();
+        (all.len() == 1).then(|| all[0].clone())
+    }
+
+    async fn fetch_expected_sha256(client: &reqwest::Client, sums_url: &str, file_name: &str, component: &str) -> Result<String, String> {
+        let unavailable = || format!("Couldn't check the {component} download (no checksum available). Try again later.");
+        let response = client
+            .get(sums_url)
+            .header("User-Agent", "HyperStream/1.0")
+            .send()
+            .await
+            .map_err(|_| unavailable())?;
+        if !response.status().is_success() {
+            return Err(unavailable());
+        }
+        let text = response.text().await.map_err(|_| unavailable())?;
+        Self::expected_sha256(&text, file_name).ok_or_else(unavailable)
+    }
+
+    /// Streams `url` into `dest` atomically (temp file + rename), reporting progress. The file is
+    /// only installed when its SHA-256 matches the list at `sums_url`.
     pub async fn download_to_file(
         url: &str,
+        sums_url: &str,
         dest: &Path,
         component: &str,
         progress: InstallProgress<'_>,
     ) -> Result<(), String> {
+        use sha2::{Digest, Sha256};
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(20))
             .timeout(Duration::from_secs(15 * 60))
             .build()
             .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+        let file_name = url.rsplit('/').next().unwrap_or_default();
+        let expected = Self::fetch_expected_sha256(&client, sums_url, file_name, component).await?;
 
         let mut response = client
             .get(url)
@@ -192,6 +281,7 @@ impl BinaryManager {
         let tmp = dest.with_extension("download");
         let mut file = std::fs::File::create(&tmp).map_err(|e| format!("Couldn't write {}: {}", component, e))?;
         let mut downloaded: u64 = 0;
+        let mut hasher = Sha256::new();
         let mut last_report = std::time::Instant::now();
 
         while let Some(chunk) = response
@@ -200,6 +290,7 @@ impl BinaryManager {
             .map_err(|e| format!("Download of {} was interrupted: {}", component, e))?
         {
             file.write_all(&chunk).map_err(|e| format!("Couldn't write {}: {}", component, e))?;
+            hasher.update(&chunk);
             downloaded += chunk.len() as u64;
             if last_report.elapsed() >= Duration::from_millis(250) {
                 progress(component, downloaded, total);
@@ -209,6 +300,13 @@ impl BinaryManager {
         file.flush().map_err(|e| e.to_string())?;
         drop(file);
         progress(component, downloaded, total);
+
+        let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        if actual != expected {
+            let _ = std::fs::remove_file(&tmp);
+            log::warn!("{component}: checksum mismatch (expected {expected}, got {actual})");
+            return Err(format!("The {component} download was damaged or altered, so it wasn't installed. Try again."));
+        }
 
         if dest.exists() {
             let _ = std::fs::remove_file(dest);
@@ -222,14 +320,14 @@ impl BinaryManager {
 
     pub async fn download_yt_dlp(progress: InstallProgress<'_>) -> Result<PathBuf, String> {
         let target = Self::get_bin_dir().join("yt-dlp.exe");
-        Self::download_to_file(YTDLP_URL, &target, "yt-dlp", progress).await?;
+        Self::download_to_file(YTDLP_URL, YTDLP_SUMS_URL, &target, "yt-dlp", progress).await?;
         Ok(target)
     }
 
     pub async fn download_ffmpeg(progress: InstallProgress<'_>) -> Result<PathBuf, String> {
         let bin_dir = Self::get_bin_dir();
         let zip_path = bin_dir.join("ffmpeg-package.zip");
-        Self::download_to_file(FFMPEG_ZIP_URL, &zip_path, "FFmpeg", progress).await?;
+        Self::download_to_file(FFMPEG_ZIP_URL, FFMPEG_SUMS_URL, &zip_path, "FFmpeg", progress).await?;
 
         // Extract only ffmpeg.exe and ffprobe.exe from the (large) archive.
         Self::extract_from_zip(&zip_path, &bin_dir, &["ffmpeg.exe", "ffprobe.exe"], "FFmpeg").await?;
@@ -243,7 +341,7 @@ impl BinaryManager {
     pub async fn download_deno(progress: InstallProgress<'_>) -> Result<PathBuf, String> {
         let bin_dir = Self::get_bin_dir();
         let zip_path = bin_dir.join("deno-package.zip");
-        Self::download_to_file(DENO_ZIP_URL, &zip_path, "Deno", progress).await?;
+        Self::download_to_file(DENO_ZIP_URL, DENO_SUMS_URL, &zip_path, "Deno", progress).await?;
         Self::extract_from_zip(&zip_path, &bin_dir, &["deno.exe"], "Deno").await?;
         let deno = bin_dir.join("deno.exe");
         if !deno.is_file() {
@@ -373,6 +471,25 @@ mod tests {
     }
 
     #[test]
+    fn reads_published_checksum_formats() {
+        let ytdlp = "1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6  yt-dlp\n\
+                     66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a  yt-dlp.exe\n";
+        assert_eq!(
+            BinaryManager::expected_sha256(ytdlp, "yt-dlp.exe").as_deref(),
+            Some("66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a")
+        );
+        // Deno publishes PowerShell Get-FileHash output with CRLF line ends.
+        let deno = "\r\nAlgorithm : SHA256\r\n\
+                    Hash      : A0C3101B4158D1DFB7D6A78A7BF0F3DE80C96BB423C152BEEC8BEB22786F2238\r\n\
+                    Path      : C:\\a\\deno\\target\\release\\deno-x86_64-pc-windows-msvc.zip\r\n";
+        assert_eq!(
+            BinaryManager::expected_sha256(deno, "deno-x86_64-pc-windows-msvc.zip").as_deref(),
+            Some("a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238")
+        );
+        assert_eq!(BinaryManager::expected_sha256(ytdlp, "missing.zip"), None);
+    }
+
+    #[test]
     fn extracts_only_named_files_from_nested_zip() {
         let root = std::env::temp_dir().join(format!("hs_zip_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -403,5 +520,24 @@ mod tests {
         let path = BinaryManager::write_temp_cookie_file("# Netscape HTTP Cookie File\n").unwrap();
         assert!(path.is_file());
         let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod network_tests {
+    use super::*;
+
+    /// Real download + checksum check against GitHub. Run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn ytdlp_download_verifies_against_published_checksum() {
+        let dir = std::env::temp_dir().join(format!("hs_sha_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("yt-dlp.exe");
+        BinaryManager::download_to_file(YTDLP_URL, YTDLP_SUMS_URL, &dest, "yt-dlp", &|_, _, _| {})
+            .await
+            .expect("verified download");
+        assert!(dest.metadata().unwrap().len() > 1_000_000);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
