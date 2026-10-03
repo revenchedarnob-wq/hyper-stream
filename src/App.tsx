@@ -594,6 +594,11 @@ export default function App() {
 
   const currentWallpaperObj = wallpapersList.find((w) => w.url === browserWallpaper) || SIMULATOR_WALLPAPERS[0]
 
+  useEffect(() => {
+    const theme = currentWallpaperObj?.theme || 'dark'
+    document.documentElement.setAttribute('data-wallpaper-theme', theme)
+  }, [currentWallpaperObj])
+
   return (
     <div className="hyperstream-root-wrapper">
       {/* Explicit DOM-level Desktop Wallpaper — Crisp 2K master across all environments */}

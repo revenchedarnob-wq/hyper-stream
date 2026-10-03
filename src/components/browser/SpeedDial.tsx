@@ -44,11 +44,11 @@ export function detectPreset(inputUrl: string): { title: string; iconKey: string
   if (host.includes('kick')) return { title: 'Kick', iconKey: 'kick', accentColor: '#53FC18', category: 'streaming' }
   if (host.includes('vimeo')) return { title: 'Vimeo', iconKey: 'vimeo', accentColor: '#1AB7EA', category: 'video' }
   if (host.includes('soundcloud')) return { title: 'SoundCloud', iconKey: 'soundcloud', accentColor: '#FF5500', category: 'music' }
-  if (host.includes('bilibili')) return { title: 'Bilibili', iconKey: 'custom', accentColor: '#00A1D6', category: 'video' }
-  if (host.includes('reddit')) return { title: 'Reddit', iconKey: 'custom', accentColor: '#FF4500', category: 'social' }
-  if (host.includes('github')) return { title: 'GitHub', iconKey: 'custom', accentColor: '#ffffff', category: 'custom' }
-  if (host.includes('spotify')) return { title: 'Spotify', iconKey: 'custom', accentColor: '#1DB954', category: 'music' }
-  if (host.includes('tiktok')) return { title: 'TikTok', iconKey: 'custom', accentColor: '#00F2FE', category: 'social' }
+  if (host.includes('bilibili')) return { title: 'Bilibili', iconKey: 'bilibili', accentColor: '#00A1D6', category: 'video' }
+  if (host.includes('reddit')) return { title: 'Reddit', iconKey: 'reddit', accentColor: '#FF4500', category: 'social' }
+  if (host.includes('github')) return { title: 'GitHub', iconKey: 'github', accentColor: '#ffffff', category: 'custom' }
+  if (host.includes('spotify')) return { title: 'Spotify', iconKey: 'spotify', accentColor: '#1DB954', category: 'music' }
+  if (host.includes('tiktok')) return { title: 'TikTok', iconKey: 'tiktok', accentColor: '#00F2FE', category: 'social' }
 
   if (host && host.includes('.')) {
     const parts = host.split('.')
@@ -279,11 +279,6 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
   const detectedPreview = detectPreset(newUrl)
   const previewIconKey = detectedPreview?.iconKey ?? 'custom'
   const previewColor = detectedPreview?.accentColor ?? 'var(--color-brand-primary, #6366f1)'
-  const previewBadgeStyle = {
-    color: previewColor,
-    backgroundColor: `${previewColor}18`,
-    borderColor: `${previewColor}38`,
-  }
 
   const modalElement = isAddModalOpen ? (
     <div
@@ -299,14 +294,9 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="speed-dial-modal-header">
-          <div className="speed-dial-modal-header-left">
-            <div className="speed-dial-modal-badge" style={previewBadgeStyle}>
-              {renderSpeedDialIcon(previewIconKey, 22)}
-            </div>
-            <div className="speed-dial-modal-titles">
-              <h2 className="speed-dial-modal-title">Add Bookmark</h2>
-              <span className="speed-dial-modal-desc">Save a quick shortcut to your start page</span>
-            </div>
+          <div className="speed-dial-modal-heading-wrap">
+            <h2 className="speed-dial-modal-title">Add Shortcut</h2>
+            <span className="speed-dial-modal-pill-tag">Start page</span>
           </div>
           <button
             type="button"
@@ -316,6 +306,36 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
           >
             <IconX size={14} />
           </button>
+        </div>
+
+        {/* Live Interactive Preview Tile Stage (Horizontal Luxury Showcase) */}
+        <div
+          className="speed-dial-modal-preview-stage"
+          style={{ '--preview-glow': previewColor } as CSSProperties}
+        >
+          <div
+            className="speed-dial-preview-icon"
+            style={{
+              color: previewColor,
+              backgroundColor: `${previewColor}1f`,
+              borderColor: `${previewColor}45`,
+            }}
+          >
+            {renderSpeedDialIcon(previewIconKey, 24)}
+          </div>
+          <div className="speed-dial-preview-info">
+            <div className="speed-dial-preview-title-row">
+              <span className="speed-dial-preview-title">
+                {newTitle.trim() || detectedPreview?.title || (newUrl.trim() ? hostOf(newUrl) : 'New Shortcut')}
+              </span>
+              {detectedPreview?.title && !userEditedTitle && (
+                <span className="speed-dial-preview-badge">Auto-detected</span>
+              )}
+            </div>
+            <span className="speed-dial-preview-url">
+              {newUrl.trim() ? newUrl.trim().replace(/^https?:\/\//, '') : 'Enter an address below or pick a preset'}
+            </span>
+          </div>
         </div>
 
         <form onSubmit={handleAddBookmark} className="speed-dial-modal-form">
@@ -339,6 +359,21 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
                 spellCheck={false}
                 required
               />
+              {newUrl && (
+                <button
+                  type="button"
+                  className="speed-dial-input-clear"
+                  onClick={() => {
+                    playHapticPop()
+                    setNewUrl('')
+                    if (!userEditedTitle) setNewTitle('')
+                  }}
+                  title="Clear address"
+                  aria-label="Clear address"
+                >
+                  <IconX size={12} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -372,23 +407,26 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
             </div>
           </div>
 
-          {/* Quick presets shortcut bar inside modal */}
+          {/* Popular Shortcuts Quick-Pick */}
           <div className="speed-dial-modal-presets">
-            <span className="speed-dial-modal-presets-label">Popular shortcuts</span>
+            <span className="speed-dial-modal-presets-label">Popular</span>
             <div className="speed-dial-modal-chips">
-              {DEFAULT_SPEED_DIAL_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className="speed-dial-modal-chip"
-                  onClick={() => handleSelectPresetSuggestion(preset)}
-                >
-                  <span style={{ color: preset.accentColor, display: 'inline-flex' }}>
-                    {renderSpeedDialIcon(preset.iconKey, 13)}
-                  </span>
-                  <span>{preset.title}</span>
-                </button>
-              ))}
+              {DEFAULT_SPEED_DIAL_PRESETS.map((preset) => {
+                const isSelected = newUrl === preset.url || newUrl === preset.url.replace(/^https?:\/\//, '')
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`speed-dial-modal-chip ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => handleSelectPresetSuggestion(preset)}
+                  >
+                    <span style={{ color: preset.accentColor, display: 'inline-flex' }}>
+                      {renderSpeedDialIcon(preset.iconKey, 13)}
+                    </span>
+                    <span>{preset.title}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
@@ -404,8 +442,9 @@ export function SpeedDial({ onSelectUrl }: SpeedDialProps) {
               type="submit"
               className="speed-dial-btn speed-dial-btn-submit"
               disabled={!newTitle.trim() || !newUrl.trim()}
+              aria-label="Add Bookmark"
             >
-              Add Bookmark
+              Add Shortcut
             </button>
           </div>
         </form>
