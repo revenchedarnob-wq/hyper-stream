@@ -1222,12 +1222,21 @@
   width: 100%;
   height: 100%;
   position: relative;
-  background: var(--surface-level-1);
+  background: #090d16;
   overflow: hidden;
+  transition: background-color 220ms ease;
 }
 
-[data-wallpaper-theme="light"] .in-app-browser {
-  background: transparent;
+.in-app-browser.is-start-page {
+  background: transparent !important;
+}
+
+[data-wallpaper-theme="light"] .in-app-browser.is-start-page {
+  background: transparent !important;
+}
+
+[data-wallpaper-theme="light"] .in-app-browser.is-active-site {
+  background: #090d16 !important;
 }
 
 [data-wallpaper-theme="light"] .browser-toolbar {
@@ -1749,8 +1758,12 @@
 }
 
 .browser-viewport-native {
-  background: transparent !important;
+  background: #090d16 !important;
   pointer-events: none;
+}
+
+.browser-viewport-native.is-hidden {
+  background: transparent !important;
 }
 
 .browser-dev-video {

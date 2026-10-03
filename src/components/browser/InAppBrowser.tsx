@@ -56,15 +56,38 @@ export function InAppBrowser({
   const viewportRef = useRef<HTMLDivElement>(null)
 
   const getBounds = useCallback((): BrowserRect | undefined => {
-    const rect = viewportRef.current?.getBoundingClientRect()
+    const el = viewportRef.current
+    if (!el) return undefined
+    const rect = el.getBoundingClientRect()
     if (!rect || rect.width < 10 || rect.height < 10) return undefined
-    return {
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
+
+    let x = Math.round(rect.left)
+    let y = Math.round(rect.top)
+    let width = Math.round(rect.width)
+    let height = Math.round(rect.height)
+
+    if (isMaximized) {
+      const winW = window.innerWidth
+      const winH = window.innerHeight
+      if (Math.abs((rect.left + rect.width) - winW) <= 8) {
+        width = winW - x
+      }
+      if (Math.abs((rect.top + rect.height) - winH) <= 8) {
+        height = winH - y + 2
+      }
+      if (Math.abs(rect.left) <= 8) {
+        width += x
+        x = 0
+      }
     }
-  }, [])
+
+    return {
+      x,
+      y,
+      width: Math.max(10, width),
+      height: Math.max(10, height),
+    }
+  }, [isMaximized])
 
   const nav = useBrowserNavigation(initialUrl, getBounds)
   const { currentUrl } = nav
@@ -256,7 +279,7 @@ export function InAppBrowser({
   const embedInfo = !inTauri && !isHome ? resolveWebEmbedUrl(currentUrl) : null
 
   return (
-    <div className="in-app-browser" data-testid="in-app-browser">
+    <div className={`in-app-browser ${isHome ? 'is-start-page' : 'is-active-site'}`} data-testid="in-app-browser">
       <BrowserToolbar
         currentUrl={currentUrl}
         pageTitle={nav.title}

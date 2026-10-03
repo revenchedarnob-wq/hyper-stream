@@ -989,7 +989,7 @@ body.is-browser-dragging * {
   isolation: isolate;
   display: grid;
   grid-template-columns: 240px 1fr;
-  grid-template-rows: 36px 1fr;
+  grid-template-rows: 44px 1fr;
   padding: 8px;
   column-gap: 8px;
   row-gap: 6px;
@@ -1056,6 +1056,7 @@ body.is-browser-dragging * {
   transition: transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 300ms ease !important;
   transform: translate3d(0, 0, 0);
   opacity: 1;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.08), 8px 0 24px -4px rgba(0, 0, 0, 0.30);
 }
 
 .window-container.is-maximized .app-shell.is-browser-mode .sidebar {
@@ -1074,6 +1075,7 @@ body.is-browser-dragging * {
   width: calc(100% - 240px);
   height: calc(100% - 44px);
   transition: margin-left 380ms cubic-bezier(0.34, 1.56, 0.64, 1), width 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  background: #090d16 !important;
 }
 
 .app-shell.is-browser-mode.sidebar-collapsed .browser-content-area {
@@ -1081,6 +1083,7 @@ body.is-browser-dragging * {
   width: 100%;
   height: calc(100% - 44px);
   transition: margin-left 380ms cubic-bezier(0.34, 1.56, 0.64, 1), width 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  background: #090d16 !important;
 }
 
 /* Full flush viewport for active websites */
@@ -1090,7 +1093,7 @@ body.is-browser-dragging * {
   border-radius: 0;
   border-left: 1px solid var(--border-subtle);
   border-bottom-right-radius: var(--radius-window, 24px);
-  background: var(--surface-level-1, #0f172a);
+  background: #090d16 !important;
 }
 
 .app-shell.is-browser-mode.sidebar-collapsed .browser-viewport:not(.is-hidden) {
@@ -1108,10 +1111,37 @@ body.is-browser-dragging * {
   max-width: none;
 }
 
+.browser-view-wrapper {
+  animation: browserViewFadeIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes browserViewFadeIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.99) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes headerFadeIn {
+  from {
+    opacity: 0.6;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 /* Topbar */
 .topbar {
   grid-column: 1 / -1;
+  height: 44px;
+  min-height: 44px;
   background: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -1123,6 +1153,7 @@ body.is-browser-dragging * {
   justify-content: space-between;
   padding: 0 4px 0 8px;
   user-select: none;
+  animation: headerFadeIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Linear / Notion style header: brand on left, collapse button on right edge of sidebar */
