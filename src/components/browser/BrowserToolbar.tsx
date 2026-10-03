@@ -374,13 +374,14 @@ export function BrowserToolbar({
         <IconPuzzlePiece size={16} />
       </button>
 
-      {/* Drag spacer for native window dragging across empty toolbar space */}
-      <div className="browser-toolbar-drag-spacer" data-tauri-drag-region />
-
+      {/* Drag spacer and window controls only when toolbar acts as topbar */}
       {windowControls && (
-        <div className="browser-toolbar-win-controls" data-tauri-drag-region>
-          {windowControls}
-        </div>
+        <>
+          <div className="browser-toolbar-drag-spacer" data-tauri-drag-region />
+          <div className="browser-toolbar-win-controls" data-tauri-drag-region>
+            {windowControls}
+          </div>
+        </>
       )}
 
       {isLoading && <div className="browser-loading-bar" aria-hidden="true" data-testid="browser-loading-bar" />}

@@ -765,23 +765,21 @@ export default function App() {
         )
 
         return (
-          <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'} ${activeNav === 'browser' ? 'is-browser-mode' : ''}`}>
-            {/* Topbar: Rendered in standard mode for Hub, Library, Settings */}
-            {activeNav !== 'browser' && (
-              <header
-                className="topbar"
-                data-tauri-drag-region
-                onPointerDown={handleTopBarPointerDown}
-                onPointerMove={handleTopBarPointerMove}
-                onPointerUp={handleTopBarPointerUp}
-                onPointerCancel={handleTopBarPointerUp}
-                onDoubleClick={handleTopBarDoubleClick}
-              >
-                {sidebarAreaElement}
-                <div className="topbar-drag-spacer" data-tauri-drag-region />
-                {windowControlsElement}
-              </header>
-            )}
+          <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+            {/* Topbar: Unified persistent top bar with brand on left, drag spacer, and window controls on right */}
+            <header
+              className="topbar"
+              data-tauri-drag-region
+              onPointerDown={handleTopBarPointerDown}
+              onPointerMove={handleTopBarPointerMove}
+              onPointerUp={handleTopBarPointerUp}
+              onPointerCancel={handleTopBarPointerUp}
+              onDoubleClick={handleTopBarDoubleClick}
+            >
+              {sidebarAreaElement}
+              <div className="topbar-drag-spacer" data-tauri-drag-region />
+              {windowControlsElement}
+            </header>
 
         {/* Sidebar with jelly sliding glass pill & bottom utility dock */}
         <nav className="sidebar" aria-label="Main Navigation">
@@ -873,12 +871,6 @@ export default function App() {
               isWorkspaceActive={activeNav === 'browser'}
               isMaximized={isMaximized}
               isSidebarOpen={sidebarOpen}
-              sidebarArea={sidebarAreaElement}
-              windowControls={windowControlsElement}
-              onTopBarPointerDown={handleTopBarPointerDown}
-              onTopBarPointerMove={handleTopBarPointerMove}
-              onTopBarPointerUp={handleTopBarPointerUp}
-              onTopBarDoubleClick={handleTopBarDoubleClick}
             />
           </div>
         </main>
