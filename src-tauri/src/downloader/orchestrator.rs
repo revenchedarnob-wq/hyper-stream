@@ -986,6 +986,10 @@ fn build_args(
         "--retries", "10", "--fragment-retries", "10", "--retry-sleep", "linear=1::5",
         "--socket-timeout", "30", "--concurrent-fragments", "8",
         "--write-thumbnail", "--convert-thumbnails", "jpg",
+        // yt-dlp moves the index of every MP4 to the front, which rewrites the whole file a
+        // second time (about 40% of merging; much more on hard drives). Players don't need it
+        // for files on disk, so skip it.
+        "--postprocessor-args", "ffmpeg:-movflags -faststart",
     ] {
         push(a);
     }

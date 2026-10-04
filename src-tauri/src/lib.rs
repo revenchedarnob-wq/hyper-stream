@@ -632,6 +632,12 @@ fn set_queue_config(
     state.set_config(config)
 }
 
+/// One speed limit for all downloads (Settings → Speed limit).
+#[tauri::command]
+fn set_speed_limit(limit: downloader::bandwidth::SpeedLimit) {
+    downloader::bandwidth::set(limit);
+}
+
 #[tauri::command]
 fn pause_all(
     state: tauri::State<downloader::DownloadOrchestrator>,
@@ -805,6 +811,7 @@ pub fn run() {
             exit_app,
             take_external_links,
             browser_extension_folder,
+            set_speed_limit,
             prefetch_media_info,
             browser_extension_status,
             add_browser_extension,

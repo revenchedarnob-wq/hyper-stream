@@ -5,6 +5,11 @@
 
 export type DefaultQuality = 'best' | '2160' | '1440' | '1080' | '720' | '480' | 'audio'
 
+/** 'auto': slow down while other apps use the internet. A number: MB/s for all downloads together. */
+export type SpeedLimit = 'off' | 'auto' | number
+
+export const SPEED_LIMITS_MBPS = [1, 2, 5, 10, 20, 50]
+
 export interface AppSettings {
   /** Empty = the backend default (Videos\HyperStream). */
   downloadDir: string
@@ -12,6 +17,7 @@ export interface AppSettings {
   /** Prefer H.264/AAC in MP4 over newer codecs, for older players and editors. */
   preferCompatible: boolean
   maxConcurrent: number
+  speedLimit: SpeedLimit
   clipboardDetect: boolean
   /** Videos sent from the browser extension start right away at the default quality. */
   extensionAutoDownload: boolean
@@ -27,6 +33,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultQuality: 'best',
   preferCompatible: false,
   maxConcurrent: 3,
+  speedLimit: 'off',
   clipboardDetect: true,
   extensionAutoDownload: false,
   completionSound: true,
@@ -47,6 +54,8 @@ export function sanitize(s: AppSettings): AppSettings {
     defaultQuality: QUALITIES.includes(s.defaultQuality) ? s.defaultQuality : DEFAULT_SETTINGS.defaultQuality,
     preferCompatible: !!s.preferCompatible,
     maxConcurrent: Number.isFinite(max) ? Math.min(5, Math.max(1, max)) : DEFAULT_SETTINGS.maxConcurrent,
+    speedLimit:
+      s.speedLimit === 'auto' || (typeof s.speedLimit === 'number' && SPEED_LIMITS_MBPS.includes(s.speedLimit)) ? s.speedLimit : 'off',
     clipboardDetect: s.clipboardDetect !== false,
     extensionAutoDownload: s.extensionAutoDownload === true,
     completionSound: s.completionSound !== false,

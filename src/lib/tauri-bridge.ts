@@ -468,6 +468,13 @@ export async function getQueueConfig(): Promise<NativeQueueConfig | null> {
   }
 }
 
+/** One limit for all downloads together; see `SpeedLimit` in settings. */
+export async function setSpeedLimit(limit: 'off' | 'auto' | number): Promise<void> {
+  if (!isTauri()) return
+  const payload = typeof limit === 'number' ? { mode: 'fixed', bytes_per_sec: Math.round(limit * 1_000_000) } : { mode: limit }
+  await invoke('set_speed_limit', { limit: payload })
+}
+
 export async function setMaxConcurrent(maxConcurrent: number): Promise<void> {
   const current = await getQueueConfig()
   if (!current) return

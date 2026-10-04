@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { detectHardwareProfile } from './lib/hardware-profiler'
 import { listen } from '@tauri-apps/api/event'
-import { loadSettings as loadAppSettings } from '@/lib/settings'
+import { loadSettings as loadAppSettings, subscribeSettings } from '@/lib/settings'
 import './App.css'
 import { StreamHub } from './components/stream-hub/StreamHub'
 
@@ -44,6 +44,7 @@ import {
   isWindowMaximized,
   isAppForeground,
   takeExternalLinks,
+  setSpeedLimit,
 } from '@/lib/tauri-bridge'
 
 import {
@@ -89,6 +90,16 @@ export default function App() {
       void unlisten.then((fn) => fn())
       void unlistenDownloads.then((fn) => fn())
     }
+  }, [])
+  // The speed limit lives in the backend: send it at start and whenever it changes.
+  useEffect(() => {
+    let applied = loadAppSettings().speedLimit
+    void setSpeedLimit(applied).catch(() => {})
+    return subscribeSettings((next) => {
+      if (next.speedLimit === applied) return
+      applied = next.speedLimit
+      void setSpeedLimit(applied).catch(() => {})
+    })
   }, [])
   const [browserRequest, setBrowserRequest] = useState<{ url: string; nonce: number } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(() => {

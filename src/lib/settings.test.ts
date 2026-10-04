@@ -22,6 +22,7 @@ describe('settings sanitize', () => {
       defaultQuality: 'best',
       preferCompatible: true,
       maxConcurrent: 5,
+      speedLimit: 'off',
       clipboardDetect: true,
       extensionAutoDownload: false,
       completionSound: false,
@@ -30,5 +31,8 @@ describe('settings sanitize', () => {
     })
     expect(sanitize({ ...DEFAULT_SETTINGS, maxConcurrent: 0 }).maxConcurrent).toBe(1)
     expect(sanitize({ ...DEFAULT_SETTINGS, maxConcurrent: Number.NaN }).maxConcurrent).toBe(3)
+    expect(sanitize({ ...DEFAULT_SETTINGS, speedLimit: 5 }).speedLimit).toBe(5)
+    expect(sanitize({ ...DEFAULT_SETTINGS, speedLimit: 7 }).speedLimit).toBe('off')
+    expect(sanitize({ ...DEFAULT_SETTINGS, speedLimit: 'auto' }).speedLimit).toBe('auto')
   })
 })

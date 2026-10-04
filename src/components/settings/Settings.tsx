@@ -17,7 +17,7 @@ import {
 import { detectHardwareProfile, formatGpuName } from '@/lib/hardware-profiler'
 import { listen } from '@tauri-apps/api/event'
 import { ExtensionSetupDialog } from '@/components/extension/ExtensionSetup'
-import { saveSettings, type DefaultQuality } from '@/lib/settings'
+import { SPEED_LIMITS_MBPS, saveSettings, type DefaultQuality } from '@/lib/settings'
 import { useEngine, useSettings } from '@/lib/hooks'
 import { GlassSelect } from '../common/GlassSelect'
 import { IconZap, IconSparkles, IconCheck, IconChevronDown, IconFolder, IconCpu, IconPlus, IconTrash } from '../stream-hub/Icons'
@@ -58,6 +58,11 @@ const QUALITY_OPTIONS: { value: DefaultQuality; label: string }[] = [
 ]
 
 const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))
+const SPEED_OPTIONS = [
+  { value: 'off', label: 'No limit' },
+  { value: 'auto', label: 'Auto' },
+  ...SPEED_LIMITS_MBPS.map((n) => ({ value: String(n), label: `${n} MB/s` })),
+]
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (next: boolean) => void }) {
   return (
@@ -197,6 +202,18 @@ function DownloadsPanel() {
               options={CONCURRENCY_OPTIONS}
               onChange={changeConcurrency}
               ariaLabel="Downloads at once"
+            />
+          </Row>
+          <Row
+            label="Speed limit"
+            desc="For all downloads together. Auto slows downloads while other apps (videos, calls, games) use the internet, and goes full speed when they don't."
+          >
+            <GlassSelect
+              id="settings-speed-limit"
+              value={String(settings.speedLimit)}
+              options={SPEED_OPTIONS}
+              onChange={(value) => saveSettings({ speedLimit: value === 'off' || value === 'auto' ? value : Number(value) })}
+              ariaLabel="Speed limit"
             />
           </Row>
           <Row label="Clipboard detection" desc="Offer to download a link you copied when you open Stream Hub.">
