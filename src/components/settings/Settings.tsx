@@ -11,9 +11,12 @@ import {
   revealInExplorer,
   setMaxConcurrent,
   SEND_TO_HYPERSTREAM_BOOKMARKLET,
-  getBrowserExtensionFolder,
+  getExtensionStatus,
+  type ExtensionStatus,
 } from '@/lib/tauri-bridge'
 import { detectHardwareProfile, formatGpuName } from '@/lib/hardware-profiler'
+import { listen } from '@tauri-apps/api/event'
+import { ExtensionSetupDialog } from '@/components/extension/ExtensionSetup'
 import { saveSettings, type DefaultQuality } from '@/lib/settings'
 import { useEngine, useSettings } from '@/lib/hooks'
 import { GlassSelect } from '../common/GlassSelect'
@@ -294,34 +297,56 @@ function SendToHyperStreamRow() {
 }
 
 function BrowserExtensionRow() {
-  const [folder, setFolder] = React.useState<string | null>(null)
-  const [copied, setCopied] = React.useState(false)
-  React.useEffect(() => {
-    void getBrowserExtensionFolder()
-      .then(setFolder)
-      .catch(() => setFolder(null))
+  const [status, setStatus] = React.useState<ExtensionStatus | null>(null)
+  const [adding, setAdding] = React.useState(false)
+  const refresh = React.useCallback(() => {
+    void getExtensionStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null))
   }, [])
-  const copyAddress = async () => {
-    try {
-      await navigator.clipboard.writeText('chrome://extensions')
-      playHapticGlass()
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
-      setCopied(false)
+  React.useEffect(() => {
+    refresh()
+    const unlisten = listen('extension-connected', refresh)
+    return () => {
+      void unlisten.then((fn) => fn())
     }
-  }
+  }, [refresh])
+
+  const name = status?.browser?.name ?? 'your browser'
+  const desc = !status?.browser
+    ? 'Finds videos on the pages you visit and sends downloads here from Chrome, Edge or Brave.'
+    : !status.supported
+      ? `The extension works in Chrome, Edge and Brave. Your default browser is ${name}; to use it in another browser, load the folder from its extensions page.`
+      : status.installed
+        ? `Added to ${name}. Right-click a video or link and choose Download with HyperStream.`
+        : `Finds videos on the pages you visit and sends downloads here from ${name} with one click.`
+
   return (
-    <Row
-      label="HyperStream extension"
-      desc="Finds videos on pages, adds “Download with HyperStream” to the right-click menu, and can take over downloads from Chrome or Edge. To install: open chrome://extensions (edge://extensions in Edge), turn on Developer mode, choose Load unpacked, and pick this folder."
-    >
-      <button type="button" className="action-btn" disabled={!folder} onClick={() => folder && void revealInExplorer(folder)}>
+    <Row label="Browser extension" desc={desc}>
+      {status?.supported && !status.installed && (
+        <button type="button" className="action-btn" onClick={() => setAdding(true)}>
+          Add to {name}
+        </button>
+      )}
+      <button
+        type="button"
+        className="action-btn"
+        disabled={!status?.folder}
+        onClick={() => status?.folder && void revealInExplorer(status.folder)}
+        title="For adding it to another browser by hand"
+      >
         Show folder
       </button>
-      <button type="button" className="action-btn" onClick={() => void copyAddress()}>
-        {copied ? 'Copied' : 'Copy address'}
-      </button>
+      {adding && (
+        <ExtensionSetupDialog
+          browserName={name}
+          addNow
+          onClose={() => {
+            setAdding(false)
+            refresh()
+          }}
+        />
+      )}
     </Row>
   )
 }

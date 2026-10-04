@@ -69,6 +69,32 @@ export async function getBrowserExtensionFolder(): Promise<string | null> {
   return invoke<string | null>('browser_extension_folder')
 }
 
+export interface ExtensionStatus {
+  /** The browser Windows opens links with. */
+  browser: { id: string; name: string } | null
+  /** The extension works in that browser (Chrome, Edge, Brave…). */
+  supported: boolean
+  /** The extension has connected from that browser. */
+  installed: boolean
+  /** Its store page is available, so adding it is one click in the browser. */
+  store: boolean
+  folder: string | null
+}
+
+export async function getExtensionStatus(): Promise<ExtensionStatus | null> {
+  if (!isTauri()) return null
+  return invoke<ExtensionStatus>('browser_extension_status')
+}
+
+/** Opens the extension's store page; without a listing, returns what the manual steps need. */
+export async function addBrowserExtension(): Promise<{
+  mode: 'store' | 'manual'
+  folder: string | null
+  extensions_page: string | null
+}> {
+  return invoke('add_browser_extension')
+}
+
 export async function revealInExplorer(filePath: string): Promise<void> {
   if (!isTauri()) return
   await invoke('reveal_in_explorer', { path: filePath })

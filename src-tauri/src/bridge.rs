@@ -14,6 +14,7 @@ pub const HOST_NAME: &str = "com.hyperstream.bridge";
 /// Extensions allowed to talk to the app: the unpacked development build (fixed by its key).
 /// Store builds get their IDs added here when they're published.
 const EXTENSION_IDS: &[&str] = &["dnhmkngncoccmkbmdbmknjjdficnmenh"];
+// Store builds: keep in step with `extension_setup::CHROME_STORE_ID` / `EDGE_STORE_ID`.
 /// Browsers that read native messaging hosts from these per-user registry keys.
 const BROWSER_KEYS: &[&str] = &[
     r"Software\Google\Chrome\NativeMessagingHosts",
@@ -58,12 +59,17 @@ struct Request {
     cookies: Vec<BrowserCookie>,
     #[serde(rename = "userAgent")]
     user_agent: String,
+    /// Added by the helper: which browser the extension runs in.
+    browser: String,
 }
 
 // ------------------------------------------------------------------ host process (started by the browser)
 
 /// Runs instead of the app when a browser starts us for its extension.
 pub fn host_main() {
+    let browser = crate::extension_setup::browser_id_from_exe(&parent_exe_name().unwrap_or_default());
+    // Being started at all means the extension is installed in this browser.
+    crate::extension_setup::mark_connected(browser);
     let mut stdin = std::io::stdin().lock();
     let mut stdout = std::io::stdout().lock();
     loop {
@@ -79,6 +85,7 @@ pub fn host_main() {
         if stdin.read_exact(&mut message).is_err() {
             return;
         }
+        let message = with_browser(&message, browser);
         let reply = forward(&message)
             .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e }).to_string());
         let bytes = reply.into_bytes();
@@ -86,6 +93,50 @@ pub fn host_main() {
         let _ = stdout.write_all(&bytes);
         let _ = stdout.flush();
     }
+}
+
+/// Adds `"browser": "<id>"` so the app knows where the request came from.
+fn with_browser(message: &[u8], browser: &str) -> Vec<u8> {
+    match serde_json::from_slice::<serde_json::Value>(message) {
+        Ok(serde_json::Value::Object(mut map)) => {
+            map.insert("browser".into(), serde_json::Value::String(browser.into()));
+            serde_json::to_vec(&map).unwrap_or_else(|_| message.to_vec())
+        }
+        _ => message.to_vec(),
+    }
+}
+
+/// Program name of the process that started this one (the browser).
+#[cfg(windows)]
+fn parent_exe_name() -> Option<String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    let me = std::process::id();
+    let mut entries: Vec<(u32, u32, String)> = Vec::new();
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut ok = Process32FirstW(snap, &mut entry) != 0;
+        while ok {
+            let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+            entries.push((entry.th32ProcessID, entry.th32ParentProcessID, String::from_utf16_lossy(&entry.szExeFile[..len])));
+            ok = Process32NextW(snap, &mut entry) != 0;
+        }
+        CloseHandle(snap);
+    }
+    let parent = entries.iter().find(|e| e.0 == me)?.1;
+    entries.into_iter().find(|e| e.0 == parent).map(|e| e.2)
+}
+
+#[cfg(not(windows))]
+fn parent_exe_name() -> Option<String> {
+    None
 }
 
 fn open_pipe() -> std::io::Result<std::fs::File> {
@@ -267,7 +318,10 @@ fn bring_forward(app: &AppHandle) {
 async fn handle(app: &AppHandle, request: Request) -> serde_json::Value {
     use serde_json::json;
     match request.kind.as_str() {
-        "ping" => json!({ "ok": true, "version": env!("CARGO_PKG_VERSION") }),
+        "ping" => {
+            let _ = app.emit("extension-connected", &request.browser);
+            json!({ "ok": true, "version": env!("CARGO_PKG_VERSION") })
+        }
         "page" | "media" => {
             let Some(url) = web_address(&request.url) else { return json!({ "ok": false, "error": "Not a web address." }) };
             keep_cookies(&url, &request.cookies);

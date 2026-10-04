@@ -1,4 +1,5 @@
 pub mod bridge;
+pub mod extension_setup;
 pub mod browser;
 pub mod downloader;
 
@@ -253,9 +254,31 @@ pub(crate) fn queue_external_page(app: &tauri::AppHandle, page: String) {
     }
 }
 
-/// The browser extension's folder (for "Load unpacked" until it's in the browser stores).
 #[tauri::command]
 fn browser_extension_folder(app: tauri::AppHandle) -> Option<String> {
+    extension_folder(&app)
+}
+
+/// Whether the extension is in the default browser, and whether one-click install is available.
+#[tauri::command]
+async fn browser_extension_status(app: tauri::AppHandle) -> extension_setup::ExtensionStatus {
+    let folder = extension_folder(&app);
+    tauri::async_runtime::spawn_blocking(move || extension_setup::status(folder))
+        .await
+        .unwrap_or_else(|_| extension_setup::status(None))
+}
+
+/// Opens the extension's store page (or the browser's extensions page) in the default browser.
+#[tauri::command]
+async fn add_browser_extension(app: tauri::AppHandle) -> Result<extension_setup::AddOutcome, String> {
+    let folder = extension_folder(&app);
+    tauri::async_runtime::spawn_blocking(move || extension_setup::add(folder))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The browser extension's folder (for "Load unpacked" until it's in the browser stores).
+fn extension_folder(app: &tauri::AppHandle) -> Option<String> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     let mut candidates = vec![exe_dir.join("extension")];
     if let Ok(resources) = app.path().resource_dir() {
@@ -725,6 +748,8 @@ pub fn run() {
             exit_app,
             take_external_links,
             browser_extension_folder,
+            browser_extension_status,
+            add_browser_extension,
             is_app_foreground,
             browser::set_browser_visibility,
             browser::update_browser_bounds,

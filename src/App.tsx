@@ -12,6 +12,8 @@ const loadBrowser = () => import('./components/browser/InAppBrowser')
 const MediaLibrary = lazy(() => loadLibrary().then((m) => ({ default: m.MediaLibrary })))
 const Settings = lazy(() => loadSettings().then((m) => ({ default: m.Settings })))
 const InAppBrowser = lazy(() => loadBrowser().then((m) => ({ default: m.InAppBrowser })))
+// First run only: offers to add the browser extension. Loaded after startup has settled.
+const ExtensionPrompt = lazy(() => import('./components/extension/ExtensionSetup'))
 import { IconCompass } from './components/browser/Icons'
 
 import {
@@ -654,12 +656,14 @@ export default function App() {
   const [browserMounted, setBrowserMounted] = useState(false)
   if (activeNav === 'browser' && !browserMounted) setBrowserMounted(true)
 
+  const [startupSettled, setStartupSettled] = useState(false)
   useEffect(() => {
     const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1500))
     const handle = idle(() => {
       void loadLibrary()
       void loadSettings()
       void loadBrowser()
+      setStartupSettled(true)
     })
     return () => (window.cancelIdleCallback ?? window.clearTimeout)(handle)
   }, [])
@@ -1012,6 +1016,11 @@ export default function App() {
           </button>
         )}
       </aside>
+      )}
+      {startupSettled && (
+        <Suspense fallback={null}>
+          <ExtensionPrompt />
+        </Suspense>
       )}
   </div>
 )

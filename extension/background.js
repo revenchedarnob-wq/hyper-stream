@@ -119,7 +119,11 @@ chrome.tabs.onRemoved.addListener((tabId) => forget(tabId));
 
 // ---------------------------------------------------------------- right-click menu
 
+// Lets the app know the extension is installed (and in which browser), even before first use.
+chrome.runtime.onStartup.addListener(() => toApp({ kind: 'ping' }));
+
 chrome.runtime.onInstalled.addListener(async () => {
+  toApp({ kind: 'ping' });
   const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));
   await chrome.storage.local.set({ ...DEFAULTS, ...stored });
   chrome.action.setBadgeBackgroundColor({ color: '#6d5efc' });

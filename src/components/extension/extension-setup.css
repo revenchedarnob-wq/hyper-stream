@@ -1,0 +1,160 @@
+.ext-setup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(7, 9, 15, 0.6);
+  animation: ext-setup-fade 160ms ease-out backwards;
+}
+
+.ext-setup {
+  width: min(420px, 100%);
+  padding: 22px 24px 20px;
+  border-radius: var(--radius-xl);
+  background: #141824;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.7);
+  color: var(--color-text-primary, #fff);
+  animation: ext-setup-pop 200ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+[data-wallpaper-theme='light'] .ext-setup-backdrop {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+[data-wallpaper-theme='light'] .ext-setup {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.1);
+  box-shadow: 0 24px 64px -12px rgba(15, 23, 42, 0.25);
+  color: #0f172a;
+}
+
+.ext-setup h2 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.ext-setup p,
+.ext-setup-steps {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.72));
+}
+
+[data-wallpaper-theme='light'] .ext-setup p,
+[data-wallpaper-theme='light'] .ext-setup-steps {
+  color: #475569;
+}
+
+.ext-setup-steps {
+  padding-left: 20px;
+}
+
+.ext-setup-steps li + li {
+  margin-top: 8px;
+}
+
+.ext-setup-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--color-text-primary, #fff);
+}
+
+[data-wallpaper-theme='light'] .ext-setup-code {
+  color: #0f172a;
+}
+
+.ext-setup-copy {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ext-setup-copy:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+[data-wallpaper-theme='light'] .ext-setup-copy {
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+.ext-setup .ext-setup-waiting {
+  font-size: 12px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.5));
+}
+
+.ext-setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.ext-setup-actions button {
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.ext-setup-primary {
+  /* Darkened so white text stays readable on light accents. */
+  background: color-mix(in srgb, var(--color-brand-primary, #4f46e5) 78%, #000);
+  color: #fff;
+}
+
+.ext-setup-primary:hover {
+  filter: brightness(1.08);
+}
+
+.ext-setup-actions .ext-setup-secondary {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: inherit;
+}
+
+.ext-setup-secondary:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+[data-wallpaper-theme='light'] .ext-setup-actions .ext-setup-secondary {
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+[data-wallpaper-theme='light'] .ext-setup-secondary:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.ext-setup-actions button:focus-visible {
+  outline: 2px solid var(--border-focus, #6d5efc);
+  outline-offset: 2px;
+}
+
+@keyframes ext-setup-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ext-setup-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
