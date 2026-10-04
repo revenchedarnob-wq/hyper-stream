@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { IconSearch, IconX, IconClipboard, IconAlertCircle, IconLoader, IconCheck, IconSparkles } from './Icons'
 import { GlassSelect } from '../common/GlassSelect'
 import { playHapticClick, playHapticPop } from '@/lib/sound'
-import { errorMessage, queryMediaInfo, type NativeDownloadOptions, type NativeMediaMetadata } from '@/lib/tauri-bridge'
+import { errorMessage, prefetchMediaInfo, queryMediaInfo, type NativeDownloadOptions, type NativeMediaMetadata } from '@/lib/tauri-bridge'
 import type { AppSettings } from '@/lib/settings'
 import { formatDuration, hostnameOf } from '@/lib/format'
 import { isValidStreamUrl, normalizeStreamUrl } from './validation'
@@ -31,6 +31,8 @@ export interface OmnibarProps {
   onCapture: (requests: NativeDownloadOptions[]) => Promise<void>
   onOpenInBrowser?: (url: string) => void
   initialUrl?: string
+  /** Queue `initialUrl` at the default quality once looked up (single videos only). */
+  autoCaptureInitial?: boolean
   onUrlConsumed?: () => void
 }
 
@@ -40,6 +42,7 @@ export const Omnibar: React.FC<OmnibarProps> = ({
   onCapture,
   onOpenInBrowser,
   initialUrl,
+  autoCaptureInitial = false,
   onUrlConsumed,
 }) => {
   const [url, setUrl] = useState('')
@@ -56,12 +59,12 @@ export const Omnibar: React.FC<OmnibarProps> = ({
   const handledClipboardRef = useRef<string | null>(null)
 
   const runProbe = useCallback(
-    async (target: string) => {
+    async (target: string): Promise<NativeMediaMetadata | null> => {
       const normalized = normalizeStreamUrl(target)
       if (!normalized) {
         requestIdRef.current++
         setProbe({ status: 'error', url: target.trim(), message: 'That doesn’t look like a link. Paste a web address such as https://youtube.com/watch?v=…' })
-        return
+        return null
       }
       const trimmed = normalized
       setUrl(normalized)
@@ -69,26 +72,53 @@ export const Omnibar: React.FC<OmnibarProps> = ({
       setProbe({ status: 'probing', url: trimmed })
       try {
         const meta = await queryMediaInfo(trimmed)
-        if (requestId !== requestIdRef.current) return
+        if (requestId !== requestIdRef.current) return null
         setQuality(defaultQualityValue(meta, settings.defaultQuality))
         setAudio(defaultAudioValue(meta))
         setSubtitles(SUBS_OFF)
         setProbe({ status: 'ready', url: trimmed, meta })
+        return meta
       } catch (err) {
-        if (requestId !== requestIdRef.current) return
+        if (requestId !== requestIdRef.current) return null
         setProbe({ status: 'error', url: trimmed, message: errorMessage(err) })
+        return null
       }
     },
     [settings.defaultQuality],
   )
 
-  // Links handed over from the Browser tab.
+  const latest = useRef({ auto: autoCaptureInitial, settings, capture: onCapture })
+  latest.current = { auto: autoCaptureInitial, settings, capture: onCapture }
+
+  // Links handed over from the Browser tab or another browser.
   useEffect(() => {
-    if (initialUrl && initialUrl.trim()) {
-      setUrl(initialUrl.trim())
-      void runProbe(initialUrl)
-      onUrlConsumed?.()
-    }
+    if (!initialUrl || !initialUrl.trim()) return
+    const target = initialUrl.trim()
+    // Before onUrlConsumed: the parent resets the flag together with the link.
+    const auto = latest.current.auto
+    setUrl(target)
+    onUrlConsumed?.()
+    void runProbe(target).then(async (meta) => {
+      // Playlists always stop here so the user can pick what to download.
+      if (!auto || !meta || meta.entries.length > 0) return
+      const { settings: current, capture: queue } = latest.current
+      const pageUrl = normalizeStreamUrl(target) ?? target
+      const choice = { quality: defaultQualityValue(meta, current.defaultQuality), audio: defaultAudioValue(meta), subtitles: SUBS_OFF }
+      setSubmitting(true)
+      try {
+        await queue(buildDownloadRequests(meta, pageUrl, choice, current))
+        playHapticPop()
+        requestIdRef.current++
+        setUrl('')
+        setProbe({ status: 'idle' })
+        setJustAdded(true)
+        window.setTimeout(() => setJustAdded(false), 1400)
+      } catch (err) {
+        setProbe({ status: 'error', url: pageUrl, message: errorMessage(err) })
+      } finally {
+        setSubmitting(false)
+      }
+    })
   }, [initialUrl, onUrlConsumed, runProbe])
 
   // Offer a copied link when the window gains focus.
@@ -102,6 +132,9 @@ export const Omnibar: React.FC<OmnibarProps> = ({
         const text = (await navigator.clipboard?.readText?.())?.trim()
         const offer = text && /^https?:\/\//i.test(text) && isValidStreamUrl(text) && text !== handledClipboardRef.current
         setClipboardUrl(offer ? text : null)
+        // Likely to be used: start the look-up now so it's ready when the chip is clicked.
+        const normalized = offer ? normalizeStreamUrl(text) : null
+        if (normalized) prefetchMediaInfo(normalized)
       } catch {
         // Clipboard access can be denied; the chip is optional.
       }

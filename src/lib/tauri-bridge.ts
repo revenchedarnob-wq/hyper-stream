@@ -416,6 +416,12 @@ export async function queryMediaInfo(url: string): Promise<NativeMediaMetadata> 
   return await invoke<NativeMediaMetadata>('query_media_info', { url })
 }
 
+/** Starts looking a link up in the background; a later `queryMediaInfo` finds it done. */
+export function prefetchMediaInfo(url: string): void {
+  if (!isTauri()) return
+  void invoke('prefetch_media_info', { url }).catch(() => {})
+}
+
 /** Queues a download and returns its task id. Rejects with a readable message. */
 export async function startDownload(options: NativeDownloadOptions, priority?: number): Promise<string> {
   if (!isTauri()) throw new Error('Downloading is only available in the desktop app.')
@@ -584,11 +590,17 @@ export function taskbarProgressFor(tasks: Pick<NativeDownloadProgress, 'state' |
   return { status: 'indeterminate', percent: 0 }
 }
 
-/** Pages sent from Chrome/Edge via `hyperstream://` links since the last call (oldest first). */
-export async function takeExternalLinks(): Promise<string[]> {
+export interface ExternalLink {
+  url: string
+  /** Sent by the HyperStream extension. Links from web pages (`hyperstream://`) never are. */
+  from_extension: boolean
+}
+
+/** Pages sent from other browsers (extension or `hyperstream://` link) since the last call, oldest first. */
+export async function takeExternalLinks(): Promise<ExternalLink[]> {
   if (!isTauri()) return []
   try {
-    return await invoke<string[]>('take_external_links')
+    return await invoke<ExternalLink[]>('take_external_links')
   } catch {
     return []
   }

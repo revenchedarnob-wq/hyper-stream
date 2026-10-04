@@ -23,6 +23,7 @@ describe('settings sanitize', () => {
       preferCompatible: true,
       maxConcurrent: 5,
       clipboardDetect: true,
+      extensionAutoDownload: false,
       completionSound: false,
       shieldsEnabled: true,
       shieldsAllowedSites: ['youtube.com'],

@@ -1,4 +1,6 @@
 const $ = (id) => document.getElementById(id);
+const VIDEO_SITES =
+  /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|tiktok\.com|instagram\.com|facebook\.com|x\.com|twitter\.com|reddit\.com|soundcloud\.com|bilibili\.com|bandcamp\.com|streamable\.com|rumble\.com)$/i;
 
 function formatSize(bytes) {
   if (!bytes) return '';
@@ -50,6 +52,10 @@ async function main() {
 
   const key = `tab:${tab?.id}`;
   const found = ((await chrome.storage.session.get(key))[key] ?? []).slice().reverse();
+  // Likely a video page: the app starts looking it up now, so "Download" is instant.
+  if (webPage && (found.length || VIDEO_SITES.test(new URL(pageUrl).hostname))) {
+    chrome.runtime.sendMessage({ type: 'prefetch', url: pageUrl });
+  }
   if (found.length) {
     $('media').hidden = false;
     const list = $('media-list');

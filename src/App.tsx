@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { detectHardwareProfile } from './lib/hardware-profiler'
 import { listen } from '@tauri-apps/api/event'
+import { loadSettings as loadAppSettings } from '@/lib/settings'
 import './App.css'
 import { StreamHub } from './components/stream-hub/StreamHub'
 
@@ -64,6 +65,8 @@ export default function App() {
   const isNative = isTauri()
   const [activeNav, setActiveNav] = useState('hub')
   const [browserHandoffUrl, setBrowserHandoffUrl] = useState('')
+  // Download the handed-over link without waiting for a quality choice (extension setting).
+  const [handoffAutoCapture, setHandoffAutoCapture] = useState(false)
 
   // Pages sent from Chrome/Edge ("Send to HyperStream"): open in the Hub's link box, never auto-download.
   useEffect(() => {
@@ -73,7 +76,8 @@ export default function App() {
       takeExternalLinks().then((links) => {
         const latest = links.at(-1)
         if (disposed || !latest) return
-        setBrowserHandoffUrl(latest)
+        setHandoffAutoCapture(latest.from_extension && loadAppSettings().extensionAutoDownload)
+        setBrowserHandoffUrl(latest.url)
         setActiveNav('hub')
       })
     void take()
@@ -901,7 +905,11 @@ export default function App() {
           >
               <StreamHub
                 initialUrl={browserHandoffUrl}
-                onUrlConsumed={() => setBrowserHandoffUrl('')}
+                autoCaptureInitial={handoffAutoCapture}
+                onUrlConsumed={() => {
+                  setBrowserHandoffUrl('')
+                  setHandoffAutoCapture(false)
+                }}
                 onOpenInBrowser={(url) => {
                   setBrowserRequest({ url, nonce: Date.now() })
                   setActiveNav('browser')

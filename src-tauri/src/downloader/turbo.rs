@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_ENCODING, CONTENT_RANGE, RANGE};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_ENCODING, CONTENT_RANGE, ETAG, IF_RANGE, LAST_MODIFIED, RANGE};
 
 /// Bytes collected per connection before they are written to disk.
 const WRITE_BUFFER: usize = 512 * 1024;
@@ -50,6 +50,10 @@ pub struct Meter {
     pub done: AtomicU64,
     pub total: AtomicU64,
     pub connections: AtomicUsize,
+    /// The server refused or rate-limited connections.
+    pub pushback: AtomicBool,
+    /// Connections in use once the speed stopped improving (0: never settled).
+    pub settled: AtomicUsize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -63,6 +67,72 @@ impl Limits {
         // Servers and firewalls start refusing (or banning) clients that open dozens of
         // connections; 16 is already twice what other download managers use by default.
         if low_memory { Limits { start: 4, max: 8 } } else { Limits { start: 8, max: 16 } }
+    }
+}
+
+/// What worked on a site before, so the next download starts there instead of ramping up
+/// again, and never goes above what the server accepted.
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+struct SiteRecord {
+    /// Connections that gave the best speed.
+    good: usize,
+    /// Most connections the server tolerated, when it pushed back.
+    cap: Option<usize>,
+    /// Unix seconds.
+    at: u64,
+}
+
+const SITE_RECORD_DAYS: u64 = 14;
+
+/// "rr3---sn-abc.googlevideo.com" -> "googlevideo.com"
+fn site_of(url: &str) -> Option<String> {
+    let host = reqwest::Url::parse(url).ok()?.host_str()?.to_ascii_lowercase();
+    let labels: Vec<&str> = host.split('.').collect();
+    let keep = if labels.len() >= 3 && labels[labels.len() - 1].len() == 2 && labels[labels.len() - 2].len() <= 3 { 3 } else { 2 };
+    Some(labels[labels.len().saturating_sub(keep)..].join("."))
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn read_records(file: &Path) -> std::collections::HashMap<String, SiteRecord> {
+    std::fs::read(file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+/// `base`, adjusted by what this site did last time (`file` holds the records).
+pub fn limits_for(base: Limits, url: &str, file: &Path) -> Limits {
+    let Some(site) = site_of(url) else { return base };
+    let Some(record) = read_records(file).get(&site).copied() else { return base };
+    if now_secs().saturating_sub(record.at) > SITE_RECORD_DAYS * 86_400 {
+        return base;
+    }
+    let max = record.cap.map_or(base.max, |cap| cap.clamp(1, base.max));
+    let start = if record.good > 0 { record.good.min(max) } else { base.start.min(max) };
+    Limits { start: start.max(1), max }
+}
+
+/// Saves what this download learned about the site.
+pub fn remember_site(url: &str, meter: &Meter, file: &Path) {
+    let Some(site) = site_of(url) else { return };
+    let pushback = meter.pushback.load(Ordering::Relaxed);
+    let settled = meter.settled.load(Ordering::Relaxed);
+    if !pushback && settled == 0 {
+        return; // too short to learn anything
+    }
+    let mut records = read_records(file);
+    let previous = records.get(&site).copied().unwrap_or_default();
+    let in_use = meter.connections.load(Ordering::Relaxed).max(1);
+    let record = SiteRecord {
+        good: if settled > 0 { settled } else { previous.good.min(in_use) },
+        cap: if pushback { Some(in_use) } else { previous.cap },
+        at: now_secs(),
+    };
+    records.insert(site, record);
+    // Keep the file small: drop records nobody has used in a while.
+    records.retain(|_, r| now_secs().saturating_sub(r.at) <= SITE_RECORD_DAYS * 86_400);
+    if let Ok(json) = serde_json::to_vec(&records) {
+        let _ = std::fs::write(file, json);
     }
 }
 
@@ -90,12 +160,17 @@ struct ResumeState {
     size: u64,
     /// Unfinished ranges as [next byte, end) pairs.
     ranges: Vec<(u64, u64)>,
+    /// The server's version of the file (ETag or Last-Modified). A different one means the
+    /// file changed while paused: the kept bytes no longer fit and it starts over.
+    #[serde(default)]
+    validator: Option<String>,
 }
 
 struct OpenStream {
     url: String,
     headers: HeaderMap,
     size: u64,
+    validator: Option<String>,
     max_request: u64,
     file: Arc<std::fs::File>,
     dest: PathBuf,
@@ -202,7 +277,20 @@ fn write_at(file: &std::fs::File, offset: u64, data: &[u8]) -> std::io::Result<(
 }
 
 /// Asks for the first byte: confirms range support, the real size and the final URL.
-async fn probe(client: &reqwest::Client, stream: &Stream, headers: &HeaderMap) -> Result<(String, u64), TurboError> {
+/// What the first request learned: final address, size, and the file's version.
+struct Probed {
+    url: String,
+    size: u64,
+    validator: Option<String>,
+}
+
+/// A strong ETag, or else Last-Modified: both work with If-Range.
+fn validator_of(headers: &HeaderMap) -> Option<String> {
+    let etag = headers.get(ETAG).and_then(|v| v.to_str().ok()).filter(|e| !e.starts_with("W/"));
+    etag.or_else(|| headers.get(LAST_MODIFIED).and_then(|v| v.to_str().ok())).map(str::to_string)
+}
+
+async fn probe(client: &reqwest::Client, stream: &Stream, headers: &HeaderMap) -> Result<Probed, TurboError> {
     let mut last = String::new();
     for attempt in 0..3u64 {
         if attempt > 0 {
@@ -226,7 +314,7 @@ async fn probe(client: &reqwest::Client, stream: &Stream, headers: &HeaderMap) -
             let Some(total) = total else {
                 return Err(TurboError::Fallback("size unknown".into()));
             };
-            return Ok((response.url().to_string(), total));
+            return Ok(Probed { url: response.url().to_string(), size: total, validator: validator_of(response.headers()) });
         }
         if status == 200 {
             return Err(TurboError::Fallback("server doesn't support ranges".into()));
@@ -239,13 +327,17 @@ async fn probe(client: &reqwest::Client, stream: &Stream, headers: &HeaderMap) -
     Err(TurboError::Fallback(format!("probe failed: {}", last)))
 }
 
-fn load_resume(dest: &Path, size: u64) -> Option<Vec<(u64, u64)>> {
+fn load_resume(dest: &Path, size: u64, validator: Option<&str>) -> Option<Vec<(u64, u64)>> {
     let part = part_path(dest);
     if std::fs::metadata(&part).ok()?.len() != size {
         return None;
     }
     let state: ResumeState = serde_json::from_slice(&std::fs::read(state_path(dest)).ok()?).ok()?;
     if state.size != size || state.ranges.iter().any(|&(a, b)| a > b || b > size) {
+        return None;
+    }
+    if state.validator.is_some() && state.validator.as_deref() != validator {
+        log::info!("turbo: {} changed on the server, starting over", dest.display());
         return None;
     }
     Some(state.ranges)
@@ -316,7 +408,7 @@ impl Job {
         for (i, ranges) in self.snapshot().into_iter().enumerate() {
             let s = &self.streams[i];
             let path = state_path(&s.dest);
-            let Ok(json) = serde_json::to_vec(&ResumeState { size: s.size, ranges }) else { continue };
+            let Ok(json) = serde_json::to_vec(&ResumeState { size: s.size, ranges, validator: s.validator.clone() }) else { continue };
             let tmp = path.with_extension("json.tmp");
             if std::fs::write(&tmp, json).is_ok() {
                 let _ = std::fs::rename(&tmp, &path);
@@ -353,11 +445,17 @@ impl Job {
             return Attempt::Progress;
         }
         let request_end = end.min(pos.saturating_add(stream.max_request));
-        let response = match self
+        let request = self
             .client
             .get(&stream.url)
-            .headers(stream.headers.clone())
-            .header(RANGE, format!("bytes={}-{}", pos, request_end - 1))
+            .headers(stream.headers.clone())            .header(RANGE, format!("bytes={}-{}", pos, request_end - 1));
+        // If the file changed since the first request, the server sends all of it (200)
+        // instead of mixing new bytes into the old file; that ends this engine's attempt.
+        let request = match &stream.validator {
+            Some(v) => request.header(IF_RANGE, v.as_str()),
+            None => request,
+        };
+        let response = match request
             .send()
             .await
         {
@@ -456,6 +554,7 @@ impl Job {
                     }
                     Attempt::Busy => {
                         // Too many connections for this server: shed one and back off.
+                        self.meter.pushback.store(true, Ordering::Relaxed);
                         let t = self.target.load(Ordering::Relaxed);
                         if t > 1 {
                             let _ = self.target.compare_exchange(t, t - 1, Ordering::AcqRel, Ordering::Relaxed);
@@ -499,12 +598,12 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
     let mut done = 0u64;
     for (i, s) in streams.iter().enumerate() {
         let headers = header_map(&s.headers);
-        let (url, size) = probe(&client, s, &headers).await?;
+        let Probed { url, size, validator } = probe(&client, s, &headers).await?;
         if s.size.is_some_and(|expected| expected != size) {
             log::info!("turbo: site said {} bytes, server says {}", s.size.unwrap_or(0), size);
         }
         let part = part_path(&s.dest);
-        let resumed = load_resume(&s.dest, size);
+        let resumed = load_resume(&s.dest, size, validator.as_deref());
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -526,6 +625,7 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
             url,
             headers,
             size,
+            validator,
             max_request: s.max_request.unwrap_or(u64::MAX).max(MIN_SPLIT),
             file: Arc::new(file),
             dest: s.dest.clone(),
@@ -602,6 +702,7 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
                                 if let Some((level, _)) = previous_level {
                                     job.target.store(level, Ordering::Relaxed);
                                 }
+                                meter.settled.store(job.target.load(Ordering::Relaxed), Ordering::Relaxed);
                                 ramping = false;
                             } else {
                                 previous_level = Some((current, rate));
@@ -614,6 +715,10 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
                                     }
                                     settle_until = now + Duration::from_millis(500);
                                 } else {
+                                    if next == current {
+                                        // At the cap and still improving: the cap is what works.
+                                        meter.settled.store(current, Ordering::Relaxed);
+                                    }
                                     ramping = false;
                                 }
                             }
@@ -942,6 +1047,46 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), *data);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn changed_file_is_not_resumed() {
+        let data = sample(2 * 1024 * 1024);
+        let (url, _) = serve(data.clone(), true, 0, false).await;
+        let dest = temp_dest("changed.bin");
+        // Leftovers from a different version of the file: same size, other version tag.
+        std::fs::write(part_path(&dest), vec![0u8; data.len()]).unwrap();
+        let stale = ResumeState { size: data.len() as u64, ranges: vec![(1024, data.len() as u64)], validator: Some("\"old\"".into()) };
+        std::fs::write(state_path(&dest), serde_json::to_vec(&stale).unwrap()).unwrap();
+        // The test server sends no version tag, so the old record can't be trusted.
+        download(vec![stream(&url, &dest, None)], Limits { start: 2, max: 2 }, Arc::new(Meter::default()), Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), *data);
+    }
+
+    #[test]
+    fn site_records_shape_the_next_download() {
+        let file = std::env::temp_dir().join(format!("hs-sites-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        let base = Limits { start: 8, max: 16 };
+        let url = "https://rr3---sn-abc.googlevideo.com/videoplayback?x=1";
+        assert_eq!(limits_for(base, url, &file).start, 8);
+
+        let meter = Meter::default();
+        meter.settled.store(4, Ordering::Relaxed);
+        remember_site(url, &meter, &file);
+        let l = limits_for(base, "https://rr5---sn-def.googlevideo.com/other", &file);
+        assert_eq!((l.start, l.max), (4, 16));
+
+        let refused = Meter::default();
+        refused.pushback.store(true, Ordering::Relaxed);
+        refused.connections.store(2, Ordering::Relaxed);
+        remember_site(url, &refused, &file);
+        let l = limits_for(base, url, &file);
+        assert_eq!((l.start, l.max), (2, 2));
+        assert_eq!(site_of("https://files.example.co.uk/a").as_deref(), Some("example.co.uk"));
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]

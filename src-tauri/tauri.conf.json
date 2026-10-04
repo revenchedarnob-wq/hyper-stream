@@ -52,12 +52,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": {
+      "../extension/": "extension/"
+    },
     "copyright": "Copyright 2026 HyperStream. All rights reserved.",
     "shortDescription": "Download videos and music from the web",
     "longDescription": "HyperStream downloads videos, music and playlists from YouTube and hundreds of other sites, with quality, audio-language and subtitle choices, a download queue, a built-in browser for sites that need a sign-in, and a local media library.",
     "category": "Video",
     "windows": {
       "nsis": {
+        "installerHooks": "./windows/installer-hooks.nsh",
         "installMode": "currentUser",
         "languages": [
           "English"

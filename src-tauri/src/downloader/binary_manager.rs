@@ -22,6 +22,15 @@ const FFMPEG_ZIP_URL: &str =
 const DENO_ZIP_URL: &str = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip";
 /// SHA-256 lists published next to each download; installs are refused when the file doesn't match.
 const YTDLP_SUMS_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
+/// Release pages; the latest one redirects to ".../tag/<version>".
+const YTDLP_RELEASES: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest";
+/// Nightly builds get fixes for changed sites days before a release.
+const YTDLP_NIGHTLY_RELEASES: &str = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest";
+const YTDLP_NIGHTLY_URL: &str = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_win.zip";
+const YTDLP_NIGHTLY_SUMS_URL: &str = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/SHA2-256SUMS";
+/// After a failure, newer yt-dlp builds are looked for at most this often.
+const UPDATE_AFTER_FAILURE_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+static LAST_FAILURE_UPDATE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 const FFMPEG_SUMS_URL: &str = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/checksums.sha256";
 const DENO_SUMS_URL: &str =
     "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip.sha256sum";
@@ -327,14 +336,90 @@ impl BinaryManager {
     }
 
     /// Folder of the app-managed (unpacked) yt-dlp.
-    fn ytdlp_dir() -> PathBuf {
+    pub(crate) fn ytdlp_dir() -> PathBuf {
         Self::get_bin_dir().join("yt-dlp")
     }
 
     pub async fn download_yt_dlp(progress: InstallProgress<'_>) -> Result<PathBuf, String> {
+        Self::install_yt_dlp(YTDLP_URL, YTDLP_SUMS_URL, progress).await
+    }
+
+    /// "2026.10.03" / "2026.10.03.232914" -> comparable numbers.
+    fn version_key(v: &str) -> Vec<u64> {
+        v.trim().split('.').map(|p| p.parse().unwrap_or(0)).collect()
+    }
+
+    /// Version of the newest release on a GitHub releases page (from its redirect).
+    async fn latest_tag(releases: &str) -> Option<String> {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .ok()?;
+        let response = client.get(releases).header("User-Agent", "HyperStream/1.0").send().await.ok()?;
+        let location = response.headers().get(reqwest::header::LOCATION)?.to_str().ok()?;
+        let tag = location.rsplit('/').next()?.trim().to_string();
+        tag.chars().next().is_some_and(|c| c.is_ascii_digit()).then_some(tag)
+    }
+
+    fn installed_ytdlp_version() -> Option<String> {
+        let path = Self::ytdlp_dir().join("yt-dlp.exe");
+        path.is_file().then(|| Self::cached_version(&path, "--version")).flatten()
+    }
+
+    /// The weekly refresh: installs the latest release only when it's newer than this copy
+    /// (no 18 MB download when nothing changed, and never back from a newer nightly).
+    pub async fn refresh_yt_dlp() -> Result<(), String> {
+        let installed = tokio::task::spawn_blocking(Self::installed_ytdlp_version).await.ok().flatten();
+        let latest = Self::latest_tag(YTDLP_RELEASES).await;
+        let newer = match (&installed, &latest) {
+            (Some(have), Some(latest)) => Self::version_key(latest) > Self::version_key(have),
+            _ => true,
+        };
+        if newer {
+            Self::download_yt_dlp(&|_, _, _| {}).await.map(|_| ())
+        } else {
+            // Up to date: check again in a week.
+            let _ = std::fs::write(Self::ytdlp_dir().join(".installed"), b"");
+            Ok(())
+        }
+    }
+
+    /// A site stopped working: sites change and yt-dlp follows within days. Installs a newer
+    /// yt-dlp if there is one (the release, else the nightly build) and returns true, so the
+    /// caller can try again. Checks at most every 6 hours, and only for the app's own copy.
+    pub async fn update_after_site_failure() -> bool {
+        {
+            let Ok(mut last) = LAST_FAILURE_UPDATE.lock() else { return false };
+            if last.is_some_and(|t| t.elapsed() < UPDATE_AFTER_FAILURE_EVERY) {
+                return false;
+            }
+            *last = Some(std::time::Instant::now());
+        }
+        let Some(installed) = tokio::task::spawn_blocking(Self::installed_ytdlp_version).await.ok().flatten() else {
+            return false;
+        };
+        let have = Self::version_key(&installed);
+        if let Some(release) = Self::latest_tag(YTDLP_RELEASES).await {
+            if Self::version_key(&release) > have {
+                log::info!("Updating yt-dlp {installed} -> {release} after a failed download");
+                return Self::download_yt_dlp(&|_, _, _| {}).await.is_ok();
+            }
+        }
+        if let Some(nightly) = Self::latest_tag(YTDLP_NIGHTLY_RELEASES).await {
+            if Self::version_key(&nightly) > have {
+                log::info!("Updating yt-dlp {installed} -> nightly {nightly} after a failed download");
+                return Self::install_yt_dlp(YTDLP_NIGHTLY_URL, YTDLP_NIGHTLY_SUMS_URL, &|_, _, _| {}).await.is_ok();
+            }
+        }
+        false
+    }
+
+    async fn install_yt_dlp(url: &str, sums_url: &str, progress: InstallProgress<'_>) -> Result<PathBuf, String> {
         let bin = Self::get_bin_dir();
         let zip = bin.join("yt-dlp_win.zip");
-        Self::download_to_file(YTDLP_URL, YTDLP_SUMS_URL, &zip, "yt-dlp", progress).await?;
+        Self::download_to_file(url, sums_url, &zip, "yt-dlp", progress).await?;
 
         let fresh = bin.join("yt-dlp.new");
         let _ = std::fs::remove_dir_all(&fresh);
@@ -584,6 +669,38 @@ mod tests {
         let path = BinaryManager::write_temp_cookie_file("# Netscape HTTP Cookie File\n").unwrap();
         assert!(path.is_file());
         let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Errors a newer yt-dlp may fix (a site changed), as opposed to network, disk or sign-in trouble.
+pub fn may_be_fixed_by_update(message: &str) -> bool {
+    const SITE_CHANGED: [&str; 4] = [
+        "No downloadable media was found",
+        "This site or link is not supported",
+        "Access was denied by the server",
+        "Download failed:",
+    ];
+    SITE_CHANGED.iter().any(|m| message.starts_with(m))
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    #[test]
+    fn versions_compare_by_number() {
+        let k = BinaryManager::version_key;
+        assert!(k("2026.10.03.232914") > k("2026.10.03"));
+        assert!(k("2026.10.03") > k("2026.9.30"));
+        assert!(k("2026.08.19") == k("2026.08.19"));
+    }
+
+    #[test]
+    fn only_site_changes_trigger_an_update() {
+        assert!(may_be_fixed_by_update("No downloadable media was found at this link. Make sure it points to a single video or post."));
+        assert!(may_be_fixed_by_update("Download failed: nsig extraction failed"));
+        assert!(!may_be_fixed_by_update("Network error: the server could not be reached. Check your internet connection."));
+        assert!(!may_be_fixed_by_update("This site requires you to be signed in. Open the link in the Browser tab, sign in, then capture again."));
     }
 }
 

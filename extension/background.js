@@ -182,12 +182,17 @@ function flash(tabId, reply) {
 
 // ---------------------------------------------------------------- catching browser downloads
 
+// A paused download can be restarted by the browser, which asks again: take each over once.
+const handled = new Set();
+
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   suggest(); // keep the browser's own choice; we only decide whether to take the download over
   maybeCatch(item);
 });
 
 async function maybeCatch(item) {
+  if (handled.has(item.id)) return;
+  handled.add(item.id);
   const settings = { ...DEFAULTS, ...(await chrome.storage.local.get(Object.keys(DEFAULTS))) };
   if (!settings.catchDownloads || item.incognito || item.byExtensionId) return;
   const url = item.finalUrl || item.url;
@@ -222,6 +227,7 @@ async function maybeCatch(item) {
 chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
   (async () => {
     if (msg.type === 'status') return respond(await toApp({ kind: 'ping' }));
+    if (msg.type === 'prefetch') return respond(await toApp({ kind: 'prefetch', url: msg.url }));
     if (msg.type === 'send-page') return respond(await sendPage(msg.url, msg.title));
     if (msg.type === 'send-media') {
       return respond(

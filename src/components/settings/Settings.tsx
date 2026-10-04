@@ -206,6 +206,16 @@ function DownloadsPanel() {
               onChange={(next) => saveSettings({ clipboardDetect: next })}
             />
           </Row>
+          <Row
+            label="Start downloads from the browser extension"
+            desc="Videos you send from the extension start right away at your default quality. Off: they wait in Stream Hub for you to choose. Playlists always wait."
+          >
+            <Toggle
+              label="Start downloads from the browser extension"
+              checked={settings.extensionAutoDownload}
+              onChange={(next) => saveSettings({ extensionAutoDownload: next })}
+            />
+          </Row>
         </div>
       </section>
 

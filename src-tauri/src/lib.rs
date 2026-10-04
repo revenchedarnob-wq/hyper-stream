@@ -219,7 +219,15 @@ fn is_app_foreground() -> bool {
 }
 
 /// Pages sent from another browser (`hyperstream://download?url=…`) that the UI hasn't taken yet.
-static PENDING_LINKS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static PENDING_LINKS: std::sync::Mutex<Vec<ExternalLink>> = std::sync::Mutex::new(Vec::new());
+
+#[derive(Clone, serde::Serialize)]
+struct ExternalLink {
+    url: String,
+    /// Sent by the HyperStream extension (the user clicked it there). Links from web pages
+    /// (`hyperstream://`) are never trusted to start a download by themselves.
+    from_extension: bool,
+}
 
 /// The web page inside a `hyperstream://download?url=…` link. Anything else is ignored.
 fn page_from_deep_link(link: &str) -> Option<String> {
@@ -236,15 +244,15 @@ fn page_from_deep_link(link: &str) -> Option<String> {
 /// box with the window brought forward; the user still decides whether to download it.
 fn receive_deep_links(app: &tauri::AppHandle, links: &[tauri::Url]) {
     for page in links.iter().filter_map(|u| page_from_deep_link(u.as_str())) {
-        queue_external_page(app, page);
+        queue_external_page(app, page, false);
     }
 }
 
 /// A page sent from outside the app (link or browser extension): shown in the Hub's link box.
-pub(crate) fn queue_external_page(app: &tauri::AppHandle, page: String) {
+pub(crate) fn queue_external_page(app: &tauri::AppHandle, page: String, from_extension: bool) {
     use tauri::Emitter;
     if let Ok(mut pending) = PENDING_LINKS.lock() {
-        pending.push(page);
+        pending.push(ExternalLink { url: page, from_extension });
     }
     let _ = app.emit("external-link", ());
     if let Some(w) = app.get_webview_window("main") {
@@ -294,7 +302,7 @@ fn extension_folder(app: &tauri::AppHandle) -> Option<String> {
 }
 
 #[tauri::command]
-fn take_external_links() -> Vec<String> {
+fn take_external_links() -> Vec<ExternalLink> {
     PENDING_LINKS.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default()
 }
 
@@ -441,8 +449,49 @@ fn inspect_media_container(path: String) -> Result<bool, String> {
     Ok(downloader::FastAtomInspector::verify_file(&p))
 }
 
+type LookupResult = Result<downloader::MediaMetadata, String>;
+
+/// Look-ups in progress, so asking twice for the same link (a prefetch, then the Hub) waits
+/// for the first one instead of starting yt-dlp again.
+static LOOKUPS: std::sync::Mutex<Option<std::collections::HashMap<String, std::sync::Arc<tokio::sync::OnceCell<LookupResult>>>>> =
+    std::sync::Mutex::new(None);
+
 #[tauri::command]
-async fn query_media_info(app: tauri::AppHandle, url: String) -> Result<downloader::MediaMetadata, String> {
+async fn query_media_info(app: tauri::AppHandle, url: String) -> LookupResult {
+    // Looked up in the last few minutes: answer from the saved result, no network.
+    if let Some(meta) = downloader::extractor::recent_lookup(&url) {
+        return Ok(meta);
+    }
+    let cell = {
+        let mut map = LOOKUPS.lock().map_err(|e| e.to_string())?;
+        map.get_or_insert_with(Default::default).entry(url.clone()).or_default().clone()
+    };
+    let result = cell.get_or_init(|| look_up(app, url.clone())).await.clone();
+    if let Ok(mut map) = LOOKUPS.lock() {
+        map.get_or_insert_with(Default::default).remove(&url);
+    }
+    result
+}
+
+/// Starts a look-up ahead of time (a copied link, the extension popup); the Hub's own
+/// look-up then finds it done or joins it.
+#[tauri::command]
+fn prefetch_media_info(app: tauri::AppHandle, url: String) {
+    prefetch(&app, url);
+}
+
+pub(crate) fn prefetch(app: &tauri::AppHandle, url: String) {
+    let Ok(parsed) = tauri::Url::parse(url.trim()) else { return };
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = query_media_info(app, parsed.to_string()).await;
+    });
+}
+
+async fn look_up(app: tauri::AppHandle, url: String) -> LookupResult {
     // Reading sign-ins can mean starting the built-in browser (seconds), and most links don't
     // need one. Look up right away; the sign-in is read alongside and used only if that fails
     // (age-restricted, members-only, private posts).
@@ -458,10 +507,18 @@ async fn query_media_info(app: tauri::AppHandle, url: String) -> Result<download
     if first.is_ok() {
         return first;
     }
-    match cookies.await.ok().flatten() {
+    let cookies = cookies.await.ok().flatten();
+    let result = match cookies.clone() {
         Some(c) => lookup(Some(c)).await.map_err(|e| e.to_string())?,
         None => first,
+    };
+    // The site may have changed: with a newer yt-dlp, try once more.
+    if let Err(e) = &result {
+        if downloader::binary_manager::may_be_fixed_by_update(e) && downloader::BinaryManager::update_after_site_failure().await {
+            return lookup(cookies).await.map_err(|e| e.to_string())?;
+        }
     }
+    result
 }
 
 #[tauri::command]
@@ -720,7 +777,7 @@ pub fn run() {
             // Keep the app-managed yt-dlp fresh; sites change their pages constantly.
             tauri::async_runtime::spawn(async {
                 if downloader::BinaryManager::managed_ytdlp_is_stale() {
-                    let _ = downloader::BinaryManager::download_yt_dlp(&|_, _, _| {}).await;
+                    let _ = downloader::BinaryManager::refresh_yt_dlp().await;
                 }
                 // YouTube needs a JavaScript runtime for all formats; install it quietly if missing.
                 let has_ytdlp = tauri::async_runtime::spawn_blocking(|| downloader::BinaryManager::find_binary("yt-dlp").is_some())
@@ -748,6 +805,7 @@ pub fn run() {
             exit_app,
             take_external_links,
             browser_extension_folder,
+            prefetch_media_info,
             browser_extension_status,
             add_browser_extension,
             is_app_foreground,

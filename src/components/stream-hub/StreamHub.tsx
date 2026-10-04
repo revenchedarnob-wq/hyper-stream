@@ -40,6 +40,8 @@ import { useEngine, useLibrary, useSettings } from '@/lib/hooks'
 
 export interface StreamHubProps {
   initialUrl?: string
+  /** Queue `initialUrl` at the default quality as soon as it's looked up (single videos). */
+  autoCaptureInitial?: boolean
   onUrlConsumed?: () => void
   onOpenInBrowser?: (url: string) => void
   onOpenLibrary?: () => void
@@ -59,7 +61,7 @@ function useToast() {
   return { toast, show }
 }
 
-export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed, onOpenInBrowser, onOpenLibrary }) => {
+export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, autoCaptureInitial, onUrlConsumed, onOpenInBrowser, onOpenLibrary }) => {
   const settings = useSettings()
   const engine = useEngine({ autoInstall: true })
   const library = useLibrary()
@@ -304,6 +306,7 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, onUrlConsumed,
           onCapture={handleCapture}
           onOpenInBrowser={onOpenInBrowser}
           initialUrl={initialUrl}
+          autoCaptureInitial={autoCaptureInitial}
           onUrlConsumed={onUrlConsumed}
         />
 

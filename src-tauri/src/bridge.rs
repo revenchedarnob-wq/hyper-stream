@@ -148,9 +148,9 @@ fn forward(message: &[u8]) -> Result<String, String> {
     let mut pipe = match open_pipe() {
         Ok(p) => p,
         Err(_) => {
-            let is_ping = serde_json::from_slice::<Request>(message).is_ok_and(|r| r.kind == "ping");
+            let is_ping = serde_json::from_slice::<Request>(message).is_ok_and(|r| r.kind == "ping" || r.kind == "prefetch");
             if is_ping {
-                // The popup only asks whether the app is there; don't start it for that.
+                // Checks and look-ups ahead of time never start the app.
                 return Err("HyperStream isn't running.".into());
             }
             start_app()?;
@@ -302,6 +302,15 @@ fn keep_cookies(url: &str, cookies: &[BrowserCookie]) -> Option<String> {
     Some(text)
 }
 
+/// File links handed over in the last few seconds, with their download.
+static RECENT_FILES: Mutex<Vec<(String, Instant, String)>> = Mutex::new(Vec::new());
+
+fn recently_started(url: &str) -> Option<String> {
+    let mut recent = RECENT_FILES.lock().ok()?;
+    recent.retain(|(_, at, _)| at.elapsed() < Duration::from_secs(15));
+    recent.iter().find(|(u, _, _)| u == url).map(|(_, _, task)| task.clone())
+}
+
 fn web_address(url: &str) -> Option<String> {
     let parsed = tauri::Url::parse(url.trim()).ok()?;
     matches!(parsed.scheme(), "http" | "https").then(|| parsed.to_string())
@@ -318,6 +327,13 @@ fn bring_forward(app: &AppHandle) {
 async fn handle(app: &AppHandle, request: Request) -> serde_json::Value {
     use serde_json::json;
     match request.kind.as_str() {
+        "prefetch" => {
+            // The popup opened on a page: start looking it up so "Download" is instant.
+            if let Some(url) = web_address(&request.url) {
+                crate::prefetch(app, url);
+            }
+            json!({ "ok": true })
+        }
         "ping" => {
             let _ = app.emit("extension-connected", &request.browser);
             json!({ "ok": true, "version": env!("CARGO_PKG_VERSION") })
@@ -329,11 +345,15 @@ async fn handle(app: &AppHandle, request: Request) -> serde_json::Value {
                 keep_cookies(&page, &request.cookies);
             }
             // Same as other links from outside: it lands in the Hub, the user picks the quality.
-            crate::queue_external_page(app, url);
+            crate::queue_external_page(app, url, true);
             json!({ "ok": true })
         }
         "file" => {
             let Some(url) = web_address(&request.url) else { return json!({ "ok": false, "error": "Not a web address." }) };
+            // The same file again within seconds is the same click (browsers can ask twice).
+            if let Some(task) = recently_started(&url) {
+                return json!({ "ok": true, "task": task });
+            }
             let cookies = keep_cookies(&url, &request.cookies);
             let filename = if request.filename.trim().is_empty() { crate::downloader::orchestrator::file_name_from_url(&url) } else { request.filename.clone() };
             let options = crate::downloader::DownloadOptions {
@@ -350,6 +370,9 @@ async fn handle(app: &AppHandle, request: Request) -> serde_json::Value {
             let orchestrator = app.state::<crate::downloader::DownloadOrchestrator>();
             match orchestrator.start_download(app.clone(), options, None).await {
                 Ok(task_id) => {
+                    if let Ok(mut recent) = RECENT_FILES.lock() {
+                        recent.push((url.clone(), Instant::now(), task_id.clone()));
+                    }
                     let _ = app.emit("show-downloads", ());
                     bring_forward(app);
                     json!({ "ok": true, "task": task_id })

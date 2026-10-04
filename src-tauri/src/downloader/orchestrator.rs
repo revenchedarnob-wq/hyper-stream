@@ -764,10 +764,24 @@ impl RunContext {
         ACTIVE_TRANSFERS.fetch_add(1, Ordering::SeqCst);
 
         let app = self.app_handle.read().unwrap().clone();
-        let result = match app {
+        let mut result = match app {
             Some(ref app) => run_download_task(&task_id, &entry, &self.tasks, app, &mut abort_rx).await,
             None => Err("The app isn't ready yet. Try again in a moment.".to_string()),
         };
+        // The site may have changed: with a newer yt-dlp, try once more right away.
+        if let (Err(e), Some(app)) = (&result, app.as_ref()) {
+            let still_running = self.state_of(&task_id) == Some(DownloadState::Downloading);
+            if still_running && crate::downloader::binary_manager::may_be_fixed_by_update(e) && {
+                if let Some(t) = self.tasks.write().unwrap().get_mut(&task_id) {
+                    t.stage = "Updating the download engine".to_string();
+                    t.speed_bytes_per_sec = 0;
+                }
+                emit_task(&self.app_handle, &self.tasks, &task_id, "download-progress");
+                BinaryManager::update_after_site_failure().await
+            } {
+                result = run_download_task(&task_id, &entry, &self.tasks, app, &mut abort_rx).await;
+            }
+        }
 
         ACTIVE_TRANSFERS.fetch_sub(1, Ordering::SeqCst);
         self.abort_handles.write().unwrap().remove(&task_id);
@@ -1294,6 +1308,11 @@ fn report_progress(task_id: &str, tasks_ref: &TaskMap, app: &AppHandle, done: u6
     let _ = app.emit("download-progress", &t.clone());
 }
 
+/// How many connections worked on each site before (see `turbo::limits_for`).
+fn site_records_file() -> PathBuf {
+    BinaryManager::get_bin_dir().parent().map_or_else(|| PathBuf::from("download_sites.json"), |d| d.join("download_sites.json"))
+}
+
 /// Downloads the chosen streams with the multi-connection engine, reporting progress.
 async fn fetch_fast(
     task_id: &str,
@@ -1305,7 +1324,9 @@ async fn fetch_fast(
 ) -> Result<(), turbo::TurboError> {
     let meter = Arc::new(turbo::Meter::default());
     let cancel = Arc::new(AtomicBool::new(false));
-    let limits = turbo::Limits::for_this_pc(crate::browser::is_low_memory_pc());
+    let site_url = streams.first().map(|s| s.url.clone()).unwrap_or_default();
+    let records = site_records_file();
+    let limits = turbo::limits_for(turbo::Limits::for_this_pc(crate::browser::is_low_memory_pc()), &site_url, &records);
     let mut job: std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), turbo::TurboError>> + Send>> = if one_connection {
         Box::pin(turbo::download_whole(streams.into_iter().next().ok_or(turbo::TurboError::Fallback("nothing to download".into()))?, meter.clone(), cancel.clone()))
     } else {
@@ -1323,7 +1344,12 @@ async fn fetch_fast(
                 let _ = (&mut job).await;
                 return Err(turbo::TurboError::Aborted);
             }
-            result = &mut job => return result,
+            result = &mut job => {
+                if !one_connection {
+                    turbo::remember_site(&site_url, &meter, &records);
+                }
+                return result;
+            }
             _ = tick.tick() => {
                 let done = meter.done.load(Ordering::Relaxed);
                 let total = meter.total.load(Ordering::Relaxed);

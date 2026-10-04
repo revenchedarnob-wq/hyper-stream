@@ -13,6 +13,8 @@ export interface AppSettings {
   preferCompatible: boolean
   maxConcurrent: number
   clipboardDetect: boolean
+  /** Videos sent from the browser extension start right away at the default quality. */
+  extensionAutoDownload: boolean
   completionSound: boolean
   /** Built-in browser: block ads and trackers. */
   shieldsEnabled: boolean
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   preferCompatible: false,
   maxConcurrent: 3,
   clipboardDetect: true,
+  extensionAutoDownload: false,
   completionSound: true,
   shieldsEnabled: true,
   shieldsAllowedSites: [],
@@ -45,6 +48,7 @@ export function sanitize(s: AppSettings): AppSettings {
     preferCompatible: !!s.preferCompatible,
     maxConcurrent: Number.isFinite(max) ? Math.min(5, Math.max(1, max)) : DEFAULT_SETTINGS.maxConcurrent,
     clipboardDetect: s.clipboardDetect !== false,
+    extensionAutoDownload: s.extensionAutoDownload === true,
     completionSound: s.completionSound !== false,
     shieldsEnabled: s.shieldsEnabled !== false,
     shieldsAllowedSites: Array.isArray(s.shieldsAllowedSites)

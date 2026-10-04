@@ -82,6 +82,17 @@ pub fn cached_info(url: &str) -> Option<std::path::PathBuf> {
     (age < LOOKUP_FRESH_FOR).then_some(path)
 }
 
+/// A look-up from the last few minutes, read from disk (no network).
+pub fn recent_lookup(url: &str) -> Option<MediaMetadata> {
+    const SHOWN_FOR: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+    let path = lookup_path(url);
+    let age = std::fs::metadata(&path).ok()?.modified().ok()?.elapsed().ok()?;
+    if age > SHOWN_FOR {
+        return None;
+    }
+    UniversalExtractor::parse_ytdlp_json(&std::fs::read_to_string(path).ok()?).ok()
+}
+
 fn remember_lookup(url: &str, json: &str) {
     let _ = std::fs::write(lookup_path(url), json);
     // Tidy up: old look-ups and leftovers from downloads interrupted by a crash.
