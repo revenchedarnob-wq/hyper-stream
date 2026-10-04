@@ -758,6 +758,7 @@ impl Job {
         let mut buf = Vec::with_capacity(WRITE_BUFFER);
         // Refused connections across ranges: a server that keeps refusing ends the attempt.
         let mut refusals = 0u32;
+        let mut refused_before = false;
         'claim: while !self.stopped() {
             if self.should_retire() {
                 return;
@@ -769,6 +770,7 @@ impl Job {
                     Attempt::Progress => {
                         failures = 0;
                         refusals = 0;
+                        refused_before = false;
                         if self.should_retire() {
                             range.busy.store(false, Ordering::Release);
                             return;
@@ -791,9 +793,16 @@ impl Job {
                         self.went_offline();
                         nap(&self.cancel, OFFLINE_RETRY).await;
                     }
+                    Attempt::Busy if !refused_before => {
+                        // Servers count a closed connection for a moment after it closes: one
+                        // refusal right after reconnecting isn't pushback yet. Try again shortly.
+                        refused_before = true;
+                        nap(&self.cancel, Duration::from_millis(500)).await;
+                    }
                     Attempt::Busy => {
                         // Too many connections for this server: this refused one is the one to go,
                         // before working connections notice there are too many.
+                        refused_before = false;
                         self.meter.pushback.store(true, Ordering::Relaxed);
                         let t = self.target.load(Ordering::Relaxed);
                         if t > 1 {
@@ -824,6 +833,26 @@ impl Job {
             range.busy.store(false, Ordering::Release);
         }
         self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Splits the largest ranges until there are `parts` of them (none under `MIN_SPLIT`).
+fn split_evenly(ranges: &mut Vec<Arc<Range>>, parts: usize) {
+    while ranges.len() < parts {
+        let Some(largest) = ranges.iter().max_by_key(|r| r.remaining()).cloned() else { return };
+        let (pos, end) = (largest.pos.load(Ordering::Acquire), largest.end.load(Ordering::Acquire));
+        let left = end - pos;
+        // The largest gets an equal share for the connections still without a part.
+        let share = left / (parts - ranges.len() + 1) as u64;
+        if share < MIN_SPLIT || left - share < MIN_SPLIT {
+            return;
+        }
+        let mid = (end - share) & !0xFFFF;
+        if mid <= pos {
+            return;
+        }
+        largest.end.store(mid, Ordering::Release);
+        ranges.push(Range::new(largest.stream, mid, end, false));
     }
 }
 
@@ -903,6 +932,9 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
     }
     let first = if small { 1 } else { limits.start.clamp(1, ceiling) };
     job.target.store(first, Ordering::Relaxed);
+    // One part per connection from the start. Taking over half of a running request instead
+    // cuts that request short, which closes its connection.
+    split_evenly(&mut job.ranges.lock().unwrap(), first);
     for _ in 0..first {
         spawn_worker(&job, &mut set);
     }
@@ -1576,7 +1608,8 @@ mod tests {
 
     async fn bench(name: &str, data: Arc<Vec<u8>>, opts: Server, limits: Limits) -> (f64, usize, Arc<Meter>) {
         let (url, _) = serve_with(data.clone(), opts).await;
-        let dest = temp_dest(&format!("bench-{}.bin", name));
+        let file: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+        let dest = temp_dest(&format!("bench-{}.bin", file));
         let meter = Arc::new(Meter::default());
         let (peak, _, watcher) = watch_peak(&meter);
         let started = Instant::now();
@@ -1655,21 +1688,6 @@ mod tests {
         assert_eq!((l.start, l.max), (2, 2));
         assert_eq!(site_of("https://files.example.co.uk/a").as_deref(), Some("example.co.uk"));
         let _ = std::fs::remove_file(&file);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore]
-    async fn debug_limit() {
-        let data = sample(48 << 20);
-        let opts = Server { per_conn_bps: 3 * MB, max_conns: 4, ..Server::default() };
-        let (url, stats) = serve_with(data.clone(), opts).await;
-        let dest = temp_dest("dbg.bin");
-        let meter = Arc::new(Meter::default());
-        let m = meter.clone();
-        let st = stats.clone();
-        let w = tokio::spawn(async move { let t = Instant::now(); loop { println!("{:>5.2}s conns {} open {} done {:.1} MB pushback {}", t.elapsed().as_secs_f64(), m.connections.load(Ordering::Relaxed), st.open.load(Ordering::SeqCst), m.done.load(Ordering::Relaxed) as f64/1e6, m.pushback.load(Ordering::Relaxed)); tokio::time::sleep(Duration::from_millis(250)).await; } });
-        download(vec![stream(&url, &dest, None)], Limits { start: 8, max: 16 }, meter.clone(), no_cancel()).await.unwrap();
-        w.abort();
     }
 
     #[test]
