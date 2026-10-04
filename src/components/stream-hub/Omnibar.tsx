@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { IconSearch, IconX, IconClipboard, IconAlertCircle, IconLoader, IconCheck, IconSparkles } from './Icons'
 import { GlassSelect } from '../common/GlassSelect'
 import { playHapticClick, playHapticPop } from '@/lib/sound'
-import { errorMessage, prefetchMediaInfo, queryMediaInfo, type NativeDownloadOptions, type NativeMediaMetadata } from '@/lib/tauri-bridge'
+import { errorMessage, prefetchMediaInfo, prepareDownload, queryMediaInfo, type NativeDownloadOptions, type NativeMediaMetadata } from '@/lib/tauri-bridge'
 import type { AppSettings } from '@/lib/settings'
 import { formatDuration, hostnameOf } from '@/lib/format'
 import { isValidStreamUrl, normalizeStreamUrl } from './validation'
@@ -170,6 +170,17 @@ export const Omnibar: React.FC<OmnibarProps> = ({
       void runProbe(pasted)
     }
   }
+
+  // While the preview shows, choose the formats for the current options, so Capture starts
+  // fetching at once. Single videos only; a short pause lets quick changes settle first.
+  useEffect(() => {
+    if (probe.status !== 'ready' || probe.meta.entries.length > 0) return
+    const timer = window.setTimeout(() => {
+      const requests = buildDownloadRequests(probe.meta, probe.url, { quality, audio, subtitles }, settings)
+      if (requests.length === 1) prepareDownload(requests[0])
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [probe, quality, audio, subtitles, settings])
 
   const capture = async () => {
     if (probe.status !== 'ready') return

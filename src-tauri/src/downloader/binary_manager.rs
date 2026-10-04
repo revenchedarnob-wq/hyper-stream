@@ -416,6 +416,19 @@ impl BinaryManager {
         false
     }
 
+    fn swap_ytdlp_folder(bin: &Path, fresh: &Path) -> Result<(), String> {
+        let current = Self::ytdlp_dir();
+        let old = bin.join("yt-dlp.old");
+        let _ = std::fs::remove_dir_all(&old);
+        if current.exists() {
+            if let Err(e) = std::fs::rename(&current, &old) {
+                let _ = std::fs::remove_dir_all(fresh);
+                return Err(format!("Couldn't install yt-dlp. If downloads are running, try again when they finish. ({})", e));
+            }
+        }
+        std::fs::rename(fresh, &current).map_err(|e| format!("Couldn't install yt-dlp: {}", e))
+    }
+
     async fn install_yt_dlp(url: &str, sums_url: &str, progress: InstallProgress<'_>) -> Result<PathBuf, String> {
         let bin = Self::get_bin_dir();
         let zip = bin.join("yt-dlp_win.zip");
@@ -452,18 +465,14 @@ impl BinaryManager {
         // Marks when this copy was installed (the files keep the release's own dates).
         let _ = std::fs::write(fresh.join(".installed"), b"");
 
-        // Swap folders. Windows won't move a folder whose yt-dlp is running.
+        // Swap folders. Windows won't move a folder whose yt-dlp is running, so background
+        // workers stop first (new ones start from the new copy).
+        crate::downloader::ytdlp_worker::pause();
+        let swapped = Self::swap_ytdlp_folder(&bin, &fresh);
+        crate::downloader::ytdlp_worker::resume();
+        swapped?;
         let current = Self::ytdlp_dir();
-        let old = bin.join("yt-dlp.old");
-        let _ = std::fs::remove_dir_all(&old);
-        if current.exists() {
-            if let Err(e) = std::fs::rename(&current, &old) {
-                let _ = std::fs::remove_dir_all(&fresh);
-                return Err(format!("Couldn't install yt-dlp. If downloads are running, try again when they finish. ({})", e));
-            }
-        }
-        std::fs::rename(&fresh, &current).map_err(|e| format!("Couldn't install yt-dlp: {}", e))?;
-        let _ = std::fs::remove_dir_all(&old);
+        let _ = std::fs::remove_dir_all(bin.join("yt-dlp.old"));
         // The single-file copy older versions installed is no longer used.
         let _ = std::fs::remove_file(bin.join("yt-dlp.exe"));
         Ok(current.join("yt-dlp.exe"))

@@ -422,6 +422,12 @@ export function prefetchMediaInfo(url: string): void {
   void invoke('prefetch_media_info', { url }).catch(() => {})
 }
 
+/** Chooses formats for a download the user is looking at, so starting it skips that step. */
+export function prepareDownload(options: NativeDownloadOptions): void {
+  if (!isTauri()) return
+  void invoke('prepare_download', { options }).catch(() => {})
+}
+
 /** Queues a download and returns its task id. Rejects with a readable message. */
 export async function startDownload(options: NativeDownloadOptions, priority?: number): Promise<string> {
   if (!isTauri()) throw new Error('Downloading is only available in the desktop app.')

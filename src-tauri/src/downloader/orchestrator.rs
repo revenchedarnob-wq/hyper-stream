@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter};
 use crate::ACTIVE_TRANSFERS;
 use crate::downloader::binary_manager::BinaryManager;
 use crate::downloader::cookies::browser_cookies_async;
-use crate::downloader::{bandwidth, extractor, turbo};
+use crate::downloader::{bandwidth, extractor, turbo, ytdlp_worker};
 use crate::downloader::library::{self, LibraryItem, MediaKind};
 use crate::downloader::queue::{
     get_queue_file_path, is_transient_error, load_queue_from_path, sanitize_for_persistence,
@@ -174,6 +174,15 @@ struct DownloadOutcome {
     file_path: String,
     width: Option<u32>,
     height: Option<u32>,
+}
+
+fn target_dir_for(options: &DownloadOptions) -> PathBuf {
+    options
+        .output_dir
+        .as_deref()
+        .filter(|d| !d.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_download_dir)
 }
 
 pub fn default_download_dir() -> PathBuf {
@@ -713,12 +722,7 @@ impl DownloadOrchestrator {
         }
 
         let task_id = format!("dl-{}", uuid_simple());
-        let target_dir = options
-            .output_dir
-            .as_deref()
-            .filter(|d| !d.trim().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(default_download_dir);
+        let target_dir = target_dir_for(&options);
         std::fs::create_dir_all(&target_dir)
             .map_err(|e| format!("Couldn't create the download folder {}: {}", target_dir.display(), e))?;
 
@@ -1118,6 +1122,49 @@ fn remove_partial_files(planned: &Path) {
     }
 }
 
+/// The site's sign-in for one download. Read in the background (it can mean starting the
+/// built-in browser) and written to a temporary file the first time yt-dlp needs it; the file
+/// is removed when the download ends, however it ends.
+struct SignIn {
+    pending: Option<tauri::async_runtime::JoinHandle<Option<String>>>,
+    cookies: Option<String>,
+    file: Option<PathBuf>,
+    written: bool,
+}
+
+impl SignIn {
+    fn start(app: &AppHandle, url: &str, given: Option<String>) -> Self {
+        let pending = given.is_none().then(|| {
+            let (app, url) = (app.clone(), url.to_string());
+            tauri::async_runtime::spawn(async move { browser_cookies_async(&app, &url).await })
+        });
+        SignIn { pending, cookies: given, file: None, written: false }
+    }
+
+    async fn cookies(&mut self) -> Option<&str> {
+        if let Some(task) = self.pending.take() {
+            self.cookies = task.await.ok().flatten();
+        }
+        self.cookies.as_deref()
+    }
+
+    async fn file(&mut self) -> Option<PathBuf> {
+        if !self.written {
+            self.written = true;
+            self.file = self.cookies().await.and_then(BinaryManager::write_temp_cookie_file);
+        }
+        self.file.clone()
+    }
+}
+
+impl Drop for SignIn {
+    fn drop(&mut self) {
+        if let Some(p) = &self.file {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
 /// Resolves only when the user pauses or cancels (a dropped sender is not an abort).
 struct Abort<'a> {
     rx: &'a mut tokio::sync::oneshot::Receiver<()>,
@@ -1143,24 +1190,145 @@ fn fast_engine_enabled() -> bool {
 }
 
 /// Runs a short yt-dlp step to completion; kills it if the user pauses or cancels.
-async fn capture(mut cmd: std::process::Command, abort: &mut Abort<'_>) -> Result<std::process::Output, String> {
+async fn capture(args: Vec<OsString>, abort: &mut Abort<'_>) -> Result<ytdlp_worker::Captured, String> {
+    // A warm worker skips yt-dlp's start-up. If it dies midway, run the usual way below.
+    if let Some(mut running) = ytdlp_worker::start(&args).await {
+        let pid = running.pid();
+        let mut out = ytdlp_worker::Captured::default();
+        loop {
+            tokio::select! {
+                biased;
+                _ = abort.requested() => {
+                    BinaryManager::kill_process_tree(pid);
+                    return Err(ABORTED.to_string());
+                }
+                event = running.next() => match event {
+                    Some(ytdlp_worker::Event::Out(line)) => {
+                        out.stdout.push_str(&line);
+                        out.stdout.push('\n');
+                    }
+                    Some(ytdlp_worker::Event::Err(line)) => {
+                        out.stderr.push_str(&line);
+                        out.stderr.push('\n');
+                    }
+                    Some(ytdlp_worker::Event::Exit(code)) => {
+                        out.code = code;
+                        return Ok(out);
+                    }
+                    None => break,
+                },
+            }
+        }
+    }
+    let mut cmd = BinaryManager::create_command("yt-dlp")?;
+    BinaryManager::apply_utf8_env(&mut cmd);
+    cmd.args(args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
     let child = cmd.spawn().map_err(|e| format!("Couldn't start the download engine: {}", e))?;
     let pid = child.id();
     let mut waiter = tokio::task::spawn_blocking(move || child.wait_with_output());
-    tokio::select! {
+    let out = tokio::select! {
         biased;
         _ = abort.requested() => {
             BinaryManager::kill_process_tree(pid);
             let _ = waiter.await;
-            Err(ABORTED.to_string())
+            return Err(ABORTED.to_string());
         }
         out = &mut waiter => out
             .map_err(|e| e.to_string())?
-            .map_err(|e| format!("The download engine stopped unexpectedly: {}", e)),
+            .map_err(|e| format!("The download engine stopped unexpectedly: {}", e))?,
+    };
+    Ok(ytdlp_worker::Captured {
+        code: if out.status.success() { 0 } else { out.status.code().unwrap_or(1).max(1) },
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    })
+}
+
+/// A running yt-dlp: in a background worker when one is available, else its own process.
+struct Engine {
+    lines: tokio::sync::mpsc::UnboundedReceiver<String>,
+    stderr_tail: Arc<Mutex<Vec<String>>>,
+    pid: u32,
+    /// Whether it succeeded; `None` when a worker died before finishing.
+    done: tokio::sync::oneshot::Receiver<Option<bool>>,
+}
+
+fn keep_tail(tail: &Mutex<Vec<String>>, line: String) {
+    if line.is_empty() {
+        return;
+    }
+    let mut tail = tail.lock().unwrap();
+    tail.push(line);
+    if tail.len() > 60 {
+        tail.remove(0);
     }
 }
+
+async fn start_engine(args: Vec<OsString>, use_worker: bool) -> Result<Engine, String> {
+    let (line_tx, lines) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
+    let (done_tx, done) = tokio::sync::oneshot::channel();
+    if use_worker {
+        if let Some(mut running) = ytdlp_worker::start(&args).await {
+            let pid = running.pid();
+            let tail = stderr_tail.clone();
+            tokio::spawn(async move {
+                let mut result = None;
+                while let Some(event) = running.next().await {
+                    match event {
+                        ytdlp_worker::Event::Out(line) => {
+                            let _ = line_tx.send(line);
+                        }
+                        ytdlp_worker::Event::Err(line) => keep_tail(&tail, line.trim().to_string()),
+                        ytdlp_worker::Event::Exit(code) => result = Some(code == 0),
+                    }
+                }
+                drop(line_tx);
+                let _ = done_tx.send(result);
+            });
+            return Ok(Engine { lines, stderr_tail, pid, done });
+        }
+    }
+
+    let mut cmd = BinaryManager::create_command("yt-dlp")?;
+    BinaryManager::apply_utf8_env(&mut cmd);
+    cmd.args(args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("Couldn't start the download engine: {}", e))?;
+    let pid = child.id();
+    let stdout = child.stdout.take().ok_or("Couldn't read engine output")?;
+    let stderr = child.stderr.take().ok_or("Couldn't read engine output")?;
+    // stdout lines -> async channel (the reader thread blocks, the task doesn't).
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut buf = Vec::new();
+        while reader.read_until(b'\n', &mut buf).map(|n| n > 0).unwrap_or(false) {
+            let _ = line_tx.send(String::from_utf8_lossy(&buf).trim().to_string());
+            buf.clear();
+        }
+    });
+    let tail = stderr_tail.clone();
+    std::thread::spawn(move || {
+        let err_thread = std::thread::spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            let mut buf = Vec::new();
+            while reader.read_until(b'\n', &mut buf).map(|n| n > 0).unwrap_or(false) {
+                keep_tail(&tail, String::from_utf8_lossy(&buf).trim().to_string());
+                buf.clear();
+            }
+        });
+        let status = child.wait();
+        let _ = err_thread.join();
+        let _ = done_tx.send(Some(status.is_ok_and(|s| s.success())));
+    });
+    Ok(Engine { lines, stderr_tail, pid, done })
+}
+
+/// What `run_ytdlp_with` returns when its worker died: the command runs again on its own.
+const WORKER_DIED: &str = "__worker_died__";
 
 /// yt-dlp's error lines, turned into a message for people.
 fn engine_error(stderr_lines: &[String]) -> String {
@@ -1262,15 +1430,11 @@ async fn select_formats(
     let json_path = extractor::scratch_dir().join(format!("selected-{}.json", task_id));
     let last = attempts.len().saturating_sub(1);
     for (i, args) in attempts.into_iter().enumerate() {
-        let mut cmd = BinaryManager::create_command("yt-dlp")?;
-        BinaryManager::apply_utf8_env(&mut cmd);
-        cmd.args(args);
-        let out = capture(cmd, abort).await?;
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        let items: Vec<&str> = stdout.lines().filter(|l| l.trim_start().starts_with('{')).collect();
-        if !out.status.success() || items.is_empty() {
+        let out = capture(args, abort).await?;
+        let items: Vec<&str> = out.stdout.lines().filter(|l| l.trim_start().starts_with('{')).collect();
+        if out.code != 0 || items.is_empty() {
             if i == last {
-                let stderr: Vec<String> = String::from_utf8_lossy(&out.stderr).lines().map(|l| l.trim().to_string()).collect();
+                let stderr: Vec<String> = out.stderr.lines().map(|l| l.trim().to_string()).collect();
                 return Err(engine_error(&stderr));
             }
             continue;
@@ -1284,6 +1448,80 @@ async fn select_formats(
         return Ok(parse_selection(items[0], json_path));
     }
     Ok(None)
+}
+
+/// Format choices worked out while the preview was on screen, by request. A download whose
+/// request matches starts fetching right away instead of choosing first.
+type Prepared = Arc<tokio::sync::OnceCell<Option<PathBuf>>>;
+static PREPARED: Mutex<Option<HashMap<String, (Instant, Prepared)>>> = Mutex::new(None);
+const PREPARED_FOR: Duration = Duration::from_secs(10 * 60);
+
+/// Identifies a choice: the same request, folder, FFmpeg and look-up give the same result.
+fn prepared_key(options: &DownloadOptions, target_dir: &Path, ffmpeg: Option<&Path>, cached: &Path) -> String {
+    use std::hash::{Hash, Hasher};
+    let args = build_args(options, target_dir, Path::new("thumbnail"), ffmpeg, None, Mode::Select, &Input::InfoJson(cached));
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    args.hash(&mut h);
+    std::fs::metadata(cached).and_then(|m| m.modified()).ok().hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+fn prepared_path(key: &str) -> PathBuf {
+    extractor::scratch_dir().join(format!("prepared-{}.json", key))
+}
+
+/// Chooses formats for `options` ahead of time (the Hub's preview: the user is still looking).
+/// Only for links looked up moments ago, so it never loads a page.
+pub fn prepare(options: DownloadOptions) {
+    if !fast_engine_enabled() || options.direct.is_some() {
+        return;
+    }
+    let Some(cached) = extractor::cached_info(&options.url) else { return };
+    tauri::async_runtime::spawn(async move {
+        let target_dir = target_dir_for(&options);
+        let ffmpeg = tokio::task::spawn_blocking(|| BinaryManager::find_binary("ffmpeg")).await.ok().flatten();
+        let key = prepared_key(&options, &target_dir, ffmpeg.as_deref(), &cached);
+        let cell = {
+            let mut map = PREPARED.lock().unwrap();
+            let map = map.get_or_insert_with(HashMap::new);
+            map.retain(|k, (at, _)| {
+                let keep = at.elapsed() < PREPARED_FOR;
+                if !keep {
+                    let _ = std::fs::remove_file(prepared_path(k));
+                }
+                keep
+            });
+            map.entry(key.clone()).or_insert_with(|| (Instant::now(), Prepared::default())).1.clone()
+        };
+        cell.get_or_init(|| async {
+            let args = build_args(&options, &target_dir, Path::new("thumbnail"), ffmpeg.as_deref(), None, Mode::Select, &Input::InfoJson(&cached));
+            // Nobody can cancel this: a receiver whose sender is gone never fires.
+            let (_, mut never) = tokio::sync::oneshot::channel::<()>();
+            let mut abort = Abort { rx: &mut never, live: true };
+            let out = capture(args, &mut abort).await.ok().filter(|o| o.code == 0)?;
+            let lines: Vec<&str> = out.stdout.lines().filter(|l| l.trim_start().starts_with('{')).collect();
+            let [json] = lines.as_slice() else { return None };
+            let path = prepared_path(&key);
+            std::fs::write(&path, json).ok()?;
+            Some(path)
+        })
+        .await;
+    });
+}
+
+/// The choice made for this request ahead of time, if any (waits if it's still being made).
+async fn take_prepared(task_id: &str, options: &DownloadOptions, target_dir: &Path, ffmpeg: Option<&Path>) -> Option<Selection> {
+    let cached = extractor::cached_info(&options.url)?;
+    let key = prepared_key(options, target_dir, ffmpeg, &cached);
+    let (at, cell) = PREPARED.lock().unwrap().as_mut()?.remove(&key)?;
+    if at.elapsed() >= PREPARED_FOR {
+        return None;
+    }
+    let path = cell.get_or_init(|| async { None }).await.clone()?;
+    let json_path = extractor::scratch_dir().join(format!("selected-{}.json", task_id));
+    std::fs::rename(&path, &json_path).ok()?;
+    let json = std::fs::read_to_string(&json_path).ok()?;
+    parse_selection(&json, json_path)
 }
 
 fn show_selection(task_id: &str, options: &DownloadOptions, tasks_ref: &TaskMap, app: &AppHandle, sel: &Selection) {
@@ -1403,44 +1641,25 @@ async fn run_ytdlp(
     abort: &mut Abort<'_>,
     finishing: bool,
 ) -> Result<EngineRun, String> {
-    let mut cmd = BinaryManager::create_command("yt-dlp")?;
-    BinaryManager::apply_utf8_env(&mut cmd);
-    cmd.args(args);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
+    match run_ytdlp_with(args.clone(), task_id, options, tasks_ref, app, abort, finishing, true).await {
+        Err(e) if e == WORKER_DIED => run_ytdlp_with(args, task_id, options, tasks_ref, app, abort, finishing, false).await,
+        other => other,
+    }
+}
 
-    let mut child = cmd.spawn().map_err(|e| format!("Couldn't start the download engine: {}", e))?;
-    let pid = child.id();
-    let stdout = child.stdout.take().ok_or("Couldn't read engine output")?;
-    let stderr = child.stderr.take().ok_or("Couldn't read engine output")?;
-
-    // stdout lines -> async channel (the reader thread blocks, the task doesn't).
-    let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    std::thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let mut buf = Vec::new();
-        while reader.read_until(b'\n', &mut buf).map(|n| n > 0).unwrap_or(false) {
-            let _ = line_tx.send(String::from_utf8_lossy(&buf).trim().to_string());
-            buf.clear();
-        }
-    });
-    let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
-    let stderr_tail_writer = stderr_tail.clone();
-    let err_thread = std::thread::spawn(move || {
-        let mut reader = BufReader::new(stderr);
-        let mut buf = Vec::new();
-        while reader.read_until(b'\n', &mut buf).map(|n| n > 0).unwrap_or(false) {
-            let line = String::from_utf8_lossy(&buf).trim().to_string();
-            if !line.is_empty() {
-                let mut tail = stderr_tail_writer.lock().unwrap();
-                tail.push(line);
-                if tail.len() > 60 {
-                    tail.remove(0);
-                }
-            }
-            buf.clear();
-        }
-    });
+#[allow(clippy::too_many_arguments)]
+async fn run_ytdlp_with(
+    args: Vec<OsString>,
+    task_id: &str,
+    options: &DownloadOptions,
+    tasks_ref: &TaskMap,
+    app: &AppHandle,
+    abort: &mut Abort<'_>,
+    finishing: bool,
+    use_worker: bool,
+) -> Result<EngineRun, String> {
+    let mut engine = start_engine(args, use_worker).await?;
+    let pid = engine.pid;
 
     let mut tracker = ProgressTracker::default();
     let mut final_path: Option<String> = None;
@@ -1452,11 +1671,10 @@ async fn run_ytdlp(
             biased;
             _ = abort.requested() => {
                 BinaryManager::kill_process_tree(pid);
-                let _ = tokio::task::spawn_blocking(move || child.wait()).await;
-                let _ = err_thread.join();
+                let _ = (&mut engine.done).await;
                 return Err(ABORTED.to_string());
             }
-            line = line_rx.recv() => {
+            line = engine.lines.recv() => {
                 let Some(line) = line else { break };
                 let mut parts = line.split_whitespace();
                 match parts.next() {
@@ -1549,16 +1767,11 @@ async fn run_ytdlp(
         }
     }
 
-    let status = tokio::task::spawn_blocking(move || child.wait())
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("The download engine stopped unexpectedly: {}", e))?;
-    let _ = err_thread.join();
-
-    if !status.success() {
-        return Err(engine_error(&stderr_tail.lock().unwrap()));
+    match engine.done.await {
+        Ok(Some(true)) => Ok(EngineRun { final_path, dims }),
+        Ok(Some(false)) => Err(engine_error(&engine.stderr_tail.lock().unwrap())),
+        _ => Err(WORKER_DIED.to_string()),
     }
-    Ok(EngineRun { final_path, dims })
 }
 
 async fn run_download_task(
@@ -1573,11 +1786,46 @@ async fn run_download_task(
     std::fs::create_dir_all(target_dir)
         .map_err(|e| format!("Couldn't create the download folder {}: {}", target_dir.display(), e))?;
 
-    let cookies = match options.cookies.clone() {
-        Some(c) if !c.trim().is_empty() => Some(c),
-        _ => browser_cookies_async(app, &options.url).await,
+    let given = options.cookies.clone().filter(|c| !c.trim().is_empty());
+    let mut sign_in = SignIn::start(app, &options.url, given);
+    let mut abort = Abort { rx: abort_rx, live: true };
+    if let Some(direct) = &options.direct {
+        let cookies = sign_in.cookies().await.map(str::to_string);
+        return run_direct(task_id, options, direct, target_dir, cookies.as_deref(), tasks_ref, app, &mut abort).await;
+    }
+
+    let ffmpeg = BinaryManager::find_binary("ffmpeg");
+    let thumb_template = library::thumbnails_dir().join(format!("{}.%(ext)s", task_id));
+    let args_for = |mode: Mode, input: &Input, cookie_file: Option<PathBuf>| {
+        let mut args = build_args(options, target_dir, &thumb_template, ffmpeg.as_deref(), cookie_file.as_deref(), mode, input);
+        if let Some(rate) = bandwidth::fixed_limit_per_download(ACTIVE_TRANSFERS.load(Ordering::Relaxed) as usize) {
+            args.splice(0..0, [OsString::from("--limit-rate"), OsString::from(rate.to_string())]);
+        }
+        args
     };
-    let cookie_file = cookies.as_deref().and_then(BinaryManager::write_temp_cookie_file);
+
+    // Formats: chosen ahead of time while the preview showed, else from the Hub's recent
+    // look-up (neither loads the page, so no sign-in is needed), else from the page itself.
+    let selection = if !fast_engine_enabled() {
+        None
+    } else if let Some(sel) = take_prepared(task_id, options, target_dir, ffmpeg.as_deref()).await {
+        Some(sel)
+    } else {
+        let from_lookup = match extractor::cached_info(&options.url) {
+            Some(cached) => match select_formats(task_id, vec![args_for(Mode::Select, &Input::InfoJson(&cached), None)], &mut abort).await {
+                Err(e) if e == ABORTED => return Err(e),
+                other => other.ok(),
+            },
+            None => None,
+        };
+        match from_lookup {
+            Some(found) => found,
+            None => {
+                let page = args_for(Mode::Select, &Input::Url, sign_in.file().await);
+                select_formats(task_id, vec![page], &mut abort).await?
+            }
+        }
+    };
     /// Deletes a temporary file when the download ends, however it ends.
     struct TempFile(Option<PathBuf>);
     impl Drop for TempFile {
@@ -1587,44 +1835,17 @@ async fn run_download_task(
             }
         }
     }
-    let _cookie_guard = TempFile(cookie_file.clone());
-
-    let mut abort = Abort { rx: abort_rx, live: true };
-    if let Some(direct) = &options.direct {
-        return run_direct(task_id, options, direct, target_dir, cookies.as_deref(), tasks_ref, app, &mut abort).await;
-    }
-
-    let ffmpeg = BinaryManager::find_binary("ffmpeg");
-    let thumb_template = library::thumbnails_dir().join(format!("{}.%(ext)s", task_id));
-    let args_for = |mode: Mode, input: &Input| {
-        let mut args = build_args(options, target_dir, &thumb_template, ffmpeg.as_deref(), cookie_file.as_deref(), mode, input);
-        if let Some(rate) = bandwidth::fixed_limit_per_download(ACTIVE_TRANSFERS.load(Ordering::Relaxed) as usize) {
-            args.splice(0..0, [OsString::from("--limit-rate"), OsString::from(rate.to_string())]);
-        }
-        args
-    };
-
-    let selection = if fast_engine_enabled() {
-        let mut attempts = Vec::new();
-        if let Some(cached) = extractor::cached_info(&options.url) {
-            attempts.push(args_for(Mode::Select, &Input::InfoJson(&cached)));
-        }
-        attempts.push(args_for(Mode::Select, &Input::Url));
-        select_formats(task_id, attempts, &mut abort).await?
-    } else {
-        None
-    };
     let _selection_guard = TempFile(selection.as_ref().map(|s| s.json_path.clone()));
     if let Some(sel) = &selection {
         show_selection(task_id, options, tasks_ref, app, sel);
     }
 
     let run = match &selection {
-        None => run_ytdlp(args_for(Mode::Download, &Input::Url), task_id, options, tasks_ref, app, &mut abort, false).await?,
+        None => run_ytdlp(args_for(Mode::Download, &Input::Url, sign_in.file().await), task_id, options, tasks_ref, app, &mut abort, false).await?,
         Some(sel) => {
             let saved = Input::InfoJson(&sel.json_path);
             match sel.streams.clone() {
-                None => run_ytdlp(args_for(Mode::Download, &saved), task_id, options, tasks_ref, app, &mut abort, false).await?,
+                None => run_ytdlp(args_for(Mode::Download, &saved, sign_in.file().await), task_id, options, tasks_ref, app, &mut abort, false).await?,
                 Some(streams) => {
                     let mut dests: Vec<PathBuf> = streams.iter().map(|s| s.dest.clone()).collect();
                     let mut result = fetch_fast(task_id, streams, tasks_ref, app, &mut abort, false).await;
@@ -1633,7 +1854,8 @@ async fn run_download_task(
                     // with the data already on disk. The fresh choice replaces the saved one.
                     if let Err(turbo::TurboError::Expired(reason)) = &result {
                         log::info!("Links expired ({}), loading the page again", reason);
-                        let fresh = select_formats(task_id, vec![args_for(Mode::Select, &Input::Url)], &mut abort).await?;
+                        let page = args_for(Mode::Select, &Input::Url, sign_in.file().await);
+                        let fresh = select_formats(task_id, vec![page], &mut abort).await?;
                         result = match fresh.and_then(|f| f.streams) {
                             Some(streams) => {
                                 let fresh_dests: Vec<PathBuf> = streams.iter().map(|s| s.dest.clone()).collect();
@@ -1650,7 +1872,7 @@ async fn run_download_task(
                         // The streams are on disk under the names yt-dlp expects; it skips
                         // downloading them and goes straight to merging.
                         Ok(()) => {
-                            let finish = args_for(Mode::Download, &saved);
+                            let finish = args_for(Mode::Download, &saved, sign_in.file().await);
                             match run_ytdlp(finish.clone(), task_id, options, tasks_ref, app, &mut abort, true).await {
                                 // Antivirus often scans new files for a moment; wait, then merge again.
                                 Err(e) if e.contains("another program") => {
@@ -1669,7 +1891,7 @@ async fn run_download_task(
                             }
                             // A refused link may have expired: load the page again.
                             let input = if reason.starts_with("link refused") { Input::Url } else { saved };
-                            run_ytdlp(args_for(Mode::Download, &input), task_id, options, tasks_ref, app, &mut abort, false).await?
+                            run_ytdlp(args_for(Mode::Download, &input, sign_in.file().await), task_id, options, tasks_ref, app, &mut abort, false).await?
                         }
                     }
                 }

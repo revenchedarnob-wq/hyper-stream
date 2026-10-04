@@ -8,6 +8,7 @@ pub mod library;
 pub mod orchestrator;
 pub mod queue;
 pub mod turbo;
+pub mod ytdlp_worker;
 
 #[cfg(feature = "experimental-drm")]
 pub mod quarantine;

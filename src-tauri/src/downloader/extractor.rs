@@ -111,6 +111,8 @@ fn remember_lookup(url: &str, json: &str) {
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Runs the command to completion, killing it (and its children) if it hangs.
+const TOO_SLOW: &str = "The site took too long to respond. Check your connection and try again.";
+
 fn run_with_timeout(mut cmd: std::process::Command, timeout: std::time::Duration) -> Result<std::process::Output, String> {
     let child = cmd.spawn().map_err(|e| format!("Failed to start the download engine: {}", e))?;
     let pid = child.id();
@@ -122,47 +124,53 @@ fn run_with_timeout(mut cmd: std::process::Command, timeout: std::time::Duration
         Ok(result) => result.map_err(|e| format!("The download engine stopped unexpectedly: {}", e)),
         Err(_) => {
             BinaryManager::kill_process_tree(pid);
-            Err("The site took too long to respond. Check your connection and try again.".to_string())
+            Err(TOO_SLOW.to_string())
         }
     }
 }
 
 impl UniversalExtractor {
     pub fn query_info(url: &str, cookies_content: Option<&str>) -> Result<MediaMetadata, String> {
-        let mut cmd = BinaryManager::create_command("yt-dlp")?;
-        BinaryManager::apply_utf8_env(&mut cmd);
-
         // --no-playlist: a video opened from a playlist ("watch?v=…&list=…") means that one video.
         // Plain playlist and channel links still list their entries.
-        cmd.args(["-J", "--flat-playlist", "--no-playlist", "--playlist-items", "1:300", "--no-warnings", "--encoding", "utf-8"]);
-
+        let mut args: Vec<std::ffi::OsString> = ["-J", "--flat-playlist", "--no-playlist", "--playlist-items", "1:300", "--no-warnings", "--encoding", "utf-8"]
+            .into_iter()
+            .map(Into::into)
+            .collect();
         let temp_cookie_path = match cookies_content {
             Some(c) if !c.trim().is_empty() => BinaryManager::write_temp_cookie_file(c),
             _ => None,
         };
         if let Some(ref cf) = temp_cookie_path {
-            cmd.arg("--cookies");
-            cmd.arg(cf);
+            args.push("--cookies".into());
+            args.push(cf.into());
         }
+        args.push("--".into());
+        args.push(url.into());
 
-        cmd.arg("--");
-        cmd.arg(url);
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-
-        let output = run_with_timeout(cmd, PROBE_TIMEOUT);
+        // A warm worker answers sooner; without one (or if it dies), start yt-dlp.
+        let output = match tauri::async_runtime::block_on(crate::downloader::ytdlp_worker::capture(&args, PROBE_TIMEOUT)) {
+            Some(Ok(out)) => Ok((out.code == 0, out.stdout, out.stderr)),
+            Some(Err(())) => Err(TOO_SLOW.to_string()),
+            None => BinaryManager::create_command("yt-dlp").and_then(|mut cmd| {
+                BinaryManager::apply_utf8_env(&mut cmd);
+                cmd.args(&args);
+                cmd.stdout(Stdio::piped());
+                cmd.stderr(Stdio::piped());
+                run_with_timeout(cmd, PROBE_TIMEOUT).map(|o| {
+                    (o.status.success(), String::from_utf8_lossy(&o.stdout).into_owned(), String::from_utf8_lossy(&o.stderr).into_owned())
+                })
+            }),
+        };
 
         if let Some(path) = temp_cookie_path {
             let _ = std::fs::remove_file(path);
         }
-        let output = output?;
+        let (success, json_str, err_text) = output?;
 
-        if !output.status.success() {
-            let err_text = String::from_utf8_lossy(&output.stderr);
+        if !success {
             return Err(classify_download_error(&err_text));
         }
-
-        let json_str = String::from_utf8_lossy(&output.stdout);
         let meta = Self::parse_ytdlp_json(&json_str)?;
         if meta.entries.is_empty() && !meta.is_live {
             remember_lookup(url, &json_str);

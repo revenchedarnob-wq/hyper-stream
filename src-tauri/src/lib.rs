@@ -632,6 +632,12 @@ fn set_queue_config(
     state.set_config(config)
 }
 
+/// Chooses formats for a download the user is about to start (the Hub's preview).
+#[tauri::command]
+fn prepare_download(options: downloader::DownloadOptions) {
+    downloader::orchestrator::prepare(options);
+}
+
 /// One speed limit for all downloads (Settings → Speed limit).
 #[tauri::command]
 fn set_speed_limit(limit: downloader::bandwidth::SpeedLimit) {
@@ -812,6 +818,7 @@ pub fn run() {
             take_external_links,
             browser_extension_folder,
             set_speed_limit,
+            prepare_download,
             prefetch_media_info,
             browser_extension_status,
             add_browser_extension,
