@@ -109,7 +109,7 @@ fn unload_after() -> std::time::Duration {
     std::time::Duration::from_secs(secs)
 }
 
-fn is_low_memory_pc() -> bool {
+pub(crate) fn is_low_memory_pc() -> bool {
     total_ram_gb().is_some_and(|gb| gb <= 4.5)
 }
 /// The page that was open when the browser was unloaded.
@@ -357,7 +357,7 @@ fn seed_visited_sites(w: &tauri::Webview) {
     }
 }
 
-fn site_key_of_url(url: &str) -> Option<String> {
+pub(crate) fn site_key_of_url(url: &str) -> Option<String> {
     let parsed: tauri::Url = url.parse().ok()?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return None;

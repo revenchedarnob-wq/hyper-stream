@@ -63,6 +63,12 @@ export async function closeWindow(): Promise<void> {
 /**
  * Open Windows File Explorer with the specific file selected.
  */
+/** Folder of the HyperStream browser extension, for loading it into Chrome or Edge. */
+export async function getBrowserExtensionFolder(): Promise<string | null> {
+  if (!isTauri()) return null
+  return invoke<string | null>('browser_extension_folder')
+}
+
 export async function revealInExplorer(filePath: string): Promise<void> {
   if (!isTauri()) return
   await invoke('reveal_in_explorer', { path: filePath })

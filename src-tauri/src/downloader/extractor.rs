@@ -58,6 +58,44 @@ pub struct MediaMetadata {
 
 pub struct UniversalExtractor;
 
+/// Temporary files: recent look-ups and the formats chosen for running downloads.
+pub fn scratch_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join("HyperStream");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Download links inside a look-up stay valid for a while (hours on YouTube); stay well inside that.
+const LOOKUP_FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+
+fn lookup_path(url: &str) -> std::path::PathBuf {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    url.trim().hash(&mut h);
+    scratch_dir().join(format!("info-{:016x}.json", h.finish()))
+}
+
+/// The Hub's look-up of `url` if it's recent: starting that download skips loading the page again.
+pub fn cached_info(url: &str) -> Option<std::path::PathBuf> {
+    let path = lookup_path(url);
+    let age = std::fs::metadata(&path).ok()?.modified().ok()?.elapsed().ok()?;
+    (age < LOOKUP_FRESH_FOR).then_some(path)
+}
+
+fn remember_lookup(url: &str, json: &str) {
+    let _ = std::fs::write(lookup_path(url), json);
+    // Tidy up: old look-ups and leftovers from downloads interrupted by a crash.
+    let Ok(entries) = std::fs::read_dir(scratch_dir()) else { return };
+    let six_hours = std::time::Duration::from_secs(6 * 3600);
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let old = entry.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).is_some_and(|age| age > six_hours);
+        if old && (name.starts_with("info-") || name.starts_with("selected-")) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// A probe normally takes a few seconds; big channels and slow sites can take longer.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
@@ -114,7 +152,11 @@ impl UniversalExtractor {
         }
 
         let json_str = String::from_utf8_lossy(&output.stdout);
-        Self::parse_ytdlp_json(&json_str)
+        let meta = Self::parse_ytdlp_json(&json_str)?;
+        if meta.entries.is_empty() && !meta.is_live {
+            remember_lookup(url, &json_str);
+        }
+        Ok(meta)
     }
 
     pub fn parse_ytdlp_json(json_str: &str) -> Result<MediaMetadata, String> {

@@ -12,7 +12,9 @@ pub const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "windows")]
 pub const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x00004000;
 
-const YTDLP_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+/// The unpacked build: starts in ~0.5 s, where the single-file .exe unpacks itself on every run
+/// (~1.5 s, more on slow disks and while antivirus scans the unpacked files).
+const YTDLP_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_win.zip";
 /// yt-dlp's own FFmpeg builds (includes the patches yt-dlp relies on).
 const FFMPEG_ZIP_URL: &str =
     "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
@@ -81,6 +83,12 @@ impl BinaryManager {
         };
 
         // 1. Managed bin directory first (kept up to date by the app).
+        if binary_name == "yt-dlp" {
+            let unpacked = Self::ytdlp_dir().join("yt-dlp.exe");
+            if unpacked.is_file() {
+                return Some(unpacked);
+            }
+        }
         let managed_path = Self::get_bin_dir().join(&exe_name);
         if managed_path.is_file() {
             return Some(managed_path);
@@ -318,10 +326,62 @@ impl BinaryManager {
         })
     }
 
+    /// Folder of the app-managed (unpacked) yt-dlp.
+    fn ytdlp_dir() -> PathBuf {
+        Self::get_bin_dir().join("yt-dlp")
+    }
+
     pub async fn download_yt_dlp(progress: InstallProgress<'_>) -> Result<PathBuf, String> {
-        let target = Self::get_bin_dir().join("yt-dlp.exe");
-        Self::download_to_file(YTDLP_URL, YTDLP_SUMS_URL, &target, "yt-dlp", progress).await?;
-        Ok(target)
+        let bin = Self::get_bin_dir();
+        let zip = bin.join("yt-dlp_win.zip");
+        Self::download_to_file(YTDLP_URL, YTDLP_SUMS_URL, &zip, "yt-dlp", progress).await?;
+
+        let fresh = bin.join("yt-dlp.new");
+        let _ = std::fs::remove_dir_all(&fresh);
+        std::fs::create_dir_all(&fresh).map_err(|e| format!("Couldn't install yt-dlp: {}", e))?;
+        let (zip_for_task, fresh_for_task) = (zip.clone(), fresh.clone());
+        let unpacked = tokio::task::spawn_blocking(move || {
+            // tar.exe ships with Windows 10 and later and reads zip files.
+            let tar = std::env::var_os("SystemRoot")
+                .map(|root| PathBuf::from(root).join("System32").join("tar.exe"))
+                .filter(|p| p.is_file())
+                .unwrap_or_else(|| PathBuf::from("tar.exe"));
+            let mut cmd = Command::new(tar);
+            cmd.arg("-xf").arg(&zip_for_task).arg("-C").arg(&fresh_for_task);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.output()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(&zip);
+        let unpacked_ok = unpacked.as_ref().is_ok_and(|o| o.status.success()) && fresh.join("yt-dlp.exe").is_file();
+        if !unpacked_ok {
+            let _ = std::fs::remove_dir_all(&fresh);
+            let detail = match unpacked {
+                Ok(o) => String::from_utf8_lossy(&o.stderr).trim().to_string(),
+                Err(e) => e.to_string(),
+            };
+            return Err(format!("Couldn't unpack yt-dlp. {}", detail));
+        }
+        // Marks when this copy was installed (the files keep the release's own dates).
+        let _ = std::fs::write(fresh.join(".installed"), b"");
+
+        // Swap folders. Windows won't move a folder whose yt-dlp is running.
+        let current = Self::ytdlp_dir();
+        let old = bin.join("yt-dlp.old");
+        let _ = std::fs::remove_dir_all(&old);
+        if current.exists() {
+            if let Err(e) = std::fs::rename(&current, &old) {
+                let _ = std::fs::remove_dir_all(&fresh);
+                return Err(format!("Couldn't install yt-dlp. If downloads are running, try again when they finish. ({})", e));
+            }
+        }
+        std::fs::rename(&fresh, &current).map_err(|e| format!("Couldn't install yt-dlp: {}", e))?;
+        let _ = std::fs::remove_dir_all(&old);
+        // The single-file copy older versions installed is no longer used.
+        let _ = std::fs::remove_file(bin.join("yt-dlp.exe"));
+        Ok(current.join("yt-dlp.exe"))
     }
 
     pub async fn download_ffmpeg(progress: InstallProgress<'_>) -> Result<PathBuf, String> {
@@ -408,10 +468,14 @@ impl BinaryManager {
         tokio::task::spawn_blocking(Self::get_status).await.map_err(|e| e.to_string())
     }
 
-    /// True when the app manages yt-dlp itself and the copy is older than a week.
+    /// True when the app manages yt-dlp itself and the copy is older than a week,
+    /// or is the slower single-file build older versions installed.
     pub fn managed_ytdlp_is_stale() -> bool {
-        let path = Self::get_bin_dir().join("yt-dlp.exe");
-        std::fs::metadata(&path)
+        let marker = Self::ytdlp_dir().join(".installed");
+        if !marker.is_file() {
+            return Self::get_bin_dir().join("yt-dlp.exe").is_file();
+        }
+        std::fs::metadata(&marker)
             .and_then(|m| m.modified())
             .ok()
             .and_then(|modified| SystemTime::now().duration_since(modified).ok())
@@ -533,7 +597,7 @@ mod network_tests {
     async fn ytdlp_download_verifies_against_published_checksum() {
         let dir = std::env::temp_dir().join(format!("hs_sha_test_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let dest = dir.join("yt-dlp.exe");
+        let dest = dir.join("yt-dlp_win.zip");
         BinaryManager::download_to_file(YTDLP_URL, YTDLP_SUMS_URL, &dest, "yt-dlp", &|_, _, _| {})
             .await
             .expect("verified download");

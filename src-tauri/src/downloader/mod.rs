@@ -6,6 +6,7 @@ pub mod extractor;
 pub mod library;
 pub mod orchestrator;
 pub mod queue;
+pub mod turbo;
 
 #[cfg(feature = "experimental-drm")]
 pub mod quarantine;

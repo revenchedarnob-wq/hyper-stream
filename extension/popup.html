@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>HyperStream</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon32.png" alt="" width="20" height="20">
+    <span class="name">HyperStream</span>
+    <span id="status" class="status" title="">Checking…</span>
+  </header>
+
+  <main>
+    <button id="send-page" class="primary" disabled>Download this page</button>
+    <p id="page-note" class="note"></p>
+
+    <section id="media" hidden>
+      <h2>Found on this page</h2>
+      <ul id="media-list"></ul>
+    </section>
+
+    <p id="missing" class="missing" hidden>
+      HyperStream isn't reachable. Open the app once so it can connect to this browser, then try again.
+    </p>
+  </main>
+
+  <footer>
+    <label class="switch">
+      <input type="checkbox" id="catch">
+      <span>Take over downloads from this browser</span>
+    </label>
+  </footer>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "HyperStream",
+  "short_name": "HyperStream",
+  "version": "1.0.0",
+  "description": "Send pages, videos and downloads to the HyperStream app.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAimy7BumjWBkIXbZugRbb9zf1OXHcZ6eo2ug8IIb3FhUAP9sjNAuiq01NOLIBrQ7ezwoct4FXNbbZwRNOY5i2VSicIv239LKaP61JGwZPPWAYBa/E2ELo/tT/nrxHHRpfdlE9Y5WeDXYECcJFMeEQIgXSi4U4QqtnSouROAg+EwucK370a9faAuXlY5Z9+gV9486Vg8qSUEkRxSs/9HR8Ut11qXrW5vGoSSmy0Sb8eVyLUjGvNZvcvhYY9JenJ7S5K3IE2zV76affc2/A3cHQiuZKqLwIkZ8RStaIuYkj0CoQg9NcS+5+b1l4cbH0aIZNqocuDZFNLIcuiHm3mTwHjwIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["contextMenus", "cookies", "downloads", "nativeMessaging", "storage", "webRequest"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": {
+    "default_title": "HyperStream",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

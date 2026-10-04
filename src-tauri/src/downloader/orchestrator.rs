@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter};
 use crate::ACTIVE_TRANSFERS;
 use crate::downloader::binary_manager::BinaryManager;
 use crate::downloader::cookies::browser_cookies_async;
+use crate::downloader::{extractor, turbo};
 use crate::downloader::library::{self, LibraryItem, MediaKind};
 use crate::downloader::queue::{
     get_queue_file_path, is_transient_error, load_queue_from_path, sanitize_for_persistence,
@@ -85,6 +86,76 @@ pub struct DownloadOptions {
     pub duration: Option<f64>,
     pub uploader: Option<String>,
     pub extractor: Option<String>,
+    /// A file handed over by the browser extension: fetched as-is under the site's file name.
+    pub direct: Option<DirectFile>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct DirectFile {
+    pub filename: String,
+    pub referrer: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+/// "https://x.test/files/setup%20v2.exe?t=1" -> "setup v2.exe"
+pub fn file_name_from_url(url: &str) -> String {
+    let path = url.split(['?', '#']).next().unwrap_or("");
+    let last = path.rsplit('/').next().unwrap_or("");
+    let decoded = percent_decode(last);
+    if decoded.trim().is_empty() { "download".to_string() } else { decoded }
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+/// A name Windows accepts: no reserved characters or device names, no trailing dots or spaces.
+fn safe_file_name(name: &str) -> String {
+    const RESERVED: &[&str] = &["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') { '_' } else { c })
+        .collect();
+    let mut cleaned = cleaned.trim().trim_end_matches(['.', ' ']).to_string();
+    let stem = cleaned.split('.').next().unwrap_or("").to_ascii_uppercase();
+    if cleaned.is_empty() || RESERVED.contains(&stem.as_str()) {
+        cleaned = format!("download {}", cleaned);
+    }
+    // Keep well under MAX_PATH together with the folder.
+    if cleaned.chars().count() > 150 {
+        let ext = Path::new(&cleaned).extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+        let keep: String = cleaned.chars().take(150 - ext.chars().count().min(20)).collect();
+        cleaned = format!("{}{}", keep.trim_end(), ext);
+    }
+    cleaned
+}
+
+/// `dir/name`, or `dir/name (2).ext` and so on when that's taken.
+fn free_path(dir: &Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    let taken = |p: &Path| p.exists() || turbo::part_path(p).exists();
+    if !taken(&first) {
+        return first;
+    }
+    let path = Path::new(name);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+    (2..1000).map(|n| dir.join(format!("{} ({}){}", stem, n, ext))).find(|p| !taken(p)).unwrap_or(first)
 }
 
 /// What a successful run produced.
@@ -769,7 +840,8 @@ impl RunContext {
         if let Some(thumb) = item.thumbnail_path.clone() {
             std::thread::spawn(move || library::shrink_thumbnail(Path::new(&thumb)));
         }
-        let library_result = library::add(item);
+        // Files caught from the browser (installers, archives) aren't media: Downloads only.
+        let library_result = if library::is_openable_media(&outcome.file_path) { library::add(item) } else { Err(String::new()) };
 
         emit_task(&self.app_handle, &self.tasks, task_id, "download-complete");
         if let Some(app) = self.app_handle.read().unwrap().as_ref() {
@@ -857,6 +929,20 @@ pub fn format_selector(o: &DownloadOptions) -> String {
     format!("bv*{cap}{audio}/{fallback}")
 }
 
+/// What yt-dlp reads.
+enum Input<'a> {
+    Url,
+    /// A saved description of the video (formats, links): skips loading the page again.
+    InfoJson(&'a Path),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Download,
+    /// Only choose the formats and print the result as JSON.
+    Select,
+}
+
 /// Full yt-dlp argument list (without the executable). Pure, so it's unit-testable.
 fn build_args(
     o: &DownloadOptions,
@@ -864,25 +950,37 @@ fn build_args(
     thumb_template: &Path,
     ffmpeg: Option<&Path>,
     cookie_file: Option<&Path>,
+    mode: Mode,
+    input: &Input,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = Vec::new();
     let mut push = |s: &str| args.push(OsString::from(s));
 
     for a in [
-        "--newline", "--no-playlist", "--no-simulate", "--progress", "--encoding", "utf-8",
+        "--no-playlist", "--encoding", "utf-8",
         "--no-mtime", "--windows-filenames", "--continue",
         "--retries", "10", "--fragment-retries", "10", "--retry-sleep", "linear=1::5",
-        "--socket-timeout", "30", "--concurrent-fragments", "4",
-        "--print", "video:HSINFO %(filesize,filesize_approx|0)s %(width|0)s %(height|0)s %(ext)s",
-        "--print", "video:HSNAME %(filename)s",
-        "--print", "video:HSTITLE %(title)s",
-        "--print", "after_move:HSFILE %(filepath)s",
-        "--progress-template",
-        "download:HSPROG %(progress.downloaded_bytes|0)s %(progress.total_bytes,progress.total_bytes_estimate|0)s %(progress.speed|0)s",
-        "--progress-template", "postprocess:HSPOST %(progress.postprocessor)s",
+        "--socket-timeout", "30", "--concurrent-fragments", "8",
         "--write-thumbnail", "--convert-thumbnails", "jpg",
     ] {
         push(a);
+    }
+    match mode {
+        Mode::Select => push("-j"),
+        Mode::Download => {
+            for a in [
+                "--newline", "--no-simulate", "--progress",
+                "--print", "video:HSINFO %(filesize,filesize_approx|0)s %(width|0)s %(height|0)s %(ext)s",
+                "--print", "video:HSNAME %(filename)s",
+                "--print", "video:HSTITLE %(title)s",
+                "--print", "after_move:HSFILE %(filepath)s",
+                "--progress-template",
+                "download:HSPROG %(progress.downloaded_bytes|0)s %(progress.total_bytes,progress.total_bytes_estimate|0)s %(progress.speed|0)s",
+                "--progress-template", "postprocess:HSPOST %(progress.postprocessor)s",
+            ] {
+                push(a);
+            }
+        }
     }
 
     push("-f");
@@ -927,8 +1025,16 @@ fn build_args(
     args.push("-o".into());
     args.push(thumb);
 
-    args.push("--".into());
-    args.push(o.url.clone().into());
+    match input {
+        Input::Url => {
+            args.push("--".into());
+            args.push(o.url.clone().into());
+        }
+        Input::InfoJson(path) => {
+            args.push("--load-info-json".into());
+            args.push(path.as_os_str().to_owned());
+        }
+    }
     args
 }
 
@@ -977,44 +1083,287 @@ fn remove_partial_files(planned: &Path) {
         }
         let rest = &name[prefix.len()..];
         let is_fragment = rest.starts_with('f') && rest[1..].split('.').next().map_or(false, |n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
-        if name.ends_with(".part") || name.ends_with(".ytdl") || name.contains(".part-Frag") || name.ends_with(".temp") || is_fragment {
+        let engine_part = name.ends_with(".hspart") || name.ends_with(".hspart.json") || name.ends_with(".hspart.json.tmp");
+        if name.ends_with(".part") || name.ends_with(".ytdl") || name.contains(".part-Frag") || name.ends_with(".temp") || is_fragment || engine_part {
             let _ = std::fs::remove_file(entry.path());
         }
     }
 }
 
-async fn run_download_task(
+/// Resolves only when the user pauses or cancels (a dropped sender is not an abort).
+struct Abort<'a> {
+    rx: &'a mut tokio::sync::oneshot::Receiver<()>,
+    live: bool,
+}
+
+impl Abort<'_> {
+    async fn requested(&mut self) {
+        if self.live {
+            let aborted = (&mut *self.rx).await.is_ok();
+            self.live = false;
+            if aborted {
+                return;
+            }
+        }
+        std::future::pending::<()>().await
+    }
+}
+
+/// The fast engine is on unless HYPERSTREAM_TURBO=0 (for comparisons and troubleshooting).
+fn fast_engine_enabled() -> bool {
+    std::env::var("HYPERSTREAM_TURBO").map_or(true, |v| v != "0")
+}
+
+/// Runs a short yt-dlp step to completion; kills it if the user pauses or cancels.
+async fn capture(mut cmd: std::process::Command, abort: &mut Abort<'_>) -> Result<std::process::Output, String> {
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    let child = cmd.spawn().map_err(|e| format!("Couldn't start the download engine: {}", e))?;
+    let pid = child.id();
+    let mut waiter = tokio::task::spawn_blocking(move || child.wait_with_output());
+    tokio::select! {
+        biased;
+        _ = abort.requested() => {
+            BinaryManager::kill_process_tree(pid);
+            let _ = waiter.await;
+            Err(ABORTED.to_string())
+        }
+        out = &mut waiter => out
+            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("The download engine stopped unexpectedly: {}", e)),
+    }
+}
+
+/// yt-dlp's error lines, turned into a message for people.
+fn engine_error(stderr_lines: &[String]) -> String {
+    let errors: Vec<&str> = stderr_lines
+        .iter()
+        .filter(|l| l.starts_with("ERROR") || l.contains("error:"))
+        .map(|s| s.as_str())
+        .collect();
+    let details = if !errors.is_empty() {
+        errors.join("; ")
+    } else {
+        stderr_lines.last().cloned().unwrap_or_else(|| "The download engine exited with an error.".to_string())
+    };
+    crate::downloader::classify_download_error(&details)
+}
+
+/// What yt-dlp chose to download. Saved to `json_path` so later steps skip loading the page.
+#[derive(Debug)]
+struct Selection {
+    json_path: PathBuf,
+    filename: String,
+    title: String,
+    width: u32,
+    height: u32,
+    ext: String,
+    size: u64,
+    /// Set when every chosen stream is a plain file link the fast engine can fetch.
+    streams: Option<Vec<turbo::Stream>>,
+}
+
+fn parse_selection(json: &str, json_path: PathBuf) -> Option<Selection> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let text = |from: &serde_json::Value, key: &str| from.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let number = |from: &serde_json::Value, key: &str| from.get(key).and_then(|x| x.as_f64()).filter(|x| *x > 0.0).map(|x| x as u64);
+
+    let filename = v.get("filename").or_else(|| v.get("_filename"))?.as_str()?.to_string();
+    let requested: Vec<&serde_json::Value> = v
+        .get("requested_formats")
+        .and_then(|r| r.as_array())
+        .filter(|list| !list.is_empty())
+        .map(|list| list.iter().collect())
+        .unwrap_or_default();
+    let merged = !requested.is_empty();
+    let formats = if merged { requested } else { vec![&v] };
+    // yt-dlp names separate streams "<name without extension>.f<format id>.<stream extension>".
+    let stem = filename.rsplit_once('.').map_or(filename.as_str(), |(a, _)| a);
+    let live = v.get("is_live").and_then(|x| x.as_bool()).unwrap_or(false);
+
+    let mut size = 0u64;
+    let mut streams = Vec::new();
+    let mut eligible = !live;
+    for f in &formats {
+        size += number(f, "filesize").or_else(|| number(f, "filesize_approx")).unwrap_or(0);
+        let protocol = text(f, "protocol");
+        let url = text(f, "url");
+        let fragmented = f.get("fragments").is_some_and(|x| !x.is_null());
+        if !matches!(protocol.as_str(), "https" | "http") || url.is_empty() || fragmented {
+            eligible = false;
+            continue;
+        }
+        let dest = if merged { format!("{}.f{}.{}", stem, text(f, "format_id"), text(f, "ext")) } else { filename.clone() };
+        let mut headers: Vec<(String, String)> = f
+            .get("http_headers")
+            .and_then(|h| h.as_object())
+            .map(|h| h.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect())
+            .unwrap_or_default();
+        if let Some(cookie) = f.get("cookies").and_then(|c| c.as_str()).and_then(turbo::cookie_header) {
+            headers.push(("Cookie".to_string(), cookie));
+        }
+        streams.push(turbo::Stream {
+            url,
+            headers,
+            size: number(f, "filesize"),
+            dest: PathBuf::from(dest),
+            max_request: f.get("downloader_options").and_then(|d| number(d, "http_chunk_size")),
+        });
+    }
+
+    Some(Selection {
+        json_path,
+        filename,
+        title: text(&v, "title"),
+        width: number(&v, "width").unwrap_or(0) as u32,
+        height: number(&v, "height").unwrap_or(0) as u32,
+        ext: text(&v, "ext"),
+        size,
+        streams: (eligible && !streams.is_empty()).then_some(streams),
+    })
+}
+
+/// Lets yt-dlp choose the formats without downloading. Uses the Hub's recent look-up of the
+/// same link when there is one, so the page isn't loaded a second time.
+/// `Ok(None)`: no single video was chosen (a playlist link, say); use the regular path.
+async fn select_formats(
     task_id: &str,
-    entry: &QueueEntry,
+    attempts: Vec<Vec<OsString>>,
+    abort: &mut Abort<'_>,
+) -> Result<Option<Selection>, String> {
+    let json_path = extractor::scratch_dir().join(format!("selected-{}.json", task_id));
+    let last = attempts.len().saturating_sub(1);
+    for (i, args) in attempts.into_iter().enumerate() {
+        let mut cmd = BinaryManager::create_command("yt-dlp")?;
+        BinaryManager::apply_utf8_env(&mut cmd);
+        cmd.args(args);
+        let out = capture(cmd, abort).await?;
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let items: Vec<&str> = stdout.lines().filter(|l| l.trim_start().starts_with('{')).collect();
+        if !out.status.success() || items.is_empty() {
+            if i == last {
+                let stderr: Vec<String> = String::from_utf8_lossy(&out.stderr).lines().map(|l| l.trim().to_string()).collect();
+                return Err(engine_error(&stderr));
+            }
+            continue;
+        }
+        if items.len() > 1 {
+            return Ok(None);
+        }
+        if std::fs::write(&json_path, items[0]).is_err() {
+            return Ok(None);
+        }
+        return Ok(parse_selection(items[0], json_path));
+    }
+    Ok(None)
+}
+
+fn show_selection(task_id: &str, options: &DownloadOptions, tasks_ref: &TaskMap, app: &AppHandle, sel: &Selection) {
+    let mut tasks = tasks_ref.write().unwrap();
+    let Some(t) = tasks.get_mut(task_id) else { return };
+    t.planned_path = Some(sel.filename.clone());
+    if !sel.title.is_empty() && sel.title != "NA" && (t.title.trim().is_empty() || t.title == options.url) {
+        t.title = sel.title.clone();
+    }
+    if sel.size > 0 {
+        t.total_bytes = Some(sel.size);
+    }
+    if !options.audio_only && sel.height > 0 {
+        // Portrait videos: label by the short side (1080x1920 is "1080p").
+        t.quality_label = Some(format!("{}p", if sel.width > 0 { sel.width.min(sel.height) } else { sel.height }));
+    }
+    if !options.audio_only && !sel.ext.is_empty() {
+        t.container = Some(sel.ext.to_ascii_uppercase());
+    }
+    t.stage = "Downloading".to_string();
+    let _ = app.emit("download-progress", &t.clone());
+}
+
+fn report_progress(task_id: &str, tasks_ref: &TaskMap, app: &AppHandle, done: u64, total: u64, speed: u64) {
+    let mut tasks = tasks_ref.write().unwrap();
+    let Some(t) = tasks.get_mut(task_id) else { return };
+    if t.state != DownloadState::Downloading {
+        return;
+    }
+    t.downloaded_bytes = done;
+    t.total_bytes = (total > 0).then_some(total);
+    t.speed_bytes_per_sec = speed;
+    t.progress_percent = if total > 0 { (done as f64 / total as f64 * 100.0).min(99.5) } else { 0.0 };
+    t.eta_seconds = (speed > 0 && total > done).then(|| (total - done) / speed);
+    t.stage = "Downloading".to_string();
+    let _ = app.emit("download-progress", &t.clone());
+}
+
+/// Downloads the chosen streams with the multi-connection engine, reporting progress.
+async fn fetch_fast(
+    task_id: &str,
+    streams: Vec<turbo::Stream>,
     tasks_ref: &TaskMap,
     app: &AppHandle,
-    abort_rx: &mut tokio::sync::oneshot::Receiver<()>,
-) -> Result<DownloadOutcome, String> {
-    let options = &entry.options;
-    let target_dir = &entry.target_dir;
-    std::fs::create_dir_all(target_dir)
-        .map_err(|e| format!("Couldn't create the download folder {}: {}", target_dir.display(), e))?;
-
-    let cookies = match options.cookies.clone() {
-        Some(c) if !c.trim().is_empty() => Some(c),
-        _ => browser_cookies_async(app, &options.url).await,
+    abort: &mut Abort<'_>,
+    one_connection: bool,
+) -> Result<(), turbo::TurboError> {
+    let meter = Arc::new(turbo::Meter::default());
+    let cancel = Arc::new(AtomicBool::new(false));
+    let limits = turbo::Limits::for_this_pc(crate::browser::is_low_memory_pc());
+    let mut job: std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), turbo::TurboError>> + Send>> = if one_connection {
+        Box::pin(turbo::download_whole(streams.into_iter().next().ok_or(turbo::TurboError::Fallback("nothing to download".into()))?, meter.clone(), cancel.clone()))
+    } else {
+        Box::pin(turbo::download(streams, limits, meter.clone(), cancel.clone()))
     };
-    let cookie_file = cookies.as_deref().and_then(BinaryManager::write_temp_cookie_file);
-    struct CookieGuard(Option<PathBuf>);
-    impl Drop for CookieGuard {
-        fn drop(&mut self) {
-            if let Some(p) = &self.0 {
-                let _ = std::fs::remove_file(p);
+    let mut tick = tokio::time::interval(Duration::from_millis(250));
+    // Speed over the last ~3 s: steady enough to read, quick enough to follow changes.
+    let mut history: VecDeque<(Instant, u64)> = VecDeque::new();
+    loop {
+        tokio::select! {
+            biased;
+            _ = abort.requested() => {
+                cancel.store(true, Ordering::Relaxed);
+                // Let the connections write what they have, so resuming continues from here.
+                let _ = (&mut job).await;
+                return Err(turbo::TurboError::Aborted);
+            }
+            result = &mut job => return result,
+            _ = tick.tick() => {
+                let done = meter.done.load(Ordering::Relaxed);
+                let total = meter.total.load(Ordering::Relaxed);
+                if total == 0 {
+                    continue;
+                }
+                let now = Instant::now();
+                history.push_back((now, done));
+                while history.len() > 2 && now.duration_since(history[0].0) > Duration::from_secs(3) {
+                    history.pop_front();
+                }
+                let (since, at) = history[0];
+                let secs = now.duration_since(since).as_secs_f64();
+                let speed = if secs > 0.2 { (done.saturating_sub(at) as f64 / secs) as u64 } else { 0 };
+                report_progress(task_id, tasks_ref, app, done.min(total), total, speed);
             }
         }
     }
-    let _cookie_guard = CookieGuard(cookie_file.clone());
+}
 
+/// What a yt-dlp run reported.
+struct EngineRun {
+    final_path: Option<String>,
+    dims: (Option<u32>, Option<u32>),
+}
+
+/// Runs yt-dlp with live progress. `finishing`: the streams are already on disk and
+/// yt-dlp only merges and tidies up, so its download progress is ignored.
+async fn run_ytdlp(
+    args: Vec<OsString>,
+    task_id: &str,
+    options: &DownloadOptions,
+    tasks_ref: &TaskMap,
+    app: &AppHandle,
+    abort: &mut Abort<'_>,
+    finishing: bool,
+) -> Result<EngineRun, String> {
     let mut cmd = BinaryManager::create_command("yt-dlp")?;
     BinaryManager::apply_utf8_env(&mut cmd);
-    let ffmpeg = BinaryManager::find_binary("ffmpeg");
-    let thumb_template = library::thumbnails_dir().join(format!("{}.%(ext)s", task_id));
-    cmd.args(build_args(options, target_dir, &thumb_template, ffmpeg.as_deref(), cookie_file.as_deref()));
+    cmd.args(args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
@@ -1055,19 +1404,15 @@ async fn run_download_task(
     let mut final_path: Option<String> = None;
     let mut dims: (Option<u32>, Option<u32>) = (None, None);
     let mut last_emit = Instant::now() - Duration::from_secs(1);
-    let mut abort_live = true;
 
     loop {
         tokio::select! {
             biased;
-            res = &mut *abort_rx, if abort_live => {
-                if res.is_ok() {
-                    BinaryManager::kill_process_tree(pid);
-                    let _ = tokio::task::spawn_blocking(move || child.wait()).await;
-                    let _ = err_thread.join();
-                    return Err(ABORTED.to_string());
-                }
-                abort_live = false;
+            _ = abort.requested() => {
+                BinaryManager::kill_process_tree(pid);
+                let _ = tokio::task::spawn_blocking(move || child.wait()).await;
+                let _ = err_thread.join();
+                return Err(ABORTED.to_string());
             }
             line = line_rx.recv() => {
                 let Some(line) = line else { break };
@@ -1078,10 +1423,13 @@ async fn run_download_task(
                         let w: u32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
                         let h: u32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
                         let ext = parts.next().unwrap_or("").to_ascii_uppercase();
-                        tracker.expected_total = total;
                         if w > 0 && h > 0 {
                             dims = (Some(w), Some(h));
                         }
+                        if finishing {
+                            continue;
+                        }
+                        tracker.expected_total = total;
                         let mut tasks = tasks_ref.write().unwrap();
                         if let Some(t) = tasks.get_mut(task_id) {
                             if total > 0 {
@@ -1104,6 +1452,9 @@ async fn run_download_task(
                         }
                     }
                     Some("HSPROG") => {
+                        if finishing {
+                            continue;
+                        }
                         let downloaded = parts.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) as u64;
                         let total = parts.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) as u64;
                         let speed = parts.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0).max(0.0) as u64;
@@ -1112,23 +1463,7 @@ async fn run_download_task(
                             continue;
                         }
                         last_emit = Instant::now();
-                        let mut tasks = tasks_ref.write().unwrap();
-                        if let Some(t) = tasks.get_mut(task_id) {
-                            if t.state != DownloadState::Downloading {
-                                continue;
-                            }
-                            t.downloaded_bytes = overall;
-                            t.total_bytes = (overall_total > 0).then_some(overall_total);
-                            t.speed_bytes_per_sec = speed;
-                            t.progress_percent = if overall_total > 0 {
-                                (overall as f64 / overall_total as f64 * 100.0).min(99.5)
-                            } else {
-                                0.0
-                            };
-                            t.eta_seconds = (speed > 0 && overall_total > overall).then(|| (overall_total - overall) / speed);
-                            t.stage = "Downloading".to_string();
-                            let _ = app.emit("download-progress", &t.clone());
-                        }
+                        report_progress(task_id, tasks_ref, app, overall, overall_total, speed);
                     }
                     Some("HSPOST") => {
                         let step = parts.next().unwrap_or("");
@@ -1179,18 +1514,101 @@ async fn run_download_task(
     let _ = err_thread.join();
 
     if !status.success() {
-        let tail = stderr_tail.lock().unwrap();
-        let errors: Vec<&String> = tail.iter().filter(|l| l.starts_with("ERROR") || l.contains("error:")).collect();
-        let details = if !errors.is_empty() {
-            errors.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")
-        } else {
-            tail.last().cloned().unwrap_or_else(|| "The download engine exited with an error.".to_string())
-        };
-        return Err(crate::downloader::classify_download_error(&details));
+        return Err(engine_error(&stderr_tail.lock().unwrap()));
+    }
+    Ok(EngineRun { final_path, dims })
+}
+
+async fn run_download_task(
+    task_id: &str,
+    entry: &QueueEntry,
+    tasks_ref: &TaskMap,
+    app: &AppHandle,
+    abort_rx: &mut tokio::sync::oneshot::Receiver<()>,
+) -> Result<DownloadOutcome, String> {
+    let options = &entry.options;
+    let target_dir = &entry.target_dir;
+    std::fs::create_dir_all(target_dir)
+        .map_err(|e| format!("Couldn't create the download folder {}: {}", target_dir.display(), e))?;
+
+    let cookies = match options.cookies.clone() {
+        Some(c) if !c.trim().is_empty() => Some(c),
+        _ => browser_cookies_async(app, &options.url).await,
+    };
+    let cookie_file = cookies.as_deref().and_then(BinaryManager::write_temp_cookie_file);
+    /// Deletes a temporary file when the download ends, however it ends.
+    struct TempFile(Option<PathBuf>);
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            if let Some(p) = &self.0 {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+    }
+    let _cookie_guard = TempFile(cookie_file.clone());
+
+    let mut abort = Abort { rx: abort_rx, live: true };
+    if let Some(direct) = &options.direct {
+        return run_direct(task_id, options, direct, target_dir, cookies.as_deref(), tasks_ref, app, &mut abort).await;
     }
 
+    let ffmpeg = BinaryManager::find_binary("ffmpeg");
+    let thumb_template = library::thumbnails_dir().join(format!("{}.%(ext)s", task_id));
+    let args_for = |mode: Mode, input: &Input| {
+        build_args(options, target_dir, &thumb_template, ffmpeg.as_deref(), cookie_file.as_deref(), mode, input)
+    };
+
+    let selection = if fast_engine_enabled() {
+        let mut attempts = Vec::new();
+        if let Some(cached) = extractor::cached_info(&options.url) {
+            attempts.push(args_for(Mode::Select, &Input::InfoJson(&cached)));
+        }
+        attempts.push(args_for(Mode::Select, &Input::Url));
+        select_formats(task_id, attempts, &mut abort).await?
+    } else {
+        None
+    };
+    let _selection_guard = TempFile(selection.as_ref().map(|s| s.json_path.clone()));
+    if let Some(sel) = &selection {
+        show_selection(task_id, options, tasks_ref, app, sel);
+    }
+
+    let run = match &selection {
+        None => run_ytdlp(args_for(Mode::Download, &Input::Url), task_id, options, tasks_ref, app, &mut abort, false).await?,
+        Some(sel) => {
+            let saved = Input::InfoJson(&sel.json_path);
+            match sel.streams.clone() {
+                None => run_ytdlp(args_for(Mode::Download, &saved), task_id, options, tasks_ref, app, &mut abort, false).await?,
+                Some(streams) => {
+                    let dests: Vec<PathBuf> = streams.iter().map(|s| s.dest.clone()).collect();
+                    match fetch_fast(task_id, streams, tasks_ref, app, &mut abort, false).await {
+                        // The streams are on disk under the names yt-dlp expects; it skips
+                        // downloading them and goes straight to merging.
+                        Ok(()) => run_ytdlp(args_for(Mode::Download, &saved), task_id, options, tasks_ref, app, &mut abort, true).await?,
+                        Err(turbo::TurboError::Aborted) => return Err(ABORTED.to_string()),
+                        Err(turbo::TurboError::Fallback(reason)) => {
+                            log::warn!("Fast download unavailable ({}), using yt-dlp", reason);
+                            for dest in &dests {
+                                turbo::remove_partial(dest);
+                            }
+                            // A refused link may have expired: load the page again.
+                            let input = if reason.starts_with("link refused") { Input::Url } else { saved };
+                            run_ytdlp(args_for(Mode::Download, &input), task_id, options, tasks_ref, app, &mut abort, false).await?
+                        }
+                    }
+                }
+            }
+        }
+    };
+    let dims = if run.dims.0.is_some() {
+        run.dims
+    } else {
+        selection.as_ref().filter(|s| s.width > 0 && s.height > 0).map_or((None, None), |s| (Some(s.width), Some(s.height)))
+    };
+
     // "Already downloaded" runs may skip after_move; fall back to the planned name.
-    let final_file = final_path
+    let final_file = run
+        .final_path
         .or_else(|| tasks_ref.read().unwrap().get(task_id).and_then(|t| t.planned_path.clone()))
         .filter(|p| Path::new(p).is_file())
         .ok_or("The download finished but the file couldn't be found.")?;
@@ -1202,6 +1620,64 @@ async fn run_download_task(
     }
 
     Ok(DownloadOutcome { file_path: final_file, width: dims.0, height: dims.1 })
+}
+
+/// A file link from the browser: many connections when the server allows it, one otherwise.
+#[allow(clippy::too_many_arguments)]
+async fn run_direct(
+    task_id: &str,
+    options: &DownloadOptions,
+    direct: &DirectFile,
+    target_dir: &Path,
+    cookies: Option<&str>,
+    tasks_ref: &TaskMap,
+    app: &AppHandle,
+    abort: &mut Abort<'_>,
+) -> Result<DownloadOutcome, String> {
+    // Resuming keeps the name picked the first time (its partial data is under that name).
+    let planned = tasks_ref.read().unwrap().get(task_id).and_then(|t| t.planned_path.clone()).map(PathBuf::from);
+    let dest = match planned {
+        Some(p) if p.parent() == Some(target_dir) => p,
+        _ => free_path(target_dir, &safe_file_name(&direct.filename)),
+    };
+    {
+        let mut tasks = tasks_ref.write().unwrap();
+        if let Some(t) = tasks.get_mut(task_id) {
+            t.planned_path = Some(dest.to_string_lossy().to_string());
+            t.container = Some(extension_label(&dest.to_string_lossy()));
+            t.stage = "Downloading".to_string();
+            let _ = app.emit("download-progress", &t.clone());
+        }
+    }
+
+    let mut headers = Vec::new();
+    if let Some(ua) = &direct.user_agent {
+        headers.push(("User-Agent".to_string(), ua.clone()));
+    }
+    if let Some(referrer) = &direct.referrer {
+        headers.push(("Referer".to_string(), referrer.clone()));
+    }
+    if let Some(cookie) = cookies.and_then(|c| crate::downloader::cookies::header_for_url(c, &options.url)) {
+        headers.push(("Cookie".to_string(), cookie));
+    }
+    let stream = turbo::Stream { url: options.url.clone(), headers, size: None, dest: dest.clone(), max_request: None };
+
+    match fetch_fast(task_id, vec![stream.clone()], tasks_ref, app, abort, false).await {
+        Ok(()) => {}
+        Err(turbo::TurboError::Aborted) => return Err(ABORTED.to_string()),
+        Err(turbo::TurboError::Fallback(reason)) => {
+            log::info!("Single-connection download ({})", reason);
+            turbo::remove_partial(&dest);
+            match fetch_fast(task_id, vec![stream], tasks_ref, app, abort, true).await {
+                Ok(()) => {}
+                Err(turbo::TurboError::Aborted) => return Err(ABORTED.to_string()),
+                Err(turbo::TurboError::Fallback(reason)) => return Err(crate::downloader::classify_download_error(&reason)),
+            }
+        }
+    }
+    let file_path = dest.to_string_lossy().to_string();
+    verify_output_integrity(&file_path)?;
+    Ok(DownloadOutcome { file_path, width: None, height: None })
 }
 
 fn verify_output_integrity(final_file: &str) -> Result<(), String> {
@@ -1338,7 +1814,7 @@ mod tests {
     #[test]
     fn args_pick_container_and_subtitles() {
         let o = DownloadOptions { url: "https://x.test/v".into(), subtitles: vec!["en".into(), "es".into()], ..Default::default() };
-        let args: Vec<String> = build_args(&o, Path::new("C:/out"), Path::new("C:/t/id.%(ext)s"), None, None)
+        let args: Vec<String> = build_args(&o, Path::new("C:/out"), Path::new("C:/t/id.%(ext)s"), None, None, Mode::Download, &Input::Url)
             .into_iter()
             .map(|a| a.to_string_lossy().to_string())
             .collect();
@@ -1351,7 +1827,7 @@ mod tests {
         assert_eq!(args[args.len() - 2], "--");
 
         let plain = DownloadOptions { url: "https://x.test/v".into(), ..Default::default() };
-        let args: Vec<String> = build_args(&plain, Path::new("C:/out"), Path::new("C:/t/x"), None, None)
+        let args: Vec<String> = build_args(&plain, Path::new("C:/out"), Path::new("C:/t/x"), None, None, Mode::Download, &Input::Url)
             .into_iter()
             .map(|a| a.to_string_lossy().to_string())
             .collect();
@@ -1370,10 +1846,37 @@ mod tests {
     }
 
     #[test]
+    fn file_names_from_links_are_safe() {
+        assert_eq!(file_name_from_url("https://x.test/files/setup%20v2.exe?t=1#a"), "setup v2.exe");
+        assert_eq!(file_name_from_url("https://x.test/"), "download");
+        assert_eq!(safe_file_name("a<b>:c?.zip"), "a_b__c_.zip");
+        assert_eq!(safe_file_name("CON.txt"), "download CON.txt");
+        assert_eq!(safe_file_name("name. "), "name");
+    }
+
+    #[test]
+    fn selection_names_streams_like_ytdlp() {
+        let json = r#"{"filename":"C:\\out\\Clip [id].mp4","title":"Clip","ext":"mp4","width":1920,"height":1080,
+            "requested_formats":[
+              {"format_id":"137","ext":"mp4","protocol":"https","url":"https://v.test/1","filesize":1000,"http_headers":{"User-Agent":"UA"},"downloader_options":{"http_chunk_size":10485760}},
+              {"format_id":"140","ext":"m4a","protocol":"https","url":"https://v.test/2","filesize_approx":200,"cookies":"s=1; Domain=.v.test; Path=/"}]}"#;
+        let sel = parse_selection(json, PathBuf::from("sel.json")).unwrap();
+        let streams = sel.streams.unwrap();
+        assert_eq!(streams[0].dest, PathBuf::from("C:\\out\\Clip [id].f137.mp4"));
+        assert_eq!(streams[1].dest, PathBuf::from("C:\\out\\Clip [id].f140.m4a"));
+        assert_eq!(streams[0].max_request, Some(10485760));
+        assert!(streams[1].headers.contains(&("Cookie".to_string(), "s=1".to_string())));
+        assert_eq!(sel.size, 1200);
+
+        let hls = r#"{"filename":"Clip.mp4","protocol":"m3u8_native","url":"https://v.test/x.m3u8"}"#;
+        assert!(parse_selection(hls, PathBuf::from("s.json")).unwrap().streams.is_none());
+    }
+
+    #[test]
     fn partial_cleanup_keeps_completed_files() {
         let dir = std::env::temp_dir().join(format!("hs_partial_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        for name in ["Clip [id].mkv", "Clip [id].f137.mp4.part", "Clip [id].f251.webm", "Clip [id].mkv.ytdl", "Other.part"] {
+        for name in ["Clip [id].mkv", "Clip [id].f137.mp4.part", "Clip [id].f251.webm", "Clip [id].mkv.ytdl", "Clip [id].f140.m4a.hspart", "Clip [id].f140.m4a.hspart.json", "Other.part"] {
             std::fs::write(dir.join(name), b"x").unwrap();
         }
         remove_partial_files(&dir.join("Clip [id].mkv"));

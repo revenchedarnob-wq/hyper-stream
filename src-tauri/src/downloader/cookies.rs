@@ -82,6 +82,10 @@ pub fn browser_cookies_for(app: &AppHandle, url: &str) -> Option<String> {
 
 /// Async-safe wrapper: reads browser cookies on a blocking thread.
 pub async fn browser_cookies_async(app: &AppHandle, url: &str) -> Option<String> {
+    // Sent by the browser extension along with the link: the user's own browser sign-in.
+    if let Some(cookies) = crate::bridge::cookies_from_extension(url) {
+        return Some(cookies);
+    }
     let app = app.clone();
     let url = url.to_string();
     tauri::async_runtime::spawn_blocking(move || browser_cookies_for(&app, &url))
@@ -90,9 +94,41 @@ pub async fn browser_cookies_async(app: &AppHandle, url: &str) -> Option<String>
         .flatten()
 }
 
+/// The Cookie header a browser would send to `url`, from Netscape-format cookies.
+pub fn header_for_url(netscape: &str, url: &str) -> Option<String> {
+    let parsed: tauri::Url = url.parse().ok()?;
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    let path = parsed.path();
+    let https = parsed.scheme() == "https";
+    let pairs: Vec<String> = netscape
+        .lines()
+        .filter(|l| !l.starts_with('#') || l.starts_with("#HttpOnly_"))
+        .filter_map(|l| {
+            let l = l.strip_prefix("#HttpOnly_").unwrap_or(l);
+            let f: Vec<&str> = l.split('\t').collect();
+            if f.len() < 7 {
+                return None;
+            }
+            let domain = f[0].trim_start_matches('.').to_ascii_lowercase();
+            let domain_ok = host == domain || (f[1] == "TRUE" && host.ends_with(&format!(".{}", domain)));
+            let path_ok = path.starts_with(f[2]);
+            let secure_ok = f[3] != "TRUE" || https;
+            (domain_ok && path_ok && secure_ok).then(|| format!("{}={}", f[5], f[6]))
+        })
+        .collect();
+    (!pairs.is_empty()).then(|| pairs.join("; "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cookie_header_matches_domain_path_and_scheme() {
+        let text = "# Netscape HTTP Cookie File\n.x.test\tTRUE\t/\tTRUE\t0\ta\t1\nfiles.x.test\tFALSE\t/dl\tFALSE\t0\tb\t2\nother.test\tTRUE\t/\tFALSE\t0\tc\t3\n";
+        assert_eq!(header_for_url(text, "https://files.x.test/dl/a.zip").as_deref(), Some("a=1; b=2"));
+        assert_eq!(header_for_url(text, "http://files.x.test/other").as_deref(), None);
+    }
 
     #[test]
     fn renders_netscape_lines() {

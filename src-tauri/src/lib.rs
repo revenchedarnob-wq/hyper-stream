@@ -1,3 +1,4 @@
+pub mod bridge;
 pub mod browser;
 pub mod downloader;
 
@@ -233,13 +234,16 @@ fn page_from_deep_link(link: &str) -> Option<String> {
 /// Any website can open a `hyperstream://` link, so a received page only lands in the Hub's link
 /// box with the window brought forward; the user still decides whether to download it.
 fn receive_deep_links(app: &tauri::AppHandle, links: &[tauri::Url]) {
-    use tauri::Emitter;
-    let pages: Vec<String> = links.iter().filter_map(|u| page_from_deep_link(u.as_str())).collect();
-    if pages.is_empty() {
-        return;
+    for page in links.iter().filter_map(|u| page_from_deep_link(u.as_str())) {
+        queue_external_page(app, page);
     }
+}
+
+/// A page sent from outside the app (link or browser extension): shown in the Hub's link box.
+pub(crate) fn queue_external_page(app: &tauri::AppHandle, page: String) {
+    use tauri::Emitter;
     if let Ok(mut pending) = PENDING_LINKS.lock() {
-        pending.extend(pages);
+        pending.push(page);
     }
     let _ = app.emit("external-link", ());
     if let Some(w) = app.get_webview_window("main") {
@@ -247,6 +251,23 @@ fn receive_deep_links(app: &tauri::AppHandle, links: &[tauri::Url]) {
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+}
+
+/// The browser extension's folder (for "Load unpacked" until it's in the browser stores).
+#[tauri::command]
+fn browser_extension_folder(app: tauri::AppHandle) -> Option<String> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let mut candidates = vec![exe_dir.join("extension")];
+    if let Ok(resources) = app.path().resource_dir() {
+        candidates.push(resources.join("extension"));
+    }
+    // Development builds run from src-tauri/target/<profile>/.
+    candidates.push(exe_dir.join("../../../extension"));
+    candidates
+        .into_iter()
+        .find(|dir| dir.join("manifest.json").is_file())
+        .and_then(|dir| dir.canonicalize().ok())
+        .map(|dir| dir.to_string_lossy().trim_start_matches(r"\\?\").to_string())
 }
 
 #[tauri::command]
@@ -399,12 +420,25 @@ fn inspect_media_container(path: String) -> Result<bool, String> {
 
 #[tauri::command]
 async fn query_media_info(app: tauri::AppHandle, url: String) -> Result<downloader::MediaMetadata, String> {
-    let cookies = downloader::cookies::browser_cookies_async(&app, &url).await;
-    tauri::async_runtime::spawn_blocking(move || {
-        downloader::UniversalExtractor::query_info(&url, cookies.as_deref())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    // Reading sign-ins can mean starting the built-in browser (seconds), and most links don't
+    // need one. Look up right away; the sign-in is read alongside and used only if that fails
+    // (age-restricted, members-only, private posts).
+    let cookies = {
+        let (app, url) = (app.clone(), url.clone());
+        tauri::async_runtime::spawn(async move { downloader::cookies::browser_cookies_async(&app, &url).await })
+    };
+    let lookup = |cookies: Option<String>| {
+        let url = url.clone();
+        tauri::async_runtime::spawn_blocking(move || downloader::UniversalExtractor::query_info(&url, cookies.as_deref()))
+    };
+    let first = lookup(None).await.map_err(|e| e.to_string())?;
+    if first.is_ok() {
+        return first;
+    }
+    match cookies.await.ok().flatten() {
+        Some(c) => lookup(Some(c)).await.map_err(|e| e.to_string())?,
+        None => first,
+    }
 }
 
 #[tauri::command]
@@ -557,6 +591,16 @@ mod deep_link_tests {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// True when a browser started this exe to reach the HyperStream extension's helper.
+pub fn is_browser_helper_launch() -> bool {
+    bridge::is_host_launch()
+}
+
+/// The browser extension's helper: passes messages to the app, then exits.
+pub fn run_browser_helper() {
+    bridge::host_main();
+}
+
 pub fn run() {
     // Child processes (WebView2, yt-dlp, ffmpeg) die with the app via a job object.
     // Orphan cleanup only runs on exit: at launch it would kill an already-running instance.
@@ -622,6 +666,10 @@ pub fn run() {
         .setup(|app| {
             app.manage(browser::BrowserState::default());
 
+            // HyperStream browser extension: register with the browsers, then listen for it.
+            std::thread::spawn(bridge::register);
+            bridge::serve(app.handle().clone());
+
             // "Send to HyperStream" from other browsers. Registering keeps the link pointing at
             // this copy of the app (installers register it too).
             {
@@ -676,6 +724,7 @@ pub fn run() {
             pick_storage_folder,
             exit_app,
             take_external_links,
+            browser_extension_folder,
             is_app_foreground,
             browser::set_browser_visibility,
             browser::update_browser_bounds,

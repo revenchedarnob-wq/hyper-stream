@@ -11,6 +11,7 @@ import {
   revealInExplorer,
   setMaxConcurrent,
   SEND_TO_HYPERSTREAM_BOOKMARKLET,
+  getBrowserExtensionFolder,
 } from '@/lib/tauri-bridge'
 import { detectHardwareProfile, formatGpuName } from '@/lib/hardware-profiler'
 import { saveSettings, type DefaultQuality } from '@/lib/settings'
@@ -292,6 +293,39 @@ function SendToHyperStreamRow() {
   )
 }
 
+function BrowserExtensionRow() {
+  const [folder, setFolder] = React.useState<string | null>(null)
+  const [copied, setCopied] = React.useState(false)
+  React.useEffect(() => {
+    void getBrowserExtensionFolder()
+      .then(setFolder)
+      .catch(() => setFolder(null))
+  }, [])
+  const copyAddress = async () => {
+    try {
+      await navigator.clipboard.writeText('chrome://extensions')
+      playHapticGlass()
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+  return (
+    <Row
+      label="HyperStream extension"
+      desc="Finds videos on pages, adds “Download with HyperStream” to the right-click menu, and can take over downloads from Chrome or Edge. To install: open chrome://extensions (edge://extensions in Edge), turn on Developer mode, choose Load unpacked, and pick this folder."
+    >
+      <button type="button" className="action-btn" disabled={!folder} onClick={() => folder && void revealInExplorer(folder)}>
+        Show folder
+      </button>
+      <button type="button" className="action-btn" onClick={() => void copyAddress()}>
+        {copied ? 'Copied' : 'Copy address'}
+      </button>
+    </Row>
+  )
+}
+
 function BrowserPanel() {
   const settings = useSettings()
   const [extensionCount, setExtensionCount] = React.useState<number | null>(null)
@@ -377,6 +411,7 @@ function BrowserPanel() {
           <h2 className="settings-section-title">Other browsers</h2>
         </div>
         <div className="settings-card-group">
+          <BrowserExtensionRow />
           <SendToHyperStreamRow />
         </div>
       </section>

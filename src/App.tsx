@@ -76,9 +76,12 @@ export default function App() {
       })
     void take()
     const unlisten = listen('external-link', () => void take())
+    // A download handed over by the browser extension started: show it.
+    const unlistenDownloads = listen('show-downloads', () => setActiveNav('hub'))
     return () => {
       disposed = true
       void unlisten.then((fn) => fn())
+      void unlistenDownloads.then((fn) => fn())
     }
   }, [])
   const [browserRequest, setBrowserRequest] = useState<{ url: string; nonce: number } | null>(null)
