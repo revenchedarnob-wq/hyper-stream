@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter};
 use crate::ACTIVE_TRANSFERS;
 use crate::downloader::binary_manager::BinaryManager;
 use crate::downloader::cookies::browser_cookies_async;
-use crate::downloader::{extractor, turbo};
+use crate::downloader::{bandwidth, extractor, turbo};
 use crate::downloader::library::{self, LibraryItem, MediaKind};
 use crate::downloader::queue::{
     get_queue_file_path, is_transient_error, load_queue_from_path, sanitize_for_persistence,
@@ -21,6 +21,16 @@ use crate::downloader::queue::{
 
 /// Returned by the runner when the user paused or cancelled; never shown as an error.
 const ABORTED: &str = "__aborted__";
+
+/// The fast engine stopped for now with its data kept; the queue tries again later and the
+/// download continues from there.
+fn interrupted_message(reason: &str) -> String {
+    if reason.contains("server") {
+        "The server is busy right now. Retrying continues from where it stopped.".to_string()
+    } else {
+        "Lost the connection. Retrying continues from where it stopped.".to_string()
+    }
+}
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -1293,7 +1303,7 @@ fn show_selection(task_id: &str, options: &DownloadOptions, tasks_ref: &TaskMap,
     let _ = app.emit("download-progress", &t.clone());
 }
 
-fn report_progress(task_id: &str, tasks_ref: &TaskMap, app: &AppHandle, done: u64, total: u64, speed: u64) {
+fn report_progress(task_id: &str, tasks_ref: &TaskMap, app: &AppHandle, done: u64, total: u64, speed: u64, stage: &str) {
     let mut tasks = tasks_ref.write().unwrap();
     let Some(t) = tasks.get_mut(task_id) else { return };
     if t.state != DownloadState::Downloading {
@@ -1304,7 +1314,7 @@ fn report_progress(task_id: &str, tasks_ref: &TaskMap, app: &AppHandle, done: u6
     t.speed_bytes_per_sec = speed;
     t.progress_percent = if total > 0 { (done as f64 / total as f64 * 100.0).min(99.5) } else { 0.0 };
     t.eta_seconds = (speed > 0 && total > done).then(|| (total - done) / speed);
-    t.stage = "Downloading".to_string();
+    t.stage = stage.to_string();
     let _ = app.emit("download-progress", &t.clone());
 }
 
@@ -1364,7 +1374,9 @@ async fn fetch_fast(
                 let (since, at) = history[0];
                 let secs = now.duration_since(since).as_secs_f64();
                 let speed = if secs > 0.2 { (done.saturating_sub(at) as f64 / secs) as u64 } else { 0 };
-                report_progress(task_id, tasks_ref, app, done.min(total), total, speed);
+                let waiting = meter.waiting.load(Ordering::Relaxed);
+                let (speed, stage) = if waiting { (0, "Waiting for the connection") } else { (speed, "Downloading") };
+                report_progress(task_id, tasks_ref, app, done.min(total), total, speed, stage);
             }
         }
     }
@@ -1489,7 +1501,7 @@ async fn run_ytdlp(
                             continue;
                         }
                         last_emit = Instant::now();
-                        report_progress(task_id, tasks_ref, app, overall, overall_total, speed);
+                        report_progress(task_id, tasks_ref, app, overall, overall_total, speed, "Downloading");
                     }
                     Some("HSPOST") => {
                         let step = parts.next().unwrap_or("");
@@ -1581,7 +1593,11 @@ async fn run_download_task(
     let ffmpeg = BinaryManager::find_binary("ffmpeg");
     let thumb_template = library::thumbnails_dir().join(format!("{}.%(ext)s", task_id));
     let args_for = |mode: Mode, input: &Input| {
-        build_args(options, target_dir, &thumb_template, ffmpeg.as_deref(), cookie_file.as_deref(), mode, input)
+        let mut args = build_args(options, target_dir, &thumb_template, ffmpeg.as_deref(), cookie_file.as_deref(), mode, input);
+        if let Some(rate) = bandwidth::fixed_limit_per_download(ACTIVE_TRANSFERS.load(Ordering::Relaxed) as usize) {
+            args.splice(0..0, [OsString::from("--limit-rate"), OsString::from(rate.to_string())]);
+        }
+        args
     };
 
     let selection = if fast_engine_enabled() {
@@ -1606,13 +1622,43 @@ async fn run_download_task(
             match sel.streams.clone() {
                 None => run_ytdlp(args_for(Mode::Download, &saved), task_id, options, tasks_ref, app, &mut abort, false).await?,
                 Some(streams) => {
-                    let dests: Vec<PathBuf> = streams.iter().map(|s| s.dest.clone()).collect();
-                    match fetch_fast(task_id, streams, tasks_ref, app, &mut abort, false).await {
+                    let mut dests: Vec<PathBuf> = streams.iter().map(|s| s.dest.clone()).collect();
+                    let mut result = fetch_fast(task_id, streams, tasks_ref, app, &mut abort, false).await;
+                    // Links expire (YouTube's after about six hours, so a download paused overnight
+                    // comes back to refused links): load the page again for fresh ones and carry on
+                    // with the data already on disk. The fresh choice replaces the saved one.
+                    if let Err(turbo::TurboError::Expired(reason)) = &result {
+                        log::info!("Links expired ({}), loading the page again", reason);
+                        let fresh = select_formats(task_id, vec![args_for(Mode::Select, &Input::Url)], &mut abort).await?;
+                        result = match fresh.and_then(|f| f.streams) {
+                            Some(streams) => {
+                                let fresh_dests: Vec<PathBuf> = streams.iter().map(|s| s.dest.clone()).collect();
+                                for old in dests.iter().filter(|d| !fresh_dests.contains(d)) {
+                                    turbo::remove_partial(old);
+                                }
+                                dests = fresh_dests;
+                                fetch_fast(task_id, streams, tasks_ref, app, &mut abort, false).await
+                            }
+                            None => Err(turbo::TurboError::Fallback("no fresh links".into())),
+                        };
+                    }
+                    match result {
                         // The streams are on disk under the names yt-dlp expects; it skips
                         // downloading them and goes straight to merging.
-                        Ok(()) => run_ytdlp(args_for(Mode::Download, &saved), task_id, options, tasks_ref, app, &mut abort, true).await?,
+                        Ok(()) => {
+                            let finish = args_for(Mode::Download, &saved);
+                            match run_ytdlp(finish.clone(), task_id, options, tasks_ref, app, &mut abort, true).await {
+                                // Antivirus often scans new files for a moment; wait, then merge again.
+                                Err(e) if e.contains("another program") => {
+                                    tokio::time::sleep(Duration::from_secs(3)).await;
+                                    run_ytdlp(finish, task_id, options, tasks_ref, app, &mut abort, true).await?
+                                }
+                                other => other?,
+                            }
+                        }
                         Err(turbo::TurboError::Aborted) => return Err(ABORTED.to_string()),
-                        Err(turbo::TurboError::Fallback(reason)) => {
+                        Err(turbo::TurboError::Interrupted(reason)) => return Err(interrupted_message(&reason)),
+                        Err(turbo::TurboError::Expired(reason) | turbo::TurboError::Fallback(reason)) => {
                             log::warn!("Fast download unavailable ({}), using yt-dlp", reason);
                             for dest in &dests {
                                 turbo::remove_partial(dest);
@@ -1691,13 +1737,19 @@ async fn run_direct(
     match fetch_fast(task_id, vec![stream.clone()], tasks_ref, app, abort, false).await {
         Ok(()) => {}
         Err(turbo::TurboError::Aborted) => return Err(ABORTED.to_string()),
+        Err(turbo::TurboError::Interrupted(reason)) => return Err(interrupted_message(&reason)),
+        // The data is kept: the site may accept the link again later (after signing in, say).
+        Err(turbo::TurboError::Expired(reason)) => return Err(crate::downloader::classify_download_error(&reason)),
         Err(turbo::TurboError::Fallback(reason)) => {
             log::info!("Single-connection download ({})", reason);
             turbo::remove_partial(&dest);
             match fetch_fast(task_id, vec![stream], tasks_ref, app, abort, true).await {
                 Ok(()) => {}
                 Err(turbo::TurboError::Aborted) => return Err(ABORTED.to_string()),
-                Err(turbo::TurboError::Fallback(reason)) => return Err(crate::downloader::classify_download_error(&reason)),
+                Err(turbo::TurboError::Interrupted(reason)) => return Err(interrupted_message(&reason)),
+                Err(turbo::TurboError::Expired(reason) | turbo::TurboError::Fallback(reason)) => {
+                    return Err(crate::downloader::classify_download_error(&reason))
+                }
             }
         }
     }

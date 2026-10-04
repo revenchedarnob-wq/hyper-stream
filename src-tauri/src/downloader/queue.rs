@@ -168,6 +168,7 @@ pub fn is_transient_error(err: &str) -> bool {
     // Transient errors — retry with backoff
     let transient = [
         "http error 429", "too many requests", "rate-limiting", "rate limit",
+        "lost the connection", "server is busy", "was using the file",
         "http error 500", "http error 502", "http error 503", "http error 504",
         "internal server error", "bad gateway", "service unavailable", "gateway timeout",
         "timed out", "timeout", "connection reset", "connection aborted",

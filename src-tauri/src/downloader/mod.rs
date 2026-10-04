@@ -1,3 +1,4 @@
+pub mod bandwidth;
 pub mod binary_manager;
 pub mod container;
 pub mod cookies;

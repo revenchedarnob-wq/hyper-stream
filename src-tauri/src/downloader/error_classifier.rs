@@ -39,6 +39,8 @@ pub fn classify_download_error(raw: &str) -> String {
             "The connection timed out or was interrupted. Check your network and try again."),
         (&["certificate verify failed", "ssl", "certificate"],
             "A secure connection could not be established (SSL certificate error)."),
+        (&["being used by another process"],
+            "Another program (often antivirus) was using the file. Try again in a moment."),
         (&["no space left", "disk full", "not enough space"],
             "Not enough free disk space to complete the download."),
         (&["permission denied", "access is denied", "os error 5"],

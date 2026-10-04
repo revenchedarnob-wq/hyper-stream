@@ -5,25 +5,36 @@
 //! unfinished range (no idle connections near the end), and connections are added in
 //! steps for as long as each step still raises the total speed.
 //!
-//! Anything this engine can't handle (no range support, expired links, repeated errors)
+//! Lost connections are waited out: the data stays on disk and the download continues once
+//! the network is back. Anything this engine can't handle (no range support, odd answers)
 //! comes back as `TurboError::Fallback` so the caller can use the regular downloader.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_ENCODING, CONTENT_RANGE, ETAG, IF_RANGE, LAST_MODIFIED, RANGE};
+
+use crate::downloader::bandwidth;
 
 /// Bytes collected per connection before they are written to disk.
 const WRITE_BUFFER: usize = 512 * 1024;
 /// A range is only split when both halves get at least this much.
 const MIN_SPLIT: u64 = 1024 * 1024;
-const READ_TIMEOUT: Duration = Duration::from_secs(20);
-/// Consecutive failures of one range before giving up on this engine.
+/// No answer or no data for this long: the connection is dead (an outage, a sleeping PC).
+const READ_TIMEOUT: Duration = Duration::from_secs(if cfg!(test) { 2 } else { 20 });
+/// Consecutive failures of one range before stopping for now.
 const MAX_FAILURES: u32 = 6;
-/// With no new data for this long, hand the download to the regular downloader.
+/// With the network up but no new data for this long, stop for now (progress is kept).
 const STALL_LIMIT: Duration = Duration::from_secs(30);
+/// Without a connection, keep trying this long before stopping for now (progress is kept).
+const OFFLINE_LIMIT: Duration = Duration::from_secs(if cfg!(test) { 6 } else { 10 * 60 });
+/// How often connections try again while the network is down.
+const OFFLINE_RETRY: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 2 });
+/// Other connections got data this recently: the network is up, so a failed connection
+/// means the server wants fewer of them.
+const FLOWING_WINDOW: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone)]
 pub struct Stream {
@@ -40,6 +51,11 @@ pub struct Stream {
 pub enum TurboError {
     /// Paused or cancelled; partial data and resume state are kept.
     Aborted,
+    /// Temporary trouble (no connection, server errors). Partial data and resume state are
+    /// kept, so trying again later continues where this stopped.
+    Interrupted(String),
+    /// The server no longer accepts the link (it expired). Fresh links continue the download.
+    Expired(String),
     /// This engine can't do it; use the regular downloader.
     Fallback(String),
 }
@@ -54,6 +70,11 @@ pub struct Meter {
     pub pushback: AtomicBool,
     /// Connections in use once the speed stopped improving (0: never settled).
     pub settled: AtomicUsize,
+    /// The network is down; connections are waiting for it.
+    pub waiting: AtomicBool,
+    /// Other downloads from the same site (or too many downloads) held this one back, so
+    /// its connection count says nothing about the site.
+    pub shared: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,9 +105,14 @@ struct SiteRecord {
 
 const SITE_RECORD_DAYS: u64 = 14;
 
-/// "rr3---sn-abc.googlevideo.com" -> "googlevideo.com"
+/// "rr3---sn-abc.googlevideo.com" -> "googlevideo.com"; "http://10.0.0.5:8080/x" -> "10.0.0.5:8080"
 fn site_of(url: &str) -> Option<String> {
-    let host = reqwest::Url::parse(url).ok()?.host_str()?.to_ascii_lowercase();
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let raw_host = parsed.host_str()?;
+    if raw_host.trim_matches(['[', ']']).parse::<std::net::IpAddr>().is_ok() {
+        return Some(format!("{}:{}", raw_host, parsed.port_or_known_default()?));
+    }
+    let host = parsed.host_str()?.to_ascii_lowercase();
     let labels: Vec<&str> = host.split('.').collect();
     let keep = if labels.len() >= 3 && labels[labels.len() - 1].len() == 2 && labels[labels.len() - 2].len() <= 3 { 3 } else { 2 };
     Some(labels[labels.len().saturating_sub(keep)..].join("."))
@@ -117,8 +143,8 @@ pub fn remember_site(url: &str, meter: &Meter, file: &Path) {
     let Some(site) = site_of(url) else { return };
     let pushback = meter.pushback.load(Ordering::Relaxed);
     let settled = meter.settled.load(Ordering::Relaxed);
-    if !pushback && settled == 0 {
-        return; // too short to learn anything
+    if (!pushback && settled == 0) || meter.shared.load(Ordering::Relaxed) {
+        return; // too short to learn anything, or held back by other downloads
     }
     let mut records = read_records(file);
     let previous = records.get(&site).copied().unwrap_or_default();
@@ -134,6 +160,63 @@ pub fn remember_site(url: &str, meter: &Meter, file: &Path) {
     if let Ok(json) = serde_json::to_vec(&records) {
         let _ = std::fs::write(file, json);
     }
+}
+
+/// Downloads running right now and their sites, so parallel downloads share connections:
+/// downloads from one site split that site's limit (sites ban visitors who open too many),
+/// and all of them together stay under twice the limit.
+static RUNNING: Mutex<Vec<(u64, Option<String>)>> = Mutex::new(Vec::new());
+static NEXT_JOB: AtomicU64 = AtomicU64::new(1);
+
+struct Registration(u64);
+
+impl Registration {
+    fn new(site: Option<String>) -> Self {
+        let id = NEXT_JOB.fetch_add(1, Ordering::Relaxed);
+        RUNNING.lock().unwrap().push((id, site));
+        Registration(id)
+    }
+
+    /// Connections this download may use while the others keep theirs.
+    fn fair_share(&self, max: usize) -> usize {
+        let running = RUNNING.lock().unwrap();
+        let site = running.iter().find(|(id, _)| *id == self.0).and_then(|(_, s)| s.clone());
+        let same_site = running.iter().filter(|(_, s)| site.is_some() && *s == site).count();
+        // Tests run side by side in one process: there, only downloads from one site share.
+        let all = if cfg!(test) { same_site } else { running.len() };
+        fair_share(max, same_site, all)
+    }
+}
+
+/// Connections for one of `all` downloads, `same_site` of them from its site.
+fn fair_share(max: usize, same_site: usize, all: usize) -> usize {
+    (max / same_site.max(1)).min(max * 2 / all.max(1)).clamp(1, max.max(1))
+}
+
+impl Drop for Registration {
+    fn drop(&mut self) {
+        RUNNING.lock().unwrap().retain(|(id, _)| *id != self.0);
+    }
+}
+
+fn is_locked(e: &std::io::Error) -> bool {
+    // 32/33: another program (often antivirus scanning the new file) has it open.
+    e.kind() == std::io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(32 | 33))
+}
+
+/// Renames `from` to `to`, waiting a few seconds if another program briefly holds the file.
+pub async fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut wait = Duration::from_millis(100);
+    for _ in 0..12 {
+        match std::fs::rename(from, to) {
+            Err(e) if is_locked(&e) => {
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(Duration::from_secs(1));
+            }
+            other => return other,
+        }
+    }
+    std::fs::rename(from, to)
 }
 
 /// Where the data goes while downloading, and its resume record.
@@ -195,25 +278,43 @@ impl Range {
     }
 }
 
+/// Why a download stopped before the end.
+enum Stop {
+    Fallback(String),
+    Interrupted(String),
+    Expired(String),
+}
+
 struct Job {
     client: reqwest::Client,
     streams: Vec<OpenStream>,
     ranges: Mutex<Vec<Arc<Range>>>,
     meter: Arc<Meter>,
     cancel: Arc<AtomicBool>,
-    fatal: Mutex<Option<String>>,
+    stop: Mutex<Option<Stop>>,
     active: AtomicUsize,
     /// Connections wanted right now; lowered when the server pushes back.
     target: AtomicUsize,
+    started: Instant,
+    /// Milliseconds after `started` when data last arrived (`u64::MAX`: none yet).
+    last_data_ms: AtomicU64,
+    /// When connections started failing for lack of a network.
+    offline_since: Mutex<Option<Instant>>,
 }
 
 enum Attempt {
     /// Some bytes arrived (the range may or may not be finished).
     Progress,
+    /// This connection left mid-range because fewer are wanted (already counted out).
+    Retired,
     /// Nothing arrived; worth retrying.
     Retry(String),
     /// The server is overloaded or rate limiting.
     Busy,
+    /// No network: wait for it, without counting it as a failure.
+    Offline,
+    /// The server no longer accepts the link.
+    Expired(String),
     /// Retrying won't help.
     Fatal(String),
 }
@@ -256,6 +357,11 @@ fn is_expired_status(status: u16) -> bool {
     matches!(status, 401 | 403 | 404 | 410)
 }
 
+/// Server trouble that usually passes.
+fn is_temporary_status(status: u16) -> bool {
+    matches!(status, 408 | 429 | 500..=599)
+}
+
 #[cfg(windows)]
 fn write_at(file: &std::fs::File, mut offset: u64, mut data: &[u8]) -> std::io::Result<()> {
     use std::os::windows::fs::FileExt;
@@ -276,7 +382,6 @@ fn write_at(file: &std::fs::File, offset: u64, data: &[u8]) -> std::io::Result<(
     file.write_all_at(data, offset)
 }
 
-/// Asks for the first byte: confirms range support, the real size and the final URL.
 /// What the first request learned: final address, size, and the file's version.
 struct Probed {
     url: String,
@@ -290,41 +395,112 @@ fn validator_of(headers: &HeaderMap) -> Option<String> {
     etag.or_else(|| headers.get(LAST_MODIFIED).and_then(|v| v.to_str().ok())).map(str::to_string)
 }
 
-async fn probe(client: &reqwest::Client, stream: &Stream, headers: &HeaderMap) -> Result<Probed, TurboError> {
-    let mut last = String::new();
-    for attempt in 0..3u64 {
-        if attempt > 0 {
-            tokio::time::sleep(Duration::from_millis(400 * attempt)).await;
+/// Why a request got no answer.
+#[derive(Debug, PartialEq)]
+enum SendFailure {
+    /// The server turned the connection away: it is reachable but wants fewer connections.
+    Refused,
+    /// No route, no name lookup, no answer: the network is down.
+    Unreachable,
+    /// Reset or closed: either of the above.
+    Unclear,
+}
+
+fn send_failure(e: &reqwest::Error) -> SendFailure {
+    if e.is_timeout() {
+        return SendFailure::Unreachable;
+    }
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(e);
+    while let Some(err) = source {
+        if let Some(io) = err.downcast_ref::<std::io::Error>() {
+            use std::io::ErrorKind::*;
+            match io.kind() {
+                ConnectionRefused => return SendFailure::Refused,
+                NetworkUnreachable | HostUnreachable | NetworkDown | AddrNotAvailable | TimedOut => return SendFailure::Unreachable,
+                _ => {}
+            }
         }
-        let response = match client.get(&stream.url).headers(headers.clone()).header(RANGE, "bytes=0-0").send().await {
+        if err.to_string().contains("dns error") {
+            return SendFailure::Unreachable;
+        }
+        source = err.source();
+    }
+    SendFailure::Unclear
+}
+
+/// Sleeps up to `d`, waking early when the download is paused.
+async fn nap(cancel: &AtomicBool, d: Duration) {
+    let until = Instant::now() + d;
+    while !cancel.load(Ordering::Relaxed) {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        tokio::time::sleep(left.min(Duration::from_millis(250))).await;
+    }
+}
+
+/// Asks for the first byte: confirms range support, the real size and the final URL.
+/// Without a network it waits for one (`meter.waiting`), up to `OFFLINE_LIMIT`.
+async fn probe(client: &reqwest::Client, stream: &Stream, headers: &HeaderMap, meter: &Meter, cancel: &AtomicBool) -> Result<Probed, TurboError> {
+    let started = Instant::now();
+    let mut errors = 0u64;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(TurboError::Aborted);
+        }
+        let request = client.get(&stream.url).headers(headers.clone()).header(RANGE, "bytes=0-0").send();
+        let failure = match tokio::time::timeout(READ_TIMEOUT, request).await {
+            Ok(Ok(r)) => Ok(r),
+            Ok(Err(e)) => Err((send_failure(&e), e.to_string())),
+            Err(_) => Err((SendFailure::Unreachable, "no answer".to_string())),
+        };
+        let response = match failure {
             Ok(r) => r,
-            Err(e) => {
-                last = e.to_string();
+            Err((SendFailure::Refused, reason)) => {
+                errors += 1;
+                if errors >= 4 {
+                    return Err(TurboError::Interrupted(format!("server refused the connection: {}", reason)));
+                }
+                nap(cancel, Duration::from_millis(500 * errors)).await;
+                continue;
+            }
+            Err((_, reason)) => {
+                if started.elapsed() > OFFLINE_LIMIT {
+                    return Err(TurboError::Interrupted(format!("couldn't reach the server: {}", reason)));
+                }
+                meter.waiting.store(true, Ordering::Relaxed);
+                nap(cancel, OFFLINE_RETRY).await;
                 continue;
             }
         };
+        meter.waiting.store(false, Ordering::Relaxed);
         let status = response.status().as_u16();
-        if status == 206 {
-            let total = response
-                .headers()
-                .get(CONTENT_RANGE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(total_from_content_range)
-                .filter(|&t| t > 0);
-            let Some(total) = total else {
-                return Err(TurboError::Fallback("size unknown".into()));
-            };
-            return Ok(Probed { url: response.url().to_string(), size: total, validator: validator_of(response.headers()) });
+        match status {
+            206 => {
+                let total = response
+                    .headers()
+                    .get(CONTENT_RANGE)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(total_from_content_range)
+                    .filter(|&t| t > 0);
+                let Some(total) = total else {
+                    return Err(TurboError::Fallback("size unknown".into()));
+                };
+                return Ok(Probed { url: response.url().to_string(), size: total, validator: validator_of(response.headers()) });
+            }
+            200 => return Err(TurboError::Fallback("server doesn't support ranges".into())),
+            s if is_expired_status(s) => return Err(TurboError::Expired(format!("link refused ({})", s))),
+            s if is_temporary_status(s) => {
+                errors += 1;
+                if errors >= 4 {
+                    return Err(TurboError::Interrupted(format!("server error (HTTP {})", s)));
+                }
+                nap(cancel, Duration::from_millis(500 * errors)).await;
+            }
+            s => return Err(TurboError::Fallback(format!("HTTP {}", s))),
         }
-        if status == 200 {
-            return Err(TurboError::Fallback("server doesn't support ranges".into()));
-        }
-        if is_expired_status(status) {
-            return Err(TurboError::Fallback(format!("link refused ({})", status)));
-        }
-        last = format!("HTTP {}", status);
     }
-    Err(TurboError::Fallback(format!("probe failed: {}", last)))
 }
 
 fn load_resume(dest: &Path, size: u64, validator: Option<&str>) -> Option<Vec<(u64, u64)>> {
@@ -345,11 +521,35 @@ fn load_resume(dest: &Path, size: u64, validator: Option<&str>) -> Option<Vec<(u
 
 impl Job {
     fn stopped(&self) -> bool {
-        self.cancel.load(Ordering::Relaxed) || self.fatal.lock().unwrap().is_some()
+        self.cancel.load(Ordering::Relaxed) || self.stop.lock().unwrap().is_some()
     }
 
-    fn fail(&self, reason: String) {
-        self.fatal.lock().unwrap().get_or_insert(reason);
+    fn stop_with(&self, reason: Stop) {
+        self.stop.lock().unwrap().get_or_insert(reason);
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
+    /// Another connection got data moments ago, so the network itself is fine.
+    fn flowing(&self) -> bool {
+        let last = self.last_data_ms.load(Ordering::Relaxed);
+        last != u64::MAX && self.elapsed_ms().saturating_sub(last) < FLOWING_WINDOW.as_millis() as u64
+    }
+
+    fn went_offline(&self) {
+        self.offline_since.lock().unwrap().get_or_insert_with(Instant::now);
+        self.meter.waiting.store(true, Ordering::Relaxed);
+    }
+
+    /// A failed request: no network at all, or (while others still get data) this one only.
+    fn network_failure(&self, busy: bool, reason: String) -> Attempt {
+        match (self.flowing(), busy) {
+            (false, _) => Attempt::Offline,
+            (true, true) => Attempt::Busy,
+            (true, false) => Attempt::Retry(reason),
+        }
     }
 
     /// An unclaimed range, or the back half of the largest busy one.
@@ -376,10 +576,6 @@ impl Job {
         Some(taken)
     }
 
-    fn over_target(&self) -> bool {
-        self.active.load(Ordering::Relaxed) > self.target.load(Ordering::Relaxed).max(1)
-    }
-
     /// Leaves when there is no work left, or when there are more connections than wanted.
     fn should_retire(&self) -> bool {
         let target = self.target.load(Ordering::Relaxed).max(1);
@@ -391,6 +587,10 @@ impl Job {
             }
         }
         false
+    }
+
+    fn has_free_work(&self) -> bool {
+        self.ranges.lock().unwrap().iter().any(|r| !r.busy.load(Ordering::Acquire) && r.remaining() > 0)
     }
 
     fn snapshot(&self) -> Vec<Vec<(u64, u64)>> {
@@ -432,6 +632,10 @@ impl Job {
         let len = data.len() as u64;
         range.pos.fetch_max(at + len, Ordering::AcqRel);
         self.meter.done.fetch_add(len, Ordering::Relaxed);
+        if self.meter.waiting.load(Ordering::Relaxed) {
+            *self.offline_since.lock().unwrap() = None;
+            self.meter.waiting.store(false, Ordering::Relaxed);
+        }
         *buf = data;
         buf.clear();
         Ok(())
@@ -445,32 +649,33 @@ impl Job {
             return Attempt::Progress;
         }
         let request_end = end.min(pos.saturating_add(stream.max_request));
-        let request = self
-            .client
-            .get(&stream.url)
-            .headers(stream.headers.clone())            .header(RANGE, format!("bytes={}-{}", pos, request_end - 1));
+        let request = self.client.get(&stream.url).headers(stream.headers.clone()).header(RANGE, format!("bytes={}-{}", pos, request_end - 1));
         // If the file changed since the first request, the server sends all of it (200)
         // instead of mixing new bytes into the old file; that ends this engine's attempt.
         let request = match &stream.validator {
             Some(v) => request.header(IF_RANGE, v.as_str()),
             None => request,
         };
-        let response = match request
-            .send()
-            .await
-        {
-            Ok(r) => r,
-            // Refused or unanswered connections mean the server wants fewer of them.
-            Err(e) if e.is_connect() || e.is_timeout() => return Attempt::Busy,
-            Err(e) => return Attempt::Retry(e.to_string()),
+        let response = match tokio::time::timeout(READ_TIMEOUT, request.send()).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                return match send_failure(&e) {
+                    SendFailure::Refused => Attempt::Busy,
+                    SendFailure::Unreachable => Attempt::Offline,
+                    // Reset or closed while other connections get data: the server wants fewer.
+                    SendFailure::Unclear => self.network_failure(true, e.to_string()),
+                };
+            }
+            Err(_) => return self.network_failure(true, "no answer".into()),
         };
         let status = response.status().as_u16();
         match status {
             206 => {}
             429 | 503 => return Attempt::Busy,
-            s if is_expired_status(s) => return Attempt::Fatal(format!("link refused ({})", s)),
+            s if is_expired_status(s) => return Attempt::Expired(format!("link refused ({})", s)),
             200 => return Attempt::Fatal("server ignored the range request".into()),
-            s => return Attempt::Retry(format!("HTTP {}", s)),
+            s if is_temporary_status(s) => return Attempt::Retry(format!("HTTP {}", s)),
+            s => return Attempt::Fatal(format!("HTTP {}", s)),
         }
         let started_at = response.headers().get(CONTENT_RANGE).and_then(|v| v.to_str().ok()).and_then(start_from_content_range);
         if started_at != Some(pos) {
@@ -481,25 +686,36 @@ impl Job {
         let mut at = pos;
         let mut got_any = false;
         loop {
-            if self.stopped() || self.over_target() {
+            if self.stopped() {
                 break;
+            }
+            // Fewer connections wanted: exactly the extra ones leave, keeping what they got.
+            if self.should_retire() {
+                if let Err(e) = self.flush(stream, range, at, buf).await {
+                    return Attempt::Fatal(e);
+                }
+                return Attempt::Retired;
             }
             let chunk = match tokio::time::timeout(READ_TIMEOUT, response.chunk()).await {
                 Ok(Ok(Some(c))) => c,
                 Ok(Ok(None)) => break,
-                Ok(Err(e)) => {
+                failed => {
                     if let Err(e) = self.flush(stream, range, at, buf).await {
                         return Attempt::Fatal(e);
                     }
-                    return if got_any { Attempt::Progress } else { Attempt::Retry(e.to_string()) };
-                }
-                Err(_) => {
-                    if let Err(e) = self.flush(stream, range, at, buf).await {
-                        return Attempt::Fatal(e);
+                    if got_any {
+                        return Attempt::Progress;
                     }
-                    return if got_any { Attempt::Progress } else { Attempt::Retry("no data for 20 s".into()) };
+                    let reason = match failed {
+                        Ok(Err(e)) => e.to_string(),
+                        _ => "no data".to_string(),
+                    };
+                    return self.network_failure(false, reason);
                 }
             };
+            self.last_data_ms.store(self.elapsed_ms(), Ordering::Relaxed);
+            // Under a speed limit, reading slower makes the server send slower.
+            bandwidth::take(chunk.len()).await;
             // Another connection may have taken the back of this range meanwhile.
             let limit = range.end.load(Ordering::Acquire).min(request_end);
             let room = limit.saturating_sub(at + buf.len() as u64) as usize;
@@ -517,7 +733,18 @@ impl Job {
                 at += len;
             }
             if reached_end {
-                // Dropping the response mid-body closes the connection; fine when the range was cut short.
+                if limit == request_end {
+                    // The whole answer was used: read its end so the connection can be used again
+                    // (a new one costs a handshake). Dropping it mid-body would close it.
+                    let _ = tokio::time::timeout(Duration::from_secs(2), response.chunk()).await;
+                    drop(response);
+                    // Give the connection a moment to return to the pool, or the next request
+                    // races it with a new connection (which a busy server may refuse).
+                    for _ in 0..4 {
+                        tokio::task::yield_now().await;
+                    }
+                    break;
+                }
                 break;
             }
         }
@@ -529,6 +756,8 @@ impl Job {
 
     async fn work(self: Arc<Self>) {
         let mut buf = Vec::with_capacity(WRITE_BUFFER);
+        // Refused connections across ranges: a server that keeps refusing ends the attempt.
+        let mut refusals = 0u32;
         'claim: while !self.stopped() {
             if self.should_retire() {
                 return;
@@ -539,40 +768,55 @@ impl Job {
                 match self.attempt(&range, &mut buf).await {
                     Attempt::Progress => {
                         failures = 0;
+                        refusals = 0;
                         if self.should_retire() {
                             range.busy.store(false, Ordering::Release);
                             return;
                         }
                     }
+                    Attempt::Retired => {
+                        range.busy.store(false, Ordering::Release);
+                        return;
+                    }
                     Attempt::Retry(reason) => {
                         failures += 1;
                         if failures >= MAX_FAILURES {
-                            self.fail(reason);
+                            self.stop_with(Stop::Interrupted(reason));
                             break;
                         }
-                        tokio::time::sleep(Duration::from_millis(300 * (1 << failures.min(4)))).await;
+                        nap(&self.cancel, Duration::from_millis(300 * (1 << failures.min(4)))).await;
+                    }
+                    Attempt::Offline => {
+                        // The main loop decides when waiting has gone on too long.
+                        self.went_offline();
+                        nap(&self.cancel, OFFLINE_RETRY).await;
                     }
                     Attempt::Busy => {
-                        // Too many connections for this server: shed one and back off.
+                        // Too many connections for this server: this refused one is the one to go,
+                        // before working connections notice there are too many.
                         self.meter.pushback.store(true, Ordering::Relaxed);
                         let t = self.target.load(Ordering::Relaxed);
                         if t > 1 {
                             let _ = self.target.compare_exchange(t, t - 1, Ordering::AcqRel, Ordering::Relaxed);
                         }
-                        failures += 1;
-                        if failures >= MAX_FAILURES * 2 {
-                            self.fail("server kept refusing connections".into());
-                            break;
-                        }
-                        tokio::time::sleep(Duration::from_millis(1000 * failures.min(5) as u64)).await;
                         range.busy.store(false, Ordering::Release);
                         if self.should_retire() {
                             return;
                         }
+                        refusals += 1;
+                        if refusals >= MAX_FAILURES * 2 {
+                            self.stop_with(Stop::Interrupted("server kept refusing connections".into()));
+                            break 'claim;
+                        }
+                        nap(&self.cancel, Duration::from_millis(1000 * refusals.min(5) as u64)).await;
                         continue 'claim;
                     }
+                    Attempt::Expired(reason) => {
+                        self.stop_with(Stop::Expired(reason));
+                        break;
+                    }
                     Attempt::Fatal(reason) => {
-                        self.fail(reason);
+                        self.stop_with(Stop::Fallback(reason));
                         break;
                     }
                 }
@@ -591,6 +835,7 @@ fn spawn_worker(job: &Arc<Job>, set: &mut tokio::task::JoinSet<()>) {
 /// Downloads every stream into its `dest`. Streams share one pool of connections.
 pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, cancel: Arc<AtomicBool>) -> Result<(), TurboError> {
     let client = client().map_err(TurboError::Fallback)?;
+    let share = Registration::new(streams.first().and_then(|s| site_of(&s.url)));
 
     let mut open = Vec::new();
     let mut ranges = Vec::new();
@@ -598,7 +843,7 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
     let mut done = 0u64;
     for (i, s) in streams.iter().enumerate() {
         let headers = header_map(&s.headers);
-        let Probed { url, size, validator } = probe(&client, s, &headers).await?;
+        let Probed { url, size, validator } = probe(&client, s, &headers, &meter, &cancel).await?;
         if s.size.is_some_and(|expected| expected != size) {
             log::info!("turbo: site said {} bytes, server says {}", s.size.unwrap_or(0), size);
         }
@@ -640,14 +885,23 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
         ranges: Mutex::new(ranges),
         meter: meter.clone(),
         cancel: cancel.clone(),
-        fatal: Mutex::new(None),
+        stop: Mutex::new(None),
         active: AtomicUsize::new(0),
         target: AtomicUsize::new(limits.start.max(1)),
+        started: Instant::now(),
+        last_data_ms: AtomicU64::new(u64::MAX),
+        offline_since: Mutex::new(None),
     });
 
     let mut set = tokio::task::JoinSet::new();
     let small = total.saturating_sub(done) < 4 * MIN_SPLIT;
-    let first = if small { 1 } else { limits.start.max(1) };
+    let mut ceiling = share.fair_share(limits.max);
+    // Held back by other downloads: ramp up again once they finish.
+    let mut held_back = !small && limits.start > ceiling;
+    if held_back {
+        meter.shared.store(true, Ordering::Relaxed);
+    }
+    let first = if small { 1 } else { limits.start.clamp(1, ceiling) };
     job.target.store(first, Ordering::Relaxed);
     for _ in 0..first {
         spawn_worker(&job, &mut set);
@@ -659,12 +913,13 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut ticks = 0u32;
-    let mut ramping = !small && limits.max > first;
-    let mut settle_until = std::time::Instant::now() + Duration::from_millis(500);
-    let mut window: Option<(std::time::Instant, u64)> = None;
+    let mut ramping = !small && limits.max.min(ceiling) > first;
+    let mut settle_until = Instant::now() + Duration::from_millis(500);
+    let mut window: Option<(Instant, u64)> = None;
     let mut previous_level: Option<(usize, f64)> = None;
     let mut last_done = meter.done.load(Ordering::Relaxed);
-    let mut last_progress = std::time::Instant::now();
+    let mut last_progress = Instant::now();
+    let mut last_tick = Instant::now();
     loop {
         tokio::select! {
             joined = set.join_next() => {
@@ -672,25 +927,65 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
                     break;
                 }
                 // A worker left early (server pushback): let others keep the remaining work going.
-                let has_work = job.ranges.lock().unwrap().iter().any(|r| !r.busy.load(Ordering::Acquire) && r.remaining() > 0);
-                if has_work && !job.stopped() && job.active.load(Ordering::Acquire) == 0 {
+                if job.has_free_work() && !job.stopped() && job.active.load(Ordering::Acquire) == 0 {
                     spawn_worker(&job, &mut set);
                 }
             }
             _ = tick.tick() => {
                 ticks += 1;
+                let now = Instant::now();
+                // A long gap between ticks means the PC was asleep: give the network a fresh chance.
+                if now.duration_since(last_tick) > Duration::from_secs(5) {
+                    last_progress = now;
+                    if let Some(since) = job.offline_since.lock().unwrap().as_mut() {
+                        *since = now;
+                    }
+                }
+                last_tick = now;
                 meter.connections.store(job.active.load(Ordering::Relaxed), Ordering::Relaxed);
                 let done_now = meter.done.load(Ordering::Relaxed);
                 if done_now != last_done {
                     last_done = done_now;
-                    last_progress = std::time::Instant::now();
-                } else if last_progress.elapsed() > STALL_LIMIT {
-                    job.fail("no data for 30 s".into());
+                    last_progress = now;
+                } else {
+                    let offline_for = job.offline_since.lock().unwrap().map(|t| now.duration_since(t));
+                    match offline_for {
+                        Some(d) if d > OFFLINE_LIMIT => job.stop_with(Stop::Interrupted("no internet connection".into())),
+                        None if now.duration_since(last_progress) > STALL_LIMIT => job.stop_with(Stop::Interrupted("no data for 30 s".into())),
+                        _ => {}
+                    }
                 }
                 if ticks % 4 == 0 {
                     job.save_state();
                 }
-                let now = std::time::Instant::now();
+
+                // Share connections with downloads that started or finished meanwhile.
+                let fair = share.fair_share(limits.max);
+                if fair != ceiling {
+                    ceiling = fair;
+                    let current = job.target.load(Ordering::Relaxed);
+                    let remaining = total.saturating_sub(done_now);
+                    if current > ceiling {
+                        job.target.store(ceiling, Ordering::Relaxed);
+                        held_back = true;
+                        meter.shared.store(true, Ordering::Relaxed);
+                    } else if held_back && !ramping && ceiling > current && remaining > 2 * current as u64 * MIN_SPLIT {
+                        ramping = true;
+                        previous_level = None;
+                        window = None;
+                        settle_until = now + Duration::from_millis(500);
+                    }
+                }
+
+                // The server already said it wants fewer connections: never ask for more.
+                if meter.pushback.load(Ordering::Relaxed) {
+                    ramping = false;
+                }
+                // Speeds measured while the network is down say nothing about connections.
+                if meter.waiting.load(Ordering::Relaxed) {
+                    window = None;
+                    settle_until = now + Duration::from_millis(500);
+                }
                 if ramping && now >= settle_until {
                     match window {
                         None => window = Some((now, done_now)),
@@ -706,7 +1001,12 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
                                 ramping = false;
                             } else {
                                 previous_level = Some((current, rate));
-                                let next = (current * 2).min(limits.max);
+                                let wanted = (current * 2).min(limits.max);
+                                let next = wanted.min(ceiling);
+                                if next < wanted {
+                                    held_back = true;
+                                    meter.shared.store(true, Ordering::Relaxed);
+                                }
                                 let remaining = total.saturating_sub(done_now);
                                 if next > current && remaining > next as u64 * MIN_SPLIT {
                                     job.target.store(next, Ordering::Relaxed);
@@ -730,16 +1030,22 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
             }
         }
     }
+    drop(share);
+    meter.waiting.store(false, Ordering::Relaxed);
 
-    let fatal = job.fatal.lock().unwrap().clone();
+    let stop = job.stop.lock().unwrap().take();
     let streams_done = job.snapshot().iter().all(|r| r.is_empty());
-    if let Some(reason) = fatal {
+    if let Some(stop) = stop {
         job.save_state();
-        return Err(TurboError::Fallback(reason));
+        return Err(match stop {
+            Stop::Fallback(reason) => TurboError::Fallback(reason),
+            Stop::Interrupted(reason) => TurboError::Interrupted(reason),
+            Stop::Expired(reason) => TurboError::Expired(reason),
+        });
     }
     if cancel.load(Ordering::Relaxed) || !streams_done {
         job.save_state();
-        return Err(if cancel.load(Ordering::Relaxed) { TurboError::Aborted } else { TurboError::Fallback("unfinished ranges".into()) });
+        return Err(if cancel.load(Ordering::Relaxed) { TurboError::Aborted } else { TurboError::Interrupted("unfinished ranges".into()) });
     }
 
     let job = Arc::try_unwrap(job).map_err(|_| TurboError::Fallback("engine still busy".into()))?;
@@ -750,8 +1056,7 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
             drop(f);
         }
         let part = part_path(&dest);
-        let _ = std::fs::remove_file(&dest);
-        std::fs::rename(&part, &dest).map_err(|e| TurboError::Fallback(format!("Couldn't finish {}: {}", dest.display(), e)))?;
+        replace_file(&part, &dest).await.map_err(|e| TurboError::Fallback(format!("Couldn't finish {}: {}", dest.display(), e)))?;
         let _ = std::fs::remove_file(state_path(&dest));
     }
     Ok(())
@@ -765,10 +1070,11 @@ pub async fn download_whole(stream: Stream, meter: Arc<Meter>, cancel: Arc<Atomi
         .headers(header_map(&stream.headers))
         .send()
         .await
-        .map_err(|e| TurboError::Fallback(e.to_string()))?;
+        .map_err(|e| TurboError::Interrupted(e.to_string()))?;
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
-        return Err(TurboError::Fallback(format!("HTTP {}", status)));
+        let reason = format!("HTTP {}", status);
+        return Err(if is_temporary_status(status) { TurboError::Interrupted(reason) } else { TurboError::Fallback(reason) });
     }
     let total = response.content_length().unwrap_or(0);
     meter.total.store(total, Ordering::Relaxed);
@@ -789,11 +1095,12 @@ pub async fn download_whole(stream: Stream, meter: Arc<Meter>, cancel: Arc<Atomi
         let chunk = match tokio::time::timeout(READ_TIMEOUT, response.chunk()).await {
             Ok(Ok(Some(c))) => Some(c),
             Ok(Ok(None)) => None,
-            Ok(Err(e)) => return Err(TurboError::Fallback(e.to_string())),
-            Err(_) => return Err(TurboError::Fallback("no data for 20 s".into())),
+            Ok(Err(e)) => return Err(TurboError::Interrupted(e.to_string())),
+            Err(_) => return Err(TurboError::Interrupted("no data".into())),
         };
         let finished = chunk.is_none();
         if let Some(c) = chunk {
+            bandwidth::take(c.len()).await;
             buf.extend_from_slice(&c);
         }
         if buf.len() >= WRITE_BUFFER || (finished && !buf.is_empty()) {
@@ -817,14 +1124,13 @@ pub async fn download_whole(stream: Stream, meter: Arc<Meter>, cancel: Arc<Atomi
         }
     }
     if total > 0 && at != total {
-        return Err(TurboError::Fallback(format!("connection ended early ({} of {} bytes)", at, total)));
+        return Err(TurboError::Interrupted(format!("connection ended early ({} of {} bytes)", at, total)));
     }
     if total == 0 {
         meter.total.store(at, Ordering::Relaxed);
     }
     drop(file);
-    let _ = std::fs::remove_file(&stream.dest);
-    std::fs::rename(&part, &stream.dest).map_err(|e| TurboError::Fallback(format!("Couldn't finish {}: {}", stream.dest.display(), e)))
+    replace_file(&part, &stream.dest).await.map_err(|e| TurboError::Fallback(format!("Couldn't finish {}: {}", stream.dest.display(), e)))
 }
 
 /// Cookie header from yt-dlp's per-format `cookies` field ("a=1; Domain=.x.com; Path=/; b=2; ...").
@@ -847,19 +1153,66 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    /// A tiny HTTP/1.1 server with range support, a per-connection speed cap,
-    /// and an optional cap on how many bytes one request may ask for.
-    async fn serve(data: Arc<Vec<u8>>, ranges: bool, per_conn_bps: u64, flaky: bool) -> (String, Arc<AtomicUsize>) {
+    /// How the test server behaves.
+    #[derive(Clone)]
+    struct Server {
+        ranges: bool,
+        /// Speed cap of each connection (bytes/s, 0: none).
+        per_conn_bps: u64,
+        /// Speed cap of all connections together, like a site that limits each visitor.
+        total_bps: u64,
+        /// Every 7th request dies halfway through.
+        flaky: bool,
+        /// Connections over this many get "503 busy" (0: no limit).
+        max_conns: usize,
+        /// The network is down from `.0` to `.1` after the server starts: nothing gets through
+        /// (requests go unanswered, transfers stall), as in a real outage.
+        down: Option<(Duration, Duration)>,
+        etag: Option<String>,
+    }
+
+    impl Default for Server {
+        fn default() -> Self {
+            Server { ranges: true, per_conn_bps: 0, total_bps: 0, flaky: false, max_conns: 0, down: None, etag: None }
+        }
+    }
+
+    #[derive(Default)]
+    struct Stats {
+        requests: AtomicUsize,
+        open: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    struct Open(Arc<Stats>);
+    impl Drop for Open {
+        fn drop(&mut self) {
+            self.0.open.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    /// A tiny HTTP/1.1 server with range support and the behaviors in `Server`.
+    async fn serve_with(data: Arc<Vec<u8>>, opts: Server) -> (String, Arc<Stats>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let requests = Arc::new(AtomicUsize::new(0));
-        let counter = requests.clone();
+        let stats = Arc::new(Stats::default());
+        let counter = stats.clone();
+        let born = Instant::now();
+        let down = opts.down;
+        let is_down = move || down.is_some_and(|(from, to)| (from..to).contains(&born.elapsed()));
+        // Shared by every connection when `total_bps` is set: when the line is next free.
+        let line: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
         tokio::spawn(async move {
             loop {
                 let Ok((mut sock, _)) = listener.accept().await else { return };
-                let data = data.clone();
-                let counter = counter.clone();
+                let (data, counter, opts, line) = (data.clone(), counter.clone(), opts.clone(), line.clone());
+                let open = counter.open.fetch_add(1, Ordering::SeqCst) + 1;
+                counter.peak.fetch_max(open, Ordering::SeqCst);
+                let guard = Open(counter.clone());
+                // Connections over the limit are turned away; the ones before them keep working.
+                let rejected = opts.max_conns > 0 && open > opts.max_conns;
                 tokio::spawn(async move {
+                    let _guard = guard;
                     loop {
                         let mut head = Vec::new();
                         let mut byte = [0u8; 1];
@@ -869,15 +1222,26 @@ mod tests {
                                 _ => return,
                             }
                         }
-                        let n = counter.fetch_add(1, Ordering::SeqCst);
+                        while is_down() {
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                        }
+                        let n = counter.requests.fetch_add(1, Ordering::SeqCst);
+                        if rejected {
+                            let _ = sock.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                            return;
+                        }
                         let text = String::from_utf8_lossy(&head).to_ascii_lowercase();
                         let range = text
                             .lines()
                             .find_map(|l| l.strip_prefix("range: bytes="))
                             .and_then(|r| r.split_once('-'))
                             .map(|(a, b)| (a.trim().parse::<u64>().unwrap(), b.trim().parse::<u64>().ok()));
+                        let if_range = text.lines().find_map(|l| l.strip_prefix("if-range: ")).map(|v| v.trim().to_string());
+                        let current = opts.etag.as_ref().map(|e| e.to_ascii_lowercase());
+                        // A stale If-Range gets the whole (changed) file, as real servers do.
+                        let stale = if_range.is_some() && if_range != current;
                         let len = data.len() as u64;
-                        let (status, start, end) = match (ranges, range) {
+                        let (status, start, end) = match (opts.ranges && !stale, range) {
                             (true, Some((a, b))) => ("206 Partial Content", a, b.map_or(len, |b| (b + 1).min(len))),
                             _ => ("200 OK", 0, len),
                         };
@@ -885,20 +1249,39 @@ mod tests {
                         if status.starts_with("206") {
                             header.push_str(&format!("Content-Range: bytes {}-{}/{}\r\n", start, end - 1, len));
                         }
+                        if let Some(tag) = &opts.etag {
+                            header.push_str(&format!("ETag: {}\r\n", tag));
+                        }
                         header.push_str("\r\n");
                         if sock.write_all(header.as_bytes()).await.is_err() {
                             return;
                         }
                         let body = &data[start as usize..end as usize];
-                        // Every 7th request dies halfway through.
-                        let cut = flaky && n % 7 == 3 && body.len() > 2;
+                        let cut = opts.flaky && n % 7 == 3 && body.len() > 2;
                         let body = if cut { &body[..body.len() / 2] } else { body };
+                        // Paced by the clock, not by sleeping per piece: Windows timers oversleep.
+                        let mut due = Instant::now();
                         for piece in body.chunks(16 * 1024) {
+                            while is_down() {
+                                tokio::time::sleep(Duration::from_millis(50)).await;
+                            }
+                            if opts.total_bps > 0 {
+                                let free_at = {
+                                    let mut next = line.lock().unwrap();
+                                    // Late wake-ups catch up (up to 50 ms), as on a real line.
+                                    let now = Instant::now();
+                                    let start = (*next).max(now.checked_sub(Duration::from_millis(50)).unwrap_or(now));
+                                    *next = start + Duration::from_secs_f64(piece.len() as f64 / opts.total_bps as f64);
+                                    *next
+                                };
+                                tokio::time::sleep_until(free_at.into()).await;
+                            }
                             if sock.write_all(piece).await.is_err() {
                                 return;
                             }
-                            if per_conn_bps > 0 {
-                                tokio::time::sleep(Duration::from_secs_f64(piece.len() as f64 / per_conn_bps as f64)).await;
+                            if opts.per_conn_bps > 0 {
+                                due += Duration::from_secs_f64(piece.len() as f64 / opts.per_conn_bps as f64);
+                                tokio::time::sleep_until(due.into()).await;
                             }
                         }
                         if cut {
@@ -908,7 +1291,11 @@ mod tests {
                 });
             }
         });
-        (format!("http://{}/file", addr), requests)
+        (format!("http://{}/file", addr), stats)
+    }
+
+    async fn serve(data: Arc<Vec<u8>>, ranges: bool, per_conn_bps: u64, flaky: bool) -> (String, Arc<Stats>) {
+        serve_with(data, Server { ranges, per_conn_bps, flaky, ..Server::default() }).await
     }
 
     fn sample(len: usize) -> Arc<Vec<u8>> {
@@ -946,14 +1333,14 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn survives_dropped_connections_and_capped_requests() {
         let data = sample(6 * 1024 * 1024 + 7);
-        let (url, requests) = serve(data.clone(), true, 0, true).await;
+        let (url, stats) = serve(data.clone(), true, 0, true).await;
         let dest = temp_dest("flaky.bin");
         download(vec![stream(&url, &dest, Some(MIN_SPLIT))], Limits { start: 4, max: 8 }, Arc::new(Meter::default()), Arc::new(AtomicBool::new(false)))
             .await
             .unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), *data);
         // 1 MiB request cap on 6 MiB: at least 7 requests including the probe.
-        assert!(requests.load(Ordering::SeqCst) >= 7);
+        assert!(stats.requests.load(Ordering::SeqCst) >= 7);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1065,6 +1452,187 @@ mod tests {
         assert_eq!(std::fs::read(&dest).unwrap(), *data);
     }
 
+    fn no_cancel() -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
+    }
+
+    /// Records the most connections a meter ever showed, until dropped.
+    fn watch_peak(meter: &Arc<Meter>) -> (Arc<AtomicUsize>, Arc<AtomicBool>, tokio::task::JoinHandle<()>) {
+        let (m, peak, waited) = (meter.clone(), Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(false)));
+        let (p, w) = (peak.clone(), waited.clone());
+        let handle = tokio::spawn(async move {
+            loop {
+                p.fetch_max(m.connections.load(Ordering::Relaxed), Ordering::Relaxed);
+                if m.waiting.load(Ordering::Relaxed) {
+                    w.store(true, Ordering::Relaxed);
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        });
+        (peak, waited, handle)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn waits_out_a_network_drop() {
+        let data = sample(8 * 1024 * 1024);
+        let opts = Server { per_conn_bps: 2 * 1024 * 1024, down: Some((Duration::from_millis(800), Duration::from_millis(5800))), ..Server::default() };
+        let (url, _) = serve_with(data.clone(), opts).await;
+        let dest = temp_dest("drop.bin");
+        let meter = Arc::new(Meter::default());
+        let (_, waited, watcher) = watch_peak(&meter);
+        download(vec![stream(&url, &dest, None)], Limits { start: 4, max: 4 }, meter.clone(), no_cancel()).await.unwrap();
+        watcher.abort();
+        assert_eq!(std::fs::read(&dest).unwrap(), *data);
+        assert!(waited.load(Ordering::Relaxed), "never showed it was waiting for the network");
+        // The network's fault, not the server's: nothing to remember about the site.
+        assert!(!meter.pushback.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn offline_too_long_stops_for_now_and_resumes_later() {
+        let data = sample(8 * 1024 * 1024);
+        let opts = Server { per_conn_bps: 1024 * 1024, down: Some((Duration::from_millis(1000), Duration::MAX)), ..Server::default() };
+        let (url, _) = serve_with(data.clone(), opts).await;
+        let dest = temp_dest("offline.bin");
+        let meter = Arc::new(Meter::default());
+        let started = Instant::now();
+        let err = download(vec![stream(&url, &dest, None)], Limits { start: 2, max: 2 }, meter.clone(), no_cancel()).await.unwrap_err();
+        assert!(matches!(err, TurboError::Interrupted(_)), "{:?}", err);
+        assert!(started.elapsed() < Duration::from_secs(20), "gave up after {:?}", started.elapsed());
+        let kept = meter.done.load(Ordering::Relaxed);
+        assert!(kept > 0 && part_path(&dest).exists() && state_path(&dest).exists());
+
+        // Back online: the next attempt continues instead of starting over.
+        let (url, stats) = serve(data.clone(), true, 0, false).await;
+        let meter = Arc::new(Meter::default());
+        download(vec![stream(&url, &dest, None)], Limits { start: 2, max: 2 }, meter.clone(), no_cancel()).await.unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), *data);
+        assert!(stats.requests.load(Ordering::SeqCst) >= 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn busy_server_gets_fewer_connections() {
+        let data = sample(12 * 1024 * 1024);
+        let opts = Server { per_conn_bps: 2 * 1024 * 1024, max_conns: 3, ..Server::default() };
+        let (url, stats) = serve_with(data.clone(), opts).await;
+        let dest = temp_dest("busy.bin");
+        let meter = Arc::new(Meter::default());
+        download(vec![stream(&url, &dest, None)], Limits { start: 8, max: 8 }, meter.clone(), no_cancel()).await.unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), *data);
+        assert!(meter.pushback.load(Ordering::Relaxed));
+        assert!(stats.peak.load(Ordering::SeqCst) <= 9);
+        let file = std::env::temp_dir().join(format!("hs-sites-busy-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        remember_site(&url, &meter, &file);
+        assert!(limits_for(Limits { start: 8, max: 8 }, &url, &file).max <= 4);
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn parallel_downloads_from_one_site_share_its_connections() {
+        let data = sample(16 * 1024 * 1024);
+        // Same host for both, 1 MiB/s per connection so both run at the same time.
+        let (url, stats) = serve(data.clone(), true, 1024 * 1024, false).await;
+        let (a, b) = (temp_dest("share-a.bin"), temp_dest("share-b.bin"));
+        let (ma, mb) = (Arc::new(Meter::default()), Arc::new(Meter::default()));
+        let limits = Limits { start: 8, max: 8 };
+        let (ra, rb) = tokio::join!(
+            download(vec![stream(&url, &a, None)], limits, ma.clone(), no_cancel()),
+            download(vec![stream(&url, &b, None)], limits, mb.clone(), no_cancel()),
+        );
+        ra.unwrap();
+        rb.unwrap();
+        assert_eq!(std::fs::read(&a).unwrap(), *data);
+        assert_eq!(std::fs::read(&b).unwrap(), *data);
+        // Eight for the site in all (plus a moment of overlap while one hands over).
+        assert!(stats.peak.load(Ordering::SeqCst) <= 10, "peak {}", stats.peak.load(Ordering::SeqCst));
+        assert!(ma.shared.load(Ordering::Relaxed) || mb.shared.load(Ordering::Relaxed));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn finishing_waits_for_a_file_another_program_holds() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join("hyperstream-turbo-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (from, to) = (dir.join("locked.part"), dir.join("locked.bin"));
+        std::fs::write(&from, b"new").unwrap();
+        std::fs::write(&to, b"old").unwrap();
+        // Like an antivirus scan: the file is open with no sharing for a moment.
+        let holder = std::fs::OpenOptions::new().read(true).share_mode(0).open(&to).unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(700));
+            drop(holder);
+        });
+        replace_file(&from, &to).await.unwrap();
+        release.join().unwrap();
+        assert_eq!(std::fs::read(&to).unwrap(), b"new");
+    }
+
+    // ----- Engine benchmark: `npm run perf:engine` (cargo test --lib engine_bench -- --ignored) -----
+    //
+    // Each case plays a kind of server seen in the wild, prints the result and fails when the
+    // engine falls below its budget. Run one at a time: they measure speed.
+
+    async fn bench(name: &str, data: Arc<Vec<u8>>, opts: Server, limits: Limits) -> (f64, usize, Arc<Meter>) {
+        let (url, _) = serve_with(data.clone(), opts).await;
+        let dest = temp_dest(&format!("bench-{}.bin", name));
+        let meter = Arc::new(Meter::default());
+        let (peak, _, watcher) = watch_peak(&meter);
+        let started = Instant::now();
+        download(vec![stream(&url, &dest, None)], limits, meter.clone(), no_cancel()).await.unwrap();
+        let secs = started.elapsed().as_secs_f64();
+        watcher.abort();
+        assert_eq!(std::fs::read(&dest).unwrap(), *data, "{}: wrong bytes", name);
+        let _ = std::fs::remove_file(&dest);
+        let mbps = data.len() as f64 / secs / 1e6;
+        let peak = peak.load(Ordering::Relaxed);
+        println!("engine_bench {:<24} {:>7.1} MB/s  {:>5.2} s  peak {:>2} connections", name, mbps, secs, peak);
+        (mbps, peak, meter)
+    }
+
+    const MB: u64 = 1_000_000;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore]
+    async fn engine_bench() {
+        let pc = Limits { start: 8, max: 16 };
+
+        // Each connection capped at 2 MB/s (common for file hosts): more connections, more speed.
+        let (mbps, peak, _) = bench("per-connection cap", sample(96 << 20), Server { per_conn_bps: 2 * MB, ..Server::default() }, pc).await;
+        assert!(mbps >= 20.0 && peak == 16, "per-connection cap: {:.1} MB/s, {} connections", mbps, peak);
+
+        // The site caps each visitor at 12 MB/s: extra connections don't help, so it settles low.
+        let opts = Server { per_conn_bps: 3 * MB, total_bps: 12 * MB, ..Server::default() };
+        let (mbps, peak, meter) = bench("per-visitor cap", sample(64 << 20), opts, pc).await;
+        assert!(mbps >= 10.0, "per-visitor cap: {:.1} MB/s", mbps);
+        assert!(meter.settled.load(Ordering::Relaxed) <= 8 && peak <= 16, "settled at {}", meter.settled.load(Ordering::Relaxed));
+
+        // Every 7th request dies halfway.
+        let opts = Server { per_conn_bps: 4 * MB, flaky: true, ..Server::default() };
+        let (mbps, _, _) = bench("flaky", sample(48 << 20), opts, pc).await;
+        assert!(mbps >= 20.0, "flaky: {:.1} MB/s", mbps);
+
+        // The site answers "busy" past 4 connections.
+        let opts = Server { per_conn_bps: 3 * MB, max_conns: 4, ..Server::default() };
+        let (mbps, _, meter) = bench("connection limit", sample(48 << 20), opts, pc).await;
+        assert!(mbps >= 9.0 && meter.pushback.load(Ordering::Relaxed), "connection limit: {:.1} MB/s", mbps);
+
+        // The network drops for 3 s mid-download: about 3 s plus one retry are lost, nothing more.
+        let opts = Server { per_conn_bps: 2 * MB, down: Some((Duration::from_secs(2), Duration::from_secs(5))), ..Server::default() };
+        let started = Instant::now();
+        bench("network drop", sample(64 << 20), opts, pc).await;
+        let lost = started.elapsed().as_secs_f64() - 64.0 * 1.048_576 / 32.0;
+        println!("engine_bench {:<24} {:>7.1} s lost", "network drop (lost)", lost);
+        assert!(lost < 7.5, "network drop cost {:.1} s", lost);
+
+        // A 5 MB/s speed limit holds across all connections.
+        bandwidth::set(bandwidth::SpeedLimit::Fixed { bytes_per_sec: 5 * MB });
+        let (mbps, _, _) = bench("speed limit 5 MB/s", sample(40 << 20), Server::default(), pc).await;
+        bandwidth::set(bandwidth::SpeedLimit::Off);
+        assert!((4.4..5.6).contains(&mbps), "speed limit: {:.1} MB/s", mbps);
+    }
+
     #[test]
     fn site_records_shape_the_next_download() {
         let file = std::env::temp_dir().join(format!("hs-sites-{}.json", std::process::id()));
@@ -1087,6 +1655,31 @@ mod tests {
         assert_eq!((l.start, l.max), (2, 2));
         assert_eq!(site_of("https://files.example.co.uk/a").as_deref(), Some("example.co.uk"));
         let _ = std::fs::remove_file(&file);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore]
+    async fn debug_limit() {
+        let data = sample(48 << 20);
+        let opts = Server { per_conn_bps: 3 * MB, max_conns: 4, ..Server::default() };
+        let (url, stats) = serve_with(data.clone(), opts).await;
+        let dest = temp_dest("dbg.bin");
+        let meter = Arc::new(Meter::default());
+        let m = meter.clone();
+        let st = stats.clone();
+        let w = tokio::spawn(async move { let t = Instant::now(); loop { println!("{:>5.2}s conns {} open {} done {:.1} MB pushback {}", t.elapsed().as_secs_f64(), m.connections.load(Ordering::Relaxed), st.open.load(Ordering::SeqCst), m.done.load(Ordering::Relaxed) as f64/1e6, m.pushback.load(Ordering::Relaxed)); tokio::time::sleep(Duration::from_millis(250)).await; } });
+        download(vec![stream(&url, &dest, None)], Limits { start: 8, max: 16 }, meter.clone(), no_cancel()).await.unwrap();
+        w.abort();
+    }
+
+    #[test]
+    fn fair_shares() {
+        // Alone: everything. Two from one site: half each. Five from different sites: under twice the limit together.
+        assert_eq!(fair_share(16, 1, 1), 16);
+        assert_eq!(fair_share(16, 2, 2), 8);
+        assert_eq!(fair_share(16, 1, 5), 6);
+        assert_eq!(fair_share(4, 9, 9), 1);
+        assert_eq!(site_of("http://127.0.0.1:8787/a").as_deref(), Some("127.0.0.1:8787"));
     }
 
     #[test]
