@@ -207,6 +207,27 @@ pub struct DownloadOrchestrator {
     persistence_started: Arc<AtomicBool>,
 }
 
+/// Writes every unfinished download to disk; running ones resume as queued after a restart.
+fn save_unfinished(tasks: &TaskMap, all_entries: &RwLock<HashMap<String, QueueEntry>>) {
+    let entries: Vec<PersistedQueueEntry> = {
+        let t = tasks.read().unwrap();
+        let all = all_entries.read().unwrap();
+        let mut unfinished: Vec<&QueueEntry> = all
+            .values()
+            .filter(|e| {
+                t.get(&e.task_id)
+                    .is_some_and(|task| !matches!(task.state, DownloadState::Completed | DownloadState::Failed | DownloadState::Cancelled))
+            })
+            .collect();
+        unfinished.sort_by_key(|e| e.enqueued_at);
+        unfinished
+            .into_iter()
+            .map(|e| sanitize_for_persistence(e, t.get(&e.task_id).map(|x| x.state.clone()).unwrap_or_default()))
+            .collect()
+    };
+    let _ = save_queue_to_path(&get_queue_file_path(), &entries);
+}
+
 fn sort_pending(pending: &mut [QueueEntry]) {
     pending.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.enqueued_at.cmp(&b.enqueued_at)));
 }
@@ -312,6 +333,11 @@ impl DownloadOrchestrator {
         sort_pending(&mut pending);
     }
 
+    /// Saves the queue right away (on exit: the regular save waits for changes to settle).
+    pub fn save_now(&self) {
+        save_unfinished(&self.tasks, &self.all_entries);
+    }
+
     fn start_persistence_worker(&self) {
         if self.persistence_started.swap(true, Ordering::SeqCst) {
             return;
@@ -333,30 +359,8 @@ impl DownloadOrchestrator {
                     }
                 }
 
-                let entries_to_save: Vec<PersistedQueueEntry> = {
-                    let t = tasks_ref.read().unwrap();
-                    let all = all_entries_ref.read().unwrap();
-                    let _p = pending_ref.lock().unwrap();
-                    // Everything not finished survives a restart (running tasks resume as queued).
-                    let mut unfinished: Vec<&QueueEntry> = all
-                        .values()
-                        .filter(|e| {
-                            t.get(&e.task_id).map_or(false, |task| {
-                                !matches!(task.state, DownloadState::Completed | DownloadState::Failed | DownloadState::Cancelled)
-                            })
-                        })
-                        .collect();
-                    unfinished.sort_by_key(|e| e.enqueued_at);
-                    unfinished
-                        .into_iter()
-                        .map(|e| {
-                            let state = t.get(&e.task_id).map(|x| x.state.clone()).unwrap_or_default();
-                            sanitize_for_persistence(e, state)
-                        })
-                        .collect()
-                };
-
-                let _ = save_queue_to_path(&get_queue_file_path(), &entries_to_save);
+                let _p = pending_ref.lock().unwrap();
+                save_unfinished(&tasks_ref, &all_entries_ref);
             }
         });
     }
@@ -969,6 +973,8 @@ enum Mode {
     Download,
     /// Only choose the formats and print the result as JSON.
     Select,
+    /// The streams are on disk: merge and tidy up. The thumbnail is fetched separately.
+    Finish,
 }
 
 /// Full yt-dlp argument list (without the executable). Pure, so it's unit-testable.
@@ -989,7 +995,6 @@ fn build_args(
         "--no-mtime", "--windows-filenames", "--continue",
         "--retries", "10", "--fragment-retries", "10", "--retry-sleep", "linear=1::5",
         "--socket-timeout", "30", "--concurrent-fragments", "8",
-        "--write-thumbnail", "--convert-thumbnails", "jpg",
         // yt-dlp moves the index of every MP4 to the front, which rewrites the whole file a
         // second time (about 40% of merging; much more on hard drives). Players don't need it
         // for files on disk, so skip it.
@@ -997,9 +1002,19 @@ fn build_args(
     ] {
         push(a);
     }
+    if mode == Mode::Finish {
+        // yt-dlp repairs only files it downloaded itself (HLS saved as MP4, DASH audio); these
+        // came from the fast engine, so ask for the same repairs.
+        push("--fixup");
+        push("force");
+    } else {
+        for a in ["--write-thumbnail", "--convert-thumbnails", "jpg"] {
+            push(a);
+        }
+    }
     match mode {
         Mode::Select => push("-j"),
-        Mode::Download => {
+        Mode::Download | Mode::Finish => {
             for a in [
                 "--newline", "--no-simulate", "--progress",
                 "--print", "video:HSINFO %(filesize,filesize_approx|0)s %(width|0)s %(height|0)s %(ext)s",
@@ -1052,10 +1067,12 @@ fn build_args(
 
     args.push("-o".into());
     args.push(target_dir.join("%(title).120B [%(id)s].%(ext)s").into_os_string());
-    let mut thumb = OsString::from("thumbnail:");
-    thumb.push(thumb_template.as_os_str());
-    args.push("-o".into());
-    args.push(thumb);
+    if mode != Mode::Finish {
+        let mut thumb = OsString::from("thumbnail:");
+        thumb.push(thumb_template.as_os_str());
+        args.push("-o".into());
+        args.push(thumb);
+    }
 
     match input {
         Input::Url => {
@@ -1673,6 +1690,65 @@ async fn fetch_fast(
     }
 }
 
+/// The video's picture for the library, fetched while the streams download. yt-dlp tries the
+/// sizes one after another, best first, and many don't exist (seconds on a slow line); asking
+/// for the best few at once takes one round trip.
+async fn fetch_thumbnail(task_id: String, json_path: PathBuf) {
+    let Some(v) = std::fs::read(&json_path).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) else { return };
+    let mut urls: Vec<String> = v
+        .get("thumbnails")
+        .and_then(|t| t.as_array())
+        .map(|list| list.iter().rev().filter_map(|t| Some(t.get("url")?.as_str()?.to_string())).take(8).collect())
+        .unwrap_or_default();
+    if urls.is_empty() {
+        urls.extend(v.get("thumbnail").and_then(|t| t.as_str()).map(str::to_string));
+    }
+    let user_agent = v.pointer("/http_headers/User-Agent").and_then(|u| u.as_str()).unwrap_or("Mozilla/5.0").to_string();
+    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(10)).user_agent(user_agent).build() else { return };
+    let mut set = tokio::task::JoinSet::new();
+    for (rank, url) in urls.into_iter().enumerate() {
+        let client = client.clone();
+        set.spawn(async move {
+            let found = async {
+                let response = client.get(&url).send().await.ok().filter(|r| r.status().is_success())?;
+            let kind = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|c| c.to_str().ok()).unwrap_or("").to_string();
+                let bytes = response.bytes().await.ok().filter(|b| !b.is_empty())?;
+                let ext = match kind.as_str() {
+                    "image/webp" => "webp",
+                    "image/png" => "png",
+                    k if k.starts_with("image/") || k.is_empty() => "jpg",
+                    _ => return None,
+                };
+                Some((bytes.to_vec(), ext))
+            };
+            (rank, found.await)
+        });
+    }
+    // Done once every better picture has failed, or after a second with the best so far (a
+    // missing picture sometimes takes seconds to say so).
+    let wanted = set.len();
+    let mut answers: Vec<Option<Option<(Vec<u8>, &str)>>> = vec![None; wanted];
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    let best = loop {
+        let settled = answers.iter().position(|a| !matches!(a, Some(None)));
+        if let Some(rank) = settled {
+            if let Some(Some(found)) = &answers[rank] {
+                break Some(found.clone());
+            }
+        } else {
+            break None;
+        }
+        match tokio::time::timeout_at(deadline, set.join_next()).await {
+            Ok(Some(Ok((rank, found)))) => answers[rank] = Some(found),
+            Ok(Some(Err(_))) => {}
+            Ok(None) | Err(_) => break answers.iter().flatten().flatten().next().cloned(),
+        }
+    };
+    if let Some((bytes, ext)) = best {
+        let _ = tokio::task::spawn_blocking(move || library::save_thumbnail(&task_id, &bytes, ext)).await;
+    }
+}
+
 /// What a yt-dlp run reported.
 struct EngineRun {
     final_path: Option<String>,
@@ -1889,6 +1965,18 @@ async fn run_download_task(
     log::info!("{}: formats chosen after {:.1} s", task_id, started.elapsed().as_secs_f64());
     if let Some(sel) = &selection {
         show_selection(task_id, options, tasks_ref, app, sel);
+        // The same video queued twice would write the same file: the earlier one goes ahead.
+        let tasks = tasks_ref.read().unwrap();
+        let created = tasks.get(task_id).map_or(0, |t| t.created_at);
+        let earlier = tasks.values().any(|t| {
+            t.task_id != task_id
+                && matches!(t.state, DownloadState::Downloading | DownloadState::Remuxing)
+                && t.planned_path.as_deref() == Some(sel.filename.as_str())
+                && (t.created_at, t.task_id.as_str()) < (created, task_id)
+        });
+        if earlier {
+            return Err("This video is already downloading.".to_string());
+        }
     }
 
     let run = match &selection {
@@ -1899,6 +1987,7 @@ async fn run_download_task(
                 None => run_ytdlp(args_for(Mode::Download, &saved, sign_in.file().await), task_id, options, tasks_ref, app, &mut abort, false).await?,
                 Some(streams) => {
                     let mut dests: Vec<PathBuf> = streams.iter().map(|s| s.dest.clone()).collect();
+                    let thumbnail = tauri::async_runtime::spawn(fetch_thumbnail(task_id.to_string(), sel.json_path.clone()));
                     let mut result = fetch_fast(task_id, streams, tasks_ref, app, &mut abort, false).await;
                     // Links expire (YouTube's after about six hours, so a download paused overnight
                     // comes back to refused links): load the page again for fresh ones and carry on
@@ -1924,15 +2013,18 @@ async fn run_download_task(
                         // downloading them and goes straight to merging.
                         Ok(()) => {
                             log::info!("{}: streams fetched after {:.1} s", task_id, started.elapsed().as_secs_f64());
-                            let finish = args_for(Mode::Download, &saved, sign_in.file_if_read().await);
-                            match run_ytdlp(finish.clone(), task_id, options, tasks_ref, app, &mut abort, true).await {
+                            let finish = args_for(Mode::Finish, &saved, sign_in.file_if_read().await);
+                            let run = match run_ytdlp(finish.clone(), task_id, options, tasks_ref, app, &mut abort, true).await {
                                 // Antivirus often scans new files for a moment; wait, then merge again.
                                 Err(e) if e.contains("another program") => {
                                     tokio::time::sleep(Duration::from_secs(3)).await;
                                     run_ytdlp(finish, task_id, options, tasks_ref, app, &mut abort, true).await?
                                 }
                                 other => other?,
-                            }
+                            };
+                            // Usually long done; a slow site gets a few more seconds.
+                            let _ = tokio::time::timeout(Duration::from_secs(5), thumbnail).await;
+                            run
                         }
                         Err(turbo::TurboError::Aborted) => return Err(ABORTED.to_string()),
                         Err(turbo::TurboError::Interrupted(reason)) => return Err(interrupted_message(&reason)),
@@ -2241,6 +2333,29 @@ mod tests {
         ] {
             assert!(parse_selection(other, PathBuf::from("s.json")).unwrap().streams.is_none(), "{}", other);
         }
+    }
+
+    /// HS_INFO=<a saved look-up .json> cargo test --lib thumbnail_timing -- --ignored --nocapture
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore]
+    async fn thumbnail_timing() {
+        let started = Instant::now();
+        fetch_thumbnail("timing-test".into(), PathBuf::from(std::env::var("HS_INFO").unwrap())).await;
+        println!("thumbnail in {} ms: {:?}", started.elapsed().as_millis(), library::find_thumbnail("timing-test"));
+        if let Some(t) = library::find_thumbnail("timing-test") {
+            let _ = std::fs::remove_file(t);
+        }
+    }
+
+    #[test]
+    fn finishing_repairs_and_skips_the_thumbnail() {
+        let o = DownloadOptions { url: "https://x.test/v".into(), ..Default::default() };
+        let args = build_args(&o, Path::new("C:/out"), Path::new("C:/t/%(ext)s"), None, None, Mode::Finish, &Input::InfoJson(Path::new("s.json")));
+        let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert!(args.windows(2).any(|w| w == ["--fixup", "force"]));
+        assert!(!args.iter().any(|a| a.contains("thumbnail")));
+        let full = build_args(&o, Path::new("C:/out"), Path::new("C:/t/%(ext)s"), None, None, Mode::Download, &Input::Url);
+        assert!(full.iter().any(|a| a == "--write-thumbnail") && !full.iter().any(|a| a == "--fixup"));
     }
 
     #[test]

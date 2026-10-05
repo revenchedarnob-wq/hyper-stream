@@ -160,6 +160,34 @@ fn shrink_with(ffmpeg: &Path, path: &Path) {
     }
 }
 
+/// Stores a picture as a download's thumbnail. Other formats become a small JPEG when FFmpeg
+/// is there (JPEGs are shrunk with the rest when the download completes).
+pub fn save_thumbnail(task_id: &str, bytes: &[u8], ext: &str) {
+    let dir = thumbnails_dir();
+    let original = dir.join(format!("{}.{}", task_id, ext));
+    if std::fs::write(&original, bytes).is_err() || ext == "jpg" {
+        return;
+    }
+    let Some(ffmpeg) = crate::downloader::BinaryManager::find_binary("ffmpeg") else { return };
+    let jpg = dir.join(format!("{}.jpg", task_id));
+    let mut cmd = std::process::Command::new(ffmpeg);
+    cmd.args(["-v", "error", "-y", "-i"])
+        .arg(&original)
+        .args(["-vf", "scale='min(640,iw)':-2", "-q:v", "4", "-frames:v", "1"])
+        .arg(&jpg);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        use crate::downloader::binary_manager::{BELOW_NORMAL_PRIORITY_CLASS, CREATE_NO_WINDOW};
+        cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
+    }
+    if cmd.output().is_ok_and(|o| o.status.success()) && std::fs::metadata(&jpg).is_ok_and(|m| m.len() > 0) {
+        let _ = std::fs::remove_file(&original);
+    } else {
+        let _ = std::fs::remove_file(&jpg);
+    }
+}
+
 /// One pass over the library for thumbnails saved before they were shrunk on download.
 pub fn shrink_existing_thumbnails() {
     let big: Vec<PathBuf> = load_from(&library_file())

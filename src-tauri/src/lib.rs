@@ -336,6 +336,8 @@ fn shut_down(app: &tauri::AppHandle) {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         EXIT_READY.store(true, Ordering::SeqCst);
+        // Changes from the last moments (a download that just failed) aren't saved yet.
+        app.state::<downloader::DownloadOrchestrator>().save_now();
         // yt-dlp and FFmpeg still belong to the kill-on-close job object, so they exit with us.
         app.exit(0);
     });
