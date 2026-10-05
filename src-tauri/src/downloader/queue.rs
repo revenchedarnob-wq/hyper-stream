@@ -114,12 +114,7 @@ pub fn save_queue_to_path(path: &Path, entries: &[PersistedQueueEntry]) -> Resul
     std::fs::write(&tmp_path, json.as_bytes())
         .map_err(|e| format!("Failed to write temporary queue file: {}", e))?;
 
-    std::fs::rename(&tmp_path, path)
-        .or_else(|_| {
-            // Windows fallback if rename over existing file fails
-            let _ = std::fs::remove_file(path);
-            std::fs::rename(&tmp_path, path)
-        })
+    crate::utils::fs::resilient_rename(&tmp_path, path)
         .map_err(|e| format!("Failed to finalize queue file: {}", e))?;
 
     Ok(())

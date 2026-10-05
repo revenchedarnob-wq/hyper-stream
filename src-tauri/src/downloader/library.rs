@@ -65,7 +65,7 @@ fn save_to(path: &Path, items: &[LibraryItem]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(items).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, json).map_err(|e| format!("Couldn't save the library: {}", e))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("Couldn't save the library: {}", e))
+    crate::utils::fs::resilient_rename(&tmp, path).map_err(|e| format!("Couldn't save the library: {}", e))
 }
 
 /// Adds (or replaces, when the same file was downloaded again) an item. Newest first.
@@ -113,7 +113,7 @@ pub fn remove(id: &str, delete_file: bool) -> Result<(), String> {
         move_to_recycle_bin(Path::new(&item.file_path))?;
     }
     if let Some(thumb) = &item.thumbnail_path {
-        let _ = std::fs::remove_file(thumb);
+        let _ = crate::utils::fs::resilient_remove(thumb);
     }
     save_to(&path, &items)
 }
@@ -154,9 +154,9 @@ fn shrink_with(ffmpeg: &Path, path: &Path) {
     let ok = cmd.output().is_ok_and(|o| o.status.success())
         && std::fs::metadata(&tmp).is_ok_and(|m| m.len() > 0 && m.len() < std::fs::metadata(path).map(|o| o.len()).unwrap_or(0));
     if ok {
-        let _ = std::fs::rename(&tmp, path);
+        let _ = crate::utils::fs::resilient_rename(&tmp, path);
     } else {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::utils::fs::resilient_remove(&tmp);
     }
 }
 
@@ -182,9 +182,9 @@ pub fn save_thumbnail(task_id: &str, bytes: &[u8], ext: &str) {
         cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
     }
     if cmd.output().is_ok_and(|o| o.status.success()) && std::fs::metadata(&jpg).is_ok_and(|m| m.len() > 0) {
-        let _ = std::fs::remove_file(&original);
+        let _ = crate::utils::fs::resilient_remove(&original);
     } else {
-        let _ = std::fs::remove_file(&jpg);
+        let _ = crate::utils::fs::resilient_remove(&jpg);
     }
 }
 

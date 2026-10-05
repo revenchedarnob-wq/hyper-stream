@@ -468,22 +468,46 @@ fn with_core_do(webview: &tauri::Webview, f: impl FnOnce(ICoreWebView2) + Send +
     });
 }
 
-/// Puts a hidden page to sleep (scripts, timers and rendering stop, memory is trimmed)
-/// (it's already muted and paused). Showing or navigating the page wakes it automatically.
-pub fn sleep_if_hidden(webview: &tauri::Webview) {
-    let _ = webview.with_webview(|pw| unsafe {
+/// Invokes Microsoft WebView2 COM interface `ICoreWebView2_3` suspension state.
+/// When `suspended` is true (put_IsSuspended(TRUE)), suspends background Chromium JavaScript timers,
+/// stops rendering, drops caches (low memory target level), and trims process working set memory.
+/// When `suspended` is false (put_IsSuspended(FALSE)), resumes Chromium execution immediately and restores normal memory target.
+pub fn put_is_suspended(webview: &tauri::Webview, suspended: bool) {
+    let _ = webview.with_webview(move |pw| unsafe {
         let controller = pw.controller();
-        if read_bool(|b| controller.IsVisible(b)) {
-            return;
-        }
         let Ok(core) = controller.CoreWebView2() else { return };
-        if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
-            let _ = core19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
-        }
-        if let Ok(core3) = core.cast::<ICoreWebView2_3>() {
-            let _ = core3.TrySuspend(&TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(()))));
+        if suspended {
+            if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
+                let _ = core19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+            }
+            if let Ok(core3) = core.cast::<ICoreWebView2_3>() {
+                let _ = core3.TrySuspend(&TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(()))));
+            }
+            #[cfg(target_os = "windows")]
+            {
+                use windows_sys::Win32::System::ProcessStatus::EmptyWorkingSet;
+                use windows_sys::Win32::System::Threading::GetCurrentProcess;
+                EmptyWorkingSet(GetCurrentProcess());
+            }
+        } else {
+            if let Ok(core8) = core.cast::<ICoreWebView2_8>() {
+                let _ = core8.SetIsMuted(false);
+            }
+            if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
+                let _ = core19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
+            }
+            if let Ok(core3) = core.cast::<ICoreWebView2_3>() {
+                let _ = core3.Resume();
+            }
         }
     });
+}
+
+/// Puts a hidden page to sleep (scripts, timers and rendering stop, memory is trimmed)
+/// (it's already muted and paused). Showing or navigating the page wakes it automatically.
+#[allow(dead_code)]
+pub fn sleep_if_hidden(webview: &tauri::Webview) {
+    put_is_suspended(webview, true);
 }
 
 /// Asks a page engine to run lean (drops caches, trims its processes) or back to normal.
@@ -506,18 +530,9 @@ pub fn set_muted(webview: &tauri::Webview, muted: bool) {
 }
 
 /// Undoes `sleep_if_hidden` (and the mute) before the page is shown.
+#[allow(dead_code)]
 pub fn wake(webview: &tauri::Webview) {
-    with_core_do(webview, |core| unsafe {
-        if let Ok(core8) = core.cast::<ICoreWebView2_8>() {
-            let _ = core8.SetIsMuted(false);
-        }
-        if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
-            let _ = core19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
-        }
-        if let Ok(core3) = core.cast::<ICoreWebView2_3>() {
-            let _ = core3.Resume();
-        }
-    });
+    put_is_suspended(webview, false);
 }
 
 pub fn go_back(webview: &tauri::Webview) {

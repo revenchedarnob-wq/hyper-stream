@@ -201,24 +201,10 @@ impl Drop for Registration {
     }
 }
 
-fn is_locked(e: &std::io::Error) -> bool {
-    // 32/33: another program (often antivirus scanning the new file) has it open.
-    e.kind() == std::io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(32 | 33))
-}
 
-/// Renames `from` to `to`, waiting a few seconds if another program briefly holds the file.
+/// Renames `from` to `to`, waiting a few seconds with exponential backoff and jitter if another program briefly holds the file.
 pub async fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
-    let mut wait = Duration::from_millis(100);
-    for _ in 0..12 {
-        match std::fs::rename(from, to) {
-            Err(e) if is_locked(&e) => {
-                tokio::time::sleep(wait).await;
-                wait = (wait * 2).min(Duration::from_secs(1));
-            }
-            other => return other,
-        }
-    }
-    std::fs::rename(from, to)
+    crate::utils::fs::resilient_rename_async(from, to).await
 }
 
 /// Where the data goes while downloading, and its resume record.
@@ -236,8 +222,8 @@ pub(crate) fn state_path(dest: &Path) -> PathBuf {
 
 /// Removes partial data for `dest` (used on cancel).
 pub fn remove_partial(dest: &Path) {
-    let _ = std::fs::remove_file(part_path(dest));
-    let _ = std::fs::remove_file(state_path(dest));
+    let _ = crate::utils::fs::resilient_remove(part_path(dest));
+    let _ = crate::utils::fs::resilient_remove(state_path(dest));
 }
 
 /// Marks a file as NTFS sparse on Windows to eliminate synchronous zero-fill latency.
@@ -287,6 +273,8 @@ struct OpenStream {
     dest: PathBuf,
 }
 
+const WORK_STEAL_THRESHOLD: u64 = 16 * 1024 * 1024; // 16 MB
+
 #[derive(Debug)]
 struct Range {
     stream: usize,
@@ -295,14 +283,67 @@ struct Range {
     /// Exclusive end; shrinks when another connection takes the back half.
     end: AtomicU64,
     busy: AtomicBool,
+    /// Pos at the time this range was claimed by its current connection.
+    start_pos: AtomicU64,
+    /// Elapsed ms timestamp when this range was claimed.
+    claimed_at_ms: AtomicU64,
+    /// Elapsed ms timestamp when bytes were last written to disk for this range.
+    last_write_at_ms: AtomicU64,
 }
 
 impl Range {
     fn new(stream: usize, pos: u64, end: u64, busy: bool) -> Arc<Range> {
-        Arc::new(Range { stream, pos: AtomicU64::new(pos), end: AtomicU64::new(end), busy: AtomicBool::new(busy) })
+        Arc::new(Range {
+            stream,
+            pos: AtomicU64::new(pos),
+            end: AtomicU64::new(end),
+            busy: AtomicBool::new(busy),
+            start_pos: AtomicU64::new(pos),
+            claimed_at_ms: AtomicU64::new(0),
+            last_write_at_ms: AtomicU64::new(0),
+        })
     }
+
     fn remaining(&self) -> u64 {
         self.end.load(Ordering::Acquire).saturating_sub(self.pos.load(Ordering::Acquire))
+    }
+
+    /// Bytes downloaded under the current connection claim.
+    fn bytes_done_in_claim(&self) -> u64 {
+        let pos = self.pos.load(Ordering::Acquire);
+        let start = self.start_pos.load(Ordering::Acquire);
+        pos.saturating_sub(start)
+    }
+
+    /// Estimated download speed in bytes per second for this range's active connection.
+    fn estimated_speed_bps(&self, now_ms: u64) -> u64 {
+        let claimed_at = self.claimed_at_ms.load(Ordering::Acquire);
+        let elapsed_ms = now_ms.saturating_sub(claimed_at);
+        if elapsed_ms < 100 {
+            // Just claimed: not enough history, assign high speed to give it a chance
+            return u64::MAX / 2;
+        }
+        let done = self.bytes_done_in_claim();
+        let last_write = self.last_write_at_ms.load(Ordering::Acquire);
+        // If last write was more than 3 seconds ago, it is stalled (speed ~ 0)!
+        if now_ms.saturating_sub(last_write) > 3000 && done > 0 {
+            return 1;
+        }
+        (done * 1000) / elapsed_ms.max(1)
+    }
+
+    /// Estimated remaining duration in milliseconds. Higher ETA = slower straggler.
+    fn straggler_score(&self, now_ms: u64) -> u64 {
+        let rem = self.remaining();
+        if rem == 0 {
+            return 0;
+        }
+        let speed = self.estimated_speed_bps(now_ms);
+        if speed <= 1 {
+            // Stalled connection: highest priority to steal from
+            return u64::MAX - (u64::MAX - rem);
+        }
+        (rem * 1000) / speed
     }
 }
 
@@ -582,26 +623,59 @@ impl Job {
         }
     }
 
-    /// An unclaimed range, or the back half of the largest busy one.
+    /// An unclaimed range, or the back half of the slowest straggler connection.
     fn claim(&self) -> Option<Arc<Range>> {
         let mut ranges = self.ranges.lock().unwrap();
+        let now_ms = self.elapsed_ms();
+
+        // 1. Unclaimed free range available
         if let Some(r) = ranges.iter().find(|r| !r.busy.load(Ordering::Acquire) && r.remaining() > 0) {
             r.busy.store(true, Ordering::Release);
+            r.start_pos.store(r.pos.load(Ordering::Acquire), Ordering::Release);
+            r.claimed_at_ms.store(now_ms, Ordering::Release);
+            r.last_write_at_ms.store(now_ms, Ordering::Release);
             return Some(r.clone());
         }
-        let victim = ranges.iter().filter(|r| r.busy.load(Ordering::Acquire)).max_by_key(|r| r.remaining())?.clone();
+
+        // 2. Dynamic work-stealing from slowest straggler connection:
+        // Prefer candidate busy ranges with > 16 MB remaining.
+        // If none > 16 MB, fall back to busy ranges with >= 2 * MIN_SPLIT if stalled or large.
+        let busy_ranges: Vec<Arc<Range>> = ranges
+            .iter()
+            .filter(|r| r.busy.load(Ordering::Acquire))
+            .cloned()
+            .collect();
+
+        let victim = busy_ranges
+            .iter()
+            .filter(|r| r.remaining() > WORK_STEAL_THRESHOLD)
+            .max_by_key(|r| r.straggler_score(now_ms))
+            .or_else(|| {
+                // Fallback for smaller downloads: if a connection is stalled or has >= 2 * MIN_SPLIT
+                busy_ranges
+                    .iter()
+                    .filter(|r| r.remaining() >= 2 * MIN_SPLIT)
+                    .max_by_key(|r| (r.straggler_score(now_ms), r.remaining()))
+            })?
+            .clone();
+
         let (pos, end) = (victim.pos.load(Ordering::Acquire), victim.end.load(Ordering::Acquire));
-        if end.saturating_sub(pos) < 2 * MIN_SPLIT {
+        let left = end.saturating_sub(pos);
+        if left < 2 * MIN_SPLIT {
             return None;
         }
-        // Split on a 64 KiB boundary. If the owner is already past `mid` when it notices,
-        // the overlap is simply fetched twice: the bytes are identical.
-        let mid = (pos + (end - pos) / 2 + 0xFFFF) & !0xFFFF;
+
+        // Split range in half on a 64 KiB boundary
+        let mid = (pos + left / 2 + 0xFFFF) & !0xFFFF;
         if mid <= pos || mid >= end {
             return None;
         }
+
         victim.end.store(mid, Ordering::Release);
         let taken = Range::new(victim.stream, mid, end, true);
+        taken.start_pos.store(mid, Ordering::Release);
+        taken.claimed_at_ms.store(now_ms, Ordering::Release);
+        taken.last_write_at_ms.store(now_ms, Ordering::Release);
         ranges.push(taken.clone());
         Some(taken)
     }
@@ -661,6 +735,7 @@ impl Job {
         result.map_err(|e| format!("Couldn't write to disk: {}", e))?;
         let len = data.len() as u64;
         range.pos.fetch_max(at + len, Ordering::AcqRel);
+        range.last_write_at_ms.store(self.elapsed_ms(), Ordering::Release);
         self.meter.done.fetch_add(len, Ordering::Relaxed);
         if self.meter.waiting.load(Ordering::Relaxed) {
             *self.offline_since.lock().unwrap() = None;
@@ -1630,6 +1705,52 @@ mod tests {
         replace_file(&from, &to).await.unwrap();
         release.join().unwrap();
         assert_eq!(std::fs::read(&to).unwrap(), b"new");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn work_stealing_splits_slow_straggler_range() {
+        let client = client().unwrap();
+        let meter = Arc::new(Meter::default());
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        // Create 2 ranges: Range 0 is finished, Range 1 is a slow straggler with 32 MB remaining
+        let r0 = Range::new(0, 0, 1024 * 1024, false);
+        r0.pos.store(1024 * 1024, Ordering::Release); // 0 remaining
+
+        let r1_size = 32 * 1024 * 1024u64;
+        let r1 = Range::new(0, 0, r1_size, true); // 32 MB busy straggler
+        r1.claimed_at_ms.store(10, Ordering::Release);
+        r1.last_write_at_ms.store(100, Ordering::Release);
+        r1.start_pos.store(0, Ordering::Release);
+
+        let job = Arc::new(Job {
+            client,
+            streams: Vec::new(),
+            ranges: Mutex::new(vec![r0, r1.clone()]),
+            meter,
+            cancel,
+            stop: Mutex::new(None),
+            active: AtomicUsize::new(1),
+            target: AtomicUsize::new(2),
+            started: Instant::now(),
+            last_data_ms: AtomicU64::new(u64::MAX),
+            offline_since: Mutex::new(None),
+        });
+
+        // Idle worker calls claim() -> should steal the back half of the 32 MB range
+        let stolen = job.claim().expect("should steal from straggler");
+        assert!(stolen.busy.load(Ordering::Acquire));
+        let stolen_start = stolen.pos.load(Ordering::Acquire);
+        let stolen_end = stolen.end.load(Ordering::Acquire);
+        let victim_end = r1.end.load(Ordering::Acquire);
+
+        // Victim end must match stolen start
+        assert_eq!(victim_end, stolen_start);
+        assert_eq!(stolen_end, r1_size);
+        // Half of 32 MB is 16 MB
+        assert_eq!(stolen_start, 16 * 1024 * 1024);
+        assert_eq!(stolen.remaining(), 16 * 1024 * 1024);
+        assert_eq!(r1.remaining(), 16 * 1024 * 1024);
     }
 
     // ----- Engine benchmark: `npm run perf:engine` (cargo test --lib engine_bench -- --ignored) -----

@@ -89,6 +89,31 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, autoCaptureIni
     })
   }, [])
 
+  const batchUpsert = useCallback((items: NativeDownloadProgress[]) => {
+    if (!items || items.length === 0) return
+    setTasks((prev) => {
+      let changed = false
+      const map = new Map(prev.map((t) => [t.task_id, t]))
+      for (const p of items) {
+        if (removedRef.current.has(p.task_id)) continue
+        const existing = map.get(p.task_id)
+        if (
+          !existing ||
+          existing.downloaded_bytes !== p.downloaded_bytes ||
+          existing.speed_bytes_per_sec !== p.speed_bytes_per_sec ||
+          existing.state !== p.state ||
+          existing.stage !== p.stage ||
+          existing.progress_percent !== p.progress_percent
+        ) {
+          map.set(p.task_id, p)
+          changed = true
+        }
+      }
+      if (!changed) return prev
+      return Array.from(map.values())
+    })
+  }, [])
+
   // Hydrate from the backend and subscribe to live updates.
   useEffect(() => {
     if (!isTauri()) return
@@ -109,6 +134,7 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, autoCaptureIni
     })
 
     track(listen<NativeDownloadProgress>('download-progress', (e) => upsert(e.payload)))
+    track(listen<NativeDownloadProgress[]>('download-batch-progress', (e) => batchUpsert(e.payload)))
     track(
       listen<NativeDownloadProgress>('download-complete', (e) => {
         upsert(e.payload)
@@ -129,7 +155,7 @@ export const StreamHub: React.FC<StreamHubProps> = ({ initialUrl, autoCaptureIni
     }
     // Hydration runs once; settings.maxConcurrent is read at mount on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upsert])
+  }, [upsert, batchUpsert])
 
   // Free space on the download drive (cheap call; refresh occasionally).
   useEffect(() => {

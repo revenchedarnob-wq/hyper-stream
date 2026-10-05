@@ -320,16 +320,16 @@ impl BinaryManager {
 
         let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
         if actual != expected {
-            let _ = std::fs::remove_file(&tmp);
+            let _ = crate::utils::fs::resilient_remove_async(&tmp).await;
             log::warn!("{component}: checksum mismatch (expected {expected}, got {actual})");
             return Err(format!("The {component} download was damaged or altered, so it wasn't installed. Try again."));
         }
 
         if dest.exists() {
-            let _ = std::fs::remove_file(dest);
+            let _ = crate::utils::fs::resilient_remove_async(dest).await;
         }
-        std::fs::rename(&tmp, dest).map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
+        crate::utils::fs::resilient_rename_async(&tmp, dest).await.map_err(|e| {
+            let _ = crate::utils::fs::resilient_remove(&tmp);
             // Windows won't replace an .exe that is running (e.g. during a download).
             format!("Couldn't install {}. If downloads are running, try again when they finish. ({})", component, e)
         })
@@ -421,12 +421,12 @@ impl BinaryManager {
         let old = bin.join("yt-dlp.old");
         let _ = std::fs::remove_dir_all(&old);
         if current.exists() {
-            if let Err(e) = std::fs::rename(&current, &old) {
+            if let Err(e) = crate::utils::fs::resilient_rename(&current, &old) {
                 let _ = std::fs::remove_dir_all(fresh);
                 return Err(format!("Couldn't install yt-dlp. If downloads are running, try again when they finish. ({})", e));
             }
         }
-        std::fs::rename(fresh, &current).map_err(|e| format!("Couldn't install yt-dlp: {}", e))
+        crate::utils::fs::resilient_rename(fresh, &current).map_err(|e| format!("Couldn't install yt-dlp: {}", e))
     }
 
     async fn install_yt_dlp(url: &str, sums_url: &str, progress: InstallProgress<'_>) -> Result<PathBuf, String> {
@@ -452,7 +452,7 @@ impl BinaryManager {
         })
         .await
         .map_err(|e| e.to_string())?;
-        let _ = std::fs::remove_file(&zip);
+        let _ = crate::utils::fs::resilient_remove(&zip);
         let unpacked_ok = unpacked.as_ref().is_ok_and(|o| o.status.success()) && fresh.join("yt-dlp.exe").is_file();
         if !unpacked_ok {
             let _ = std::fs::remove_dir_all(&fresh);
@@ -474,7 +474,7 @@ impl BinaryManager {
         let current = Self::ytdlp_dir();
         let _ = std::fs::remove_dir_all(bin.join("yt-dlp.old"));
         // The single-file copy older versions installed is no longer used.
-        let _ = std::fs::remove_file(bin.join("yt-dlp.exe"));
+        let _ = crate::utils::fs::resilient_remove(bin.join("yt-dlp.exe"));
         Ok(current.join("yt-dlp.exe"))
     }
 
@@ -529,7 +529,7 @@ impl BinaryManager {
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("Couldn't unpack {}: {}", component, e));
 
-        let _ = std::fs::remove_file(zip);
+        let _ = crate::utils::fs::resilient_remove(zip);
         let output = output?;
         if !output.status.success() {
             return Err(format!("Couldn't unpack {}: {}", component, String::from_utf8_lossy(&output.stderr).trim()));
@@ -677,7 +677,7 @@ mod tests {
     fn temp_cookie_file_roundtrip() {
         let path = BinaryManager::write_temp_cookie_file("# Netscape HTTP Cookie File\n").unwrap();
         assert!(path.is_file());
-        let _ = std::fs::remove_file(path);
+        let _ = crate::utils::fs::resilient_remove(path);
     }
 }
 

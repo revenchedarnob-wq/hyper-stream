@@ -205,6 +205,7 @@ pub struct DownloadOrchestrator {
     save_notify: Arc<tokio::sync::Notify>,
     scheduler_started: Arc<AtomicBool>,
     persistence_started: Arc<AtomicBool>,
+    heartbeat_started: Arc<AtomicBool>,
 }
 
 /// Writes every unfinished download to disk; running ones resume as queued after a restart.
@@ -285,6 +286,7 @@ impl DownloadOrchestrator {
             save_notify: Arc::new(tokio::sync::Notify::new()),
             scheduler_started: Arc::new(AtomicBool::new(false)),
             persistence_started: Arc::new(AtomicBool::new(false)),
+            heartbeat_started: Arc::new(AtomicBool::new(false)),
         };
         orchestrator.restore_persisted_queue(&get_queue_file_path());
         orchestrator
@@ -295,6 +297,7 @@ impl DownloadOrchestrator {
         // Called from Tauri's setup hook (no tokio context), so workers spawn on Tauri's runtime.
         self.start_scheduler();
         self.start_persistence_worker();
+        self.start_progress_heartbeat();
         self.emit_queue_state();
     }
 
@@ -361,6 +364,44 @@ impl DownloadOrchestrator {
 
                 let _p = pending_ref.lock().unwrap();
                 save_unfinished(&tasks_ref, &all_entries_ref);
+            }
+        });
+    }
+
+    /// Consolidates high-frequency progress emits into a synchronized 10 Hz batched heartbeat.
+    fn start_progress_heartbeat(&self) {
+        if self.heartbeat_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        let app_handle_ref = self.app_handle.clone();
+        let tasks_ref = self.tasks.clone();
+
+        tauri::async_runtime::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(100)); // Synchronized 10 Hz
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+
+                if ACTIVE_TRANSFERS.load(Ordering::Relaxed) == 0 {
+                    continue;
+                }
+
+                let batch: Vec<DownloadProgress> = {
+                    let tasks = tasks_ref.read().unwrap();
+                    tasks
+                        .values()
+                        .filter(|t| matches!(t.state, DownloadState::Downloading | DownloadState::Remuxing))
+                        .cloned()
+                        .collect()
+                };
+
+                if !batch.is_empty() {
+                    if let Some(app) = app_handle_ref.read().unwrap().as_ref() {
+                        let _ = app.emit("download-batch-progress", &batch);
+                    }
+                }
             }
         });
     }
@@ -1134,7 +1175,7 @@ fn remove_partial_files(planned: &Path) {
         let is_fragment = rest.starts_with('f') && rest[1..].split('.').next().map_or(false, |n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
         let engine_part = name.ends_with(".hspart") || name.ends_with(".hspart.json") || name.ends_with(".hspart.json.tmp");
         if name.ends_with(".part") || name.ends_with(".ytdl") || name.contains(".part-Frag") || name.ends_with(".temp") || is_fragment || engine_part {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = crate::utils::fs::resilient_remove(entry.path());
         }
     }
 }
@@ -1183,7 +1224,7 @@ impl SignIn {
 impl Drop for SignIn {
     fn drop(&mut self) {
         if let Some(p) = &self.file {
-            let _ = std::fs::remove_file(p);
+            let _ = crate::utils::fs::resilient_remove(p);
         }
     }
 }
@@ -1538,7 +1579,7 @@ pub fn prepare(options: DownloadOptions) {
             map.retain(|k, (at, _)| {
                 let keep = at.elapsed() < PREPARED_FOR;
                 if !keep {
-                    let _ = std::fs::remove_file(prepared_path(k));
+                    let _ = crate::utils::fs::resilient_remove(prepared_path(k));
                 }
                 keep
             });
@@ -1570,7 +1611,7 @@ async fn take_prepared(task_id: &str, options: &DownloadOptions, target_dir: &Pa
     }
     let path = cell.get_or_init(|| async { None }).await.clone()?;
     let json_path = extractor::scratch_dir().join(format!("selected-{}.json", task_id));
-    std::fs::rename(&path, &json_path).ok()?;
+    crate::utils::fs::resilient_rename(&path, &json_path).ok()?;
     let json = std::fs::read_to_string(&json_path).ok()?;
     parse_selection(&json, json_path)
 }
@@ -1596,7 +1637,7 @@ fn show_selection(task_id: &str, options: &DownloadOptions, tasks_ref: &TaskMap,
     let _ = app.emit("download-progress", &t.clone());
 }
 
-fn report_progress(task_id: &str, tasks_ref: &TaskMap, app: &AppHandle, done: u64, total: u64, speed: u64, stage: &str) {
+fn report_progress(task_id: &str, tasks_ref: &TaskMap, _app: &AppHandle, done: u64, total: u64, speed: u64, stage: &str) {
     let mut tasks = tasks_ref.write().unwrap();
     let Some(t) = tasks.get_mut(task_id) else { return };
     if t.state != DownloadState::Downloading {
@@ -1608,7 +1649,6 @@ fn report_progress(task_id: &str, tasks_ref: &TaskMap, app: &AppHandle, done: u6
     t.progress_percent = if total > 0 { (done as f64 / total as f64 * 100.0).min(99.5) } else { 0.0 };
     t.eta_seconds = (speed > 0 && total > done).then(|| (total - done) / speed);
     t.stage = stage.to_string();
-    let _ = app.emit("download-progress", &t.clone());
 }
 
 /// How many connections worked on each site before (see `turbo::limits_for`).
@@ -1957,7 +1997,7 @@ async fn run_download_task(
     impl Drop for TempFile {
         fn drop(&mut self) {
             if let Some(p) = &self.0 {
-                let _ = std::fs::remove_file(p);
+                let _ = crate::utils::fs::resilient_remove(p);
             }
         }
     }
@@ -2343,7 +2383,7 @@ mod tests {
         fetch_thumbnail("timing-test".into(), PathBuf::from(std::env::var("HS_INFO").unwrap())).await;
         println!("thumbnail in {} ms: {:?}", started.elapsed().as_millis(), library::find_thumbnail("timing-test"));
         if let Some(t) = library::find_thumbnail("timing-test") {
-            let _ = std::fs::remove_file(t);
+            let _ = crate::utils::fs::resilient_remove(t);
         }
     }
 

@@ -101,7 +101,7 @@ fn ensure_plugin(exe: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(&dir)?;
     let tmp = dir.join(format!("{}.tmp", PLUGIN_FILE));
     std::fs::write(&tmp, PLUGIN)?;
-    std::fs::rename(&tmp, &file)
+    crate::utils::fs::resilient_rename(&tmp, &file)
 }
 
 /// HyperStream's own yt-dlp, the only copy a plugin can be added to.

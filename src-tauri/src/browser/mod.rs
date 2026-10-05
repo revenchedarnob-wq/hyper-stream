@@ -96,10 +96,8 @@ static PAGE_FULLSCREEN: AtomicBool = AtomicBool::new(false);
 /// The UI wants the page shown (it may not exist yet when the first page is requested).
 static WANT_VISIBLE: AtomicBool = AtomicBool::new(false);
 static CREATE_LOCK: Mutex<()> = Mutex::new(());
-/// Bumped on every show/hide so a pending "sleep" only applies to the latest hide.
+/// Bumped on every show/hide so a pending unload only applies to the latest hide.
 static VISIBILITY_GEN: AtomicU64 = AtomicU64::new(0);
-/// How long a hidden page stays live before it's suspended (quick tab switches stay instant).
-const SLEEP_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
 /// After this long away, the browser is shut down completely (its processes and memory are freed).
 /// The page comes back when the Browser tab is opened again. PCs with 4 GB of RAM or less get the
 /// memory back after a minute; elsewhere five minutes keeps quick returns instant.
@@ -413,7 +411,7 @@ pub fn set_browser_visibility(app: AppHandle, visible: bool, pause_media: Option
     }
     let Some(w) = webview(&app) else { return Ok(()) };
     if visible {
-        native::wake(&w);
+        native::put_is_suspended(&w, false);
         apply_bounds(&app);
         let _ = w.show();
     } else {
@@ -422,6 +420,7 @@ pub fn set_browser_visibility(app: AppHandle, visible: bool, pause_media: Option
         let _ = w.eval("try { document.querySelectorAll('video, audio').forEach(el => el.pause()); } catch (e) {}");
         native::set_muted(&w, true);
         let _ = w.hide();
+        native::put_is_suspended(&w, true);
         if PAGE_FULLSCREEN.load(Ordering::Relaxed) {
             set_page_fullscreen(&app, false);
         }
@@ -429,12 +428,7 @@ pub fn set_browser_visibility(app: AppHandle, visible: bool, pause_media: Option
         crate::trim_working_set_if_idle();
         tauri::async_runtime::spawn(async move {
             let still_hidden = || VISIBILITY_GEN.load(Ordering::Relaxed) == generation && !WANT_VISIBLE.load(Ordering::Relaxed);
-            tokio::time::sleep(SLEEP_AFTER).await;
-            if !still_hidden() {
-                return;
-            }
-            native::sleep_if_hidden(&w);
-            tokio::time::sleep(unload_after().saturating_sub(SLEEP_AFTER)).await;
+            tokio::time::sleep(unload_after()).await;
             if still_hidden() {
                 unload(&app, &w);
             }

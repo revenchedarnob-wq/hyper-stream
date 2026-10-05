@@ -2,6 +2,7 @@ pub mod bridge;
 pub mod extension_setup;
 pub mod browser;
 pub mod downloader;
+pub mod utils;
 
 use tauri::Manager;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -781,6 +782,8 @@ pub fn run() {
             let orchestrator = downloader::DownloadOrchestrator::new();
             orchestrator.attach_app(app.handle().clone());
             app.manage(orchestrator);
+
+            utils::power::hook_power_events(app.handle());
 
             // Thumbnails saved by older versions are shrunk once, after startup has settled.
             std::thread::spawn(|| {
