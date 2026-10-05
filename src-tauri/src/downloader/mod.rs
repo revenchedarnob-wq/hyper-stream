@@ -7,6 +7,7 @@ pub mod extractor;
 pub mod library;
 pub mod orchestrator;
 pub mod queue;
+pub mod segments;
 pub mod turbo;
 pub mod ytdlp_worker;
 

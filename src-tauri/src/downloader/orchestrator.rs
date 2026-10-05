@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter};
 use crate::ACTIVE_TRANSFERS;
 use crate::downloader::binary_manager::BinaryManager;
 use crate::downloader::cookies::browser_cookies_async;
-use crate::downloader::{bandwidth, extractor, turbo, ytdlp_worker};
+use crate::downloader::{bandwidth, extractor, segments, turbo, ytdlp_worker};
 use crate::downloader::library::{self, LibraryItem, MediaKind};
 use crate::downloader::queue::{
     get_queue_file_path, is_transient_error, load_queue_from_path, sanitize_for_persistence,
@@ -1122,28 +1122,29 @@ fn remove_partial_files(planned: &Path) {
     }
 }
 
-/// The site's sign-in for one download. Read in the background (it can mean starting the
-/// built-in browser) and written to a temporary file the first time yt-dlp needs it; the file
-/// is removed when the download ends, however it ends.
+/// The site's sign-in for one download, read only when a step loads the site itself: reading
+/// it can mean starting the built-in browser (seconds), and fetching chosen streams, merging
+/// and tidying up don't need it. Written to a temporary file for yt-dlp, removed when the
+/// download ends, however it ends.
 struct SignIn {
-    pending: Option<tauri::async_runtime::JoinHandle<Option<String>>>,
+    app: AppHandle,
+    url: String,
     cookies: Option<String>,
+    read: bool,
     file: Option<PathBuf>,
     written: bool,
 }
 
 impl SignIn {
-    fn start(app: &AppHandle, url: &str, given: Option<String>) -> Self {
-        let pending = given.is_none().then(|| {
-            let (app, url) = (app.clone(), url.to_string());
-            tauri::async_runtime::spawn(async move { browser_cookies_async(&app, &url).await })
-        });
-        SignIn { pending, cookies: given, file: None, written: false }
+    fn new(app: &AppHandle, url: &str, given: Option<String>) -> Self {
+        let read = given.is_some();
+        SignIn { app: app.clone(), url: url.to_string(), cookies: given, read, file: None, written: false }
     }
 
     async fn cookies(&mut self) -> Option<&str> {
-        if let Some(task) = self.pending.take() {
-            self.cookies = task.await.ok().flatten();
+        if !self.read {
+            self.read = true;
+            self.cookies = browser_cookies_async(&self.app, &self.url).await;
         }
         self.cookies.as_deref()
     }
@@ -1154,6 +1155,11 @@ impl SignIn {
             self.file = self.cookies().await.and_then(BinaryManager::write_temp_cookie_file);
         }
         self.file.clone()
+    }
+
+    /// The sign-in if an earlier step already read it; never reads it.
+    async fn file_if_read(&mut self) -> Option<PathBuf> {
+        if self.read { self.file().await } else { None }
     }
 }
 
@@ -1359,6 +1365,21 @@ struct Selection {
     streams: Option<Vec<turbo::Stream>>,
 }
 
+/// DASH pieces as yt-dlp lists them: full addresses, or paths after `fragment_base_url`.
+fn dash_pieces(format: &serde_json::Value) -> Option<Vec<String>> {
+    let base = format.get("fragment_base_url").and_then(|b| b.as_str());
+    let list = format.get("fragments")?.as_array()?;
+    let urls: Option<Vec<String>> = list
+        .iter()
+        .map(|piece| match (piece.get("url").and_then(|u| u.as_str()), piece.get("path").and_then(|p| p.as_str()), base) {
+            (Some(url), _, _) => Some(url.to_string()),
+            (None, Some(path), Some(base)) => reqwest::Url::parse(base).ok()?.join(path).ok().map(|u| u.to_string()),
+            _ => None,
+        })
+        .collect();
+    urls.filter(|u| !u.is_empty())
+}
+
 fn parse_selection(json: &str, json_path: PathBuf) -> Option<Selection> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
     let text = |from: &serde_json::Value, key: &str| from.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -1384,8 +1405,20 @@ fn parse_selection(json: &str, json_path: PathBuf) -> Option<Selection> {
         size += number(f, "filesize").or_else(|| number(f, "filesize_approx")).unwrap_or(0);
         let protocol = text(f, "protocol");
         let url = text(f, "url");
-        let fragmented = f.get("fragments").is_some_and(|x| !x.is_null());
-        if !matches!(protocol.as_str(), "https" | "http") || url.is_empty() || fragmented {
+        let pieces = match protocol.as_str() {
+            "https" | "http" if f.get("fragments").is_none_or(|x| x.is_null()) => None,
+            // yt-dlp's own HLS downloader would do it (not FFmpeg), and nothing extra is needed
+            // per piece: the same job, done faster.
+            "m3u8_native" if f.get("extra_param_to_segment_url").is_none() && f.get("hls_aes").is_none() => {
+                Some(segments::Pieces::Hls(url.clone()))
+            }
+            "http_dash_segments" => dash_pieces(f).map(segments::Pieces::Dash),
+            _ => {
+                eligible = false;
+                continue;
+            }
+        };
+        if url.is_empty() && pieces.is_none() {
             eligible = false;
             continue;
         }
@@ -1404,6 +1437,7 @@ fn parse_selection(json: &str, json_path: PathBuf) -> Option<Selection> {
             size: number(f, "filesize"),
             dest: PathBuf::from(dest),
             max_request: f.get("downloader_options").and_then(|d| number(d, "http_chunk_size")),
+            pieces,
         });
     }
 
@@ -1575,6 +1609,8 @@ async fn fetch_fast(
     one_connection: bool,
 ) -> Result<(), turbo::TurboError> {
     let meter = Arc::new(turbo::Meter::default());
+    // Streamed pieces count separately; progress shows both together.
+    let pieces_meter = Arc::new(turbo::Meter::default());
     let cancel = Arc::new(AtomicBool::new(false));
     let site_url = streams.first().map(|s| s.url.clone()).unwrap_or_default();
     let records = site_records_file();
@@ -1582,7 +1618,20 @@ async fn fetch_fast(
     let mut job: std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), turbo::TurboError>> + Send>> = if one_connection {
         Box::pin(turbo::download_whole(streams.into_iter().next().ok_or(turbo::TurboError::Fallback("nothing to download".into()))?, meter.clone(), cancel.clone()))
     } else {
-        Box::pin(turbo::download(streams, limits, meter.clone(), cancel.clone()))
+        let (pieced, files): (Vec<_>, Vec<_>) = streams.into_iter().partition(|s| s.pieces.is_some());
+        let (m, pm, c) = (meter.clone(), pieces_meter.clone(), cancel.clone());
+        Box::pin(async move {
+            let files_job = async { if files.is_empty() { Ok(()) } else { turbo::download(files, limits, m, c.clone()).await } };
+            let pieces_job = async { if pieced.is_empty() { Ok(()) } else { segments::download(pieced, limits, pm, c.clone()).await } };
+            let (a, b) = tokio::join!(files_job, pieces_job);
+            // The most telling outcome wins: a pause, then lost links, then anything else.
+            match (a, b) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(turbo::TurboError::Aborted), _) | (_, Err(turbo::TurboError::Aborted)) => Err(turbo::TurboError::Aborted),
+                (Err(e @ turbo::TurboError::Expired(_)), _) | (_, Err(e @ turbo::TurboError::Expired(_))) => Err(e),
+                (Err(e), _) | (_, Err(e)) => Err(e),
+            }
+        })
     };
     let mut tick = tokio::time::interval(Duration::from_millis(250));
     // Speed over the last ~3 s: steady enough to read, quick enough to follow changes.
@@ -1603,8 +1652,8 @@ async fn fetch_fast(
                 return result;
             }
             _ = tick.tick() => {
-                let done = meter.done.load(Ordering::Relaxed);
-                let total = meter.total.load(Ordering::Relaxed);
+                let done = meter.done.load(Ordering::Relaxed) + pieces_meter.done.load(Ordering::Relaxed);
+                let total = meter.total.load(Ordering::Relaxed) + pieces_meter.total.load(Ordering::Relaxed);
                 if total == 0 {
                     continue;
                 }
@@ -1616,7 +1665,7 @@ async fn fetch_fast(
                 let (since, at) = history[0];
                 let secs = now.duration_since(since).as_secs_f64();
                 let speed = if secs > 0.2 { (done.saturating_sub(at) as f64 / secs) as u64 } else { 0 };
-                let waiting = meter.waiting.load(Ordering::Relaxed);
+                let waiting = meter.waiting.load(Ordering::Relaxed) || pieces_meter.waiting.load(Ordering::Relaxed);
                 let (speed, stage) = if waiting { (0, "Waiting for the connection") } else { (speed, "Downloading") };
                 report_progress(task_id, tasks_ref, app, done.min(total), total, speed, stage);
             }
@@ -1787,7 +1836,8 @@ async fn run_download_task(
         .map_err(|e| format!("Couldn't create the download folder {}: {}", target_dir.display(), e))?;
 
     let given = options.cookies.clone().filter(|c| !c.trim().is_empty());
-    let mut sign_in = SignIn::start(app, &options.url, given);
+    let mut sign_in = SignIn::new(app, &options.url, given);
+    let started = Instant::now();
     let mut abort = Abort { rx: abort_rx, live: true };
     if let Some(direct) = &options.direct {
         let cookies = sign_in.cookies().await.map(str::to_string);
@@ -1836,6 +1886,7 @@ async fn run_download_task(
         }
     }
     let _selection_guard = TempFile(selection.as_ref().map(|s| s.json_path.clone()));
+    log::info!("{}: formats chosen after {:.1} s", task_id, started.elapsed().as_secs_f64());
     if let Some(sel) = &selection {
         show_selection(task_id, options, tasks_ref, app, sel);
     }
@@ -1872,7 +1923,8 @@ async fn run_download_task(
                         // The streams are on disk under the names yt-dlp expects; it skips
                         // downloading them and goes straight to merging.
                         Ok(()) => {
-                            let finish = args_for(Mode::Download, &saved, sign_in.file().await);
+                            log::info!("{}: streams fetched after {:.1} s", task_id, started.elapsed().as_secs_f64());
+                            let finish = args_for(Mode::Download, &saved, sign_in.file_if_read().await);
                             match run_ytdlp(finish.clone(), task_id, options, tasks_ref, app, &mut abort, true).await {
                                 // Antivirus often scans new files for a moment; wait, then merge again.
                                 Err(e) if e.contains("another program") => {
@@ -1912,6 +1964,7 @@ async fn run_download_task(
         .ok_or("The download finished but the file couldn't be found.")?;
 
     verify_output_integrity(&final_file)?;
+    log::info!("{}: done after {:.1} s", task_id, started.elapsed().as_secs_f64());
 
     if let Some(t) = tasks_ref.write().unwrap().get_mut(task_id) {
         t.container = Some(extension_label(&final_file));
@@ -1958,7 +2011,7 @@ async fn run_direct(
     if let Some(cookie) = cookies.and_then(|c| crate::downloader::cookies::header_for_url(c, &options.url)) {
         headers.push(("Cookie".to_string(), cookie));
     }
-    let stream = turbo::Stream { url: options.url.clone(), headers, size: None, dest: dest.clone(), max_request: None };
+    let stream = turbo::Stream { url: options.url.clone(), headers, size: None, dest: dest.clone(), max_request: None, pieces: None };
 
     match fetch_fast(task_id, vec![stream.clone()], tasks_ref, app, abort, false).await {
         Ok(()) => {}
@@ -2172,8 +2225,22 @@ mod tests {
         assert!(streams[1].headers.contains(&("Cookie".to_string(), "s=1".to_string())));
         assert_eq!(sel.size, 1200);
 
+        // Streamed formats the native downloaders would do are fetched here too.
         let hls = r#"{"filename":"Clip.mp4","protocol":"m3u8_native","url":"https://v.test/x.m3u8"}"#;
-        assert!(parse_selection(hls, PathBuf::from("s.json")).unwrap().streams.is_none());
+        let streams = parse_selection(hls, PathBuf::from("s.json")).unwrap().streams.unwrap();
+        assert_eq!(streams[0].pieces, Some(segments::Pieces::Hls("https://v.test/x.m3u8".into())));
+        let dash = r#"{"filename":"Clip.mp4","protocol":"http_dash_segments","url":"https://v.test/m.mpd",
+            "fragment_base_url":"https://v.test/v/","fragments":[{"path":"init.mp4"},{"url":"https://w.test/1.m4s"}]}"#;
+        let streams = parse_selection(dash, PathBuf::from("s.json")).unwrap().streams.unwrap();
+        assert_eq!(streams[0].pieces, Some(segments::Pieces::Dash(vec!["https://v.test/v/init.mp4".into(), "https://w.test/1.m4s".into()])));
+        // FFmpeg-based or keyed streams stay with yt-dlp.
+        for other in [
+            r#"{"filename":"Clip.mp4","protocol":"m3u8","url":"https://v.test/x.m3u8"}"#,
+            r#"{"filename":"Clip.mp4","protocol":"m3u8_native","url":"https://v.test/x.m3u8","extra_param_to_segment_url":"k=1"}"#,
+            r#"{"filename":"Clip.mp4","protocol":"https","url":"https://v.test/x","is_live":true}"#,
+        ] {
+            assert!(parse_selection(other, PathBuf::from("s.json")).unwrap().streams.is_none(), "{}", other);
+        }
     }
 
     #[test]

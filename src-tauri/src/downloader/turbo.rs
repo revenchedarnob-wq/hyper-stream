@@ -23,15 +23,15 @@ const WRITE_BUFFER: usize = 512 * 1024;
 /// A range is only split when both halves get at least this much.
 const MIN_SPLIT: u64 = 1024 * 1024;
 /// No answer or no data for this long: the connection is dead (an outage, a sleeping PC).
-const READ_TIMEOUT: Duration = Duration::from_secs(if cfg!(test) { 2 } else { 20 });
+pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(if cfg!(test) { 2 } else { 20 });
 /// Consecutive failures of one range before stopping for now.
-const MAX_FAILURES: u32 = 6;
+pub(crate) const MAX_FAILURES: u32 = 6;
 /// With the network up but no new data for this long, stop for now (progress is kept).
-const STALL_LIMIT: Duration = Duration::from_secs(30);
+pub(crate) const STALL_LIMIT: Duration = Duration::from_secs(30);
 /// Without a connection, keep trying this long before stopping for now (progress is kept).
-const OFFLINE_LIMIT: Duration = Duration::from_secs(if cfg!(test) { 6 } else { 10 * 60 });
+pub(crate) const OFFLINE_LIMIT: Duration = Duration::from_secs(if cfg!(test) { 6 } else { 10 * 60 });
 /// How often connections try again while the network is down.
-const OFFLINE_RETRY: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 2 });
+pub(crate) const OFFLINE_RETRY: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 2 });
 /// Other connections got data this recently: the network is up, so a failed connection
 /// means the server wants fewer of them.
 const FLOWING_WINDOW: Duration = Duration::from_millis(1500);
@@ -45,6 +45,8 @@ pub struct Stream {
     pub dest: PathBuf,
     /// Largest range a single request may ask for. YouTube serves larger requests at a crawl.
     pub max_request: Option<u64>,
+    /// Streamed video: the file is put together from these pieces (see `segments`).
+    pub pieces: Option<crate::downloader::segments::Pieces>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -106,7 +108,7 @@ struct SiteRecord {
 const SITE_RECORD_DAYS: u64 = 14;
 
 /// "rr3---sn-abc.googlevideo.com" -> "googlevideo.com"; "http://10.0.0.5:8080/x" -> "10.0.0.5:8080"
-fn site_of(url: &str) -> Option<String> {
+pub(crate) fn site_of(url: &str) -> Option<String> {
     let parsed = reqwest::Url::parse(url).ok()?;
     let raw_host = parsed.host_str()?;
     if raw_host.trim_matches(['[', ']']).parse::<std::net::IpAddr>().is_ok() {
@@ -168,17 +170,17 @@ pub fn remember_site(url: &str, meter: &Meter, file: &Path) {
 static RUNNING: Mutex<Vec<(u64, Option<String>)>> = Mutex::new(Vec::new());
 static NEXT_JOB: AtomicU64 = AtomicU64::new(1);
 
-struct Registration(u64);
+pub(crate) struct Registration(u64);
 
 impl Registration {
-    fn new(site: Option<String>) -> Self {
+    pub(crate) fn new(site: Option<String>) -> Self {
         let id = NEXT_JOB.fetch_add(1, Ordering::Relaxed);
         RUNNING.lock().unwrap().push((id, site));
         Registration(id)
     }
 
     /// Connections this download may use while the others keep theirs.
-    fn fair_share(&self, max: usize) -> usize {
+    pub(crate) fn fair_share(&self, max: usize) -> usize {
         let running = RUNNING.lock().unwrap();
         let site = running.iter().find(|(id, _)| *id == self.0).and_then(|(_, s)| s.clone());
         let same_site = running.iter().filter(|(_, s)| site.is_some() && *s == site).count();
@@ -226,7 +228,7 @@ pub fn part_path(dest: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-fn state_path(dest: &Path) -> PathBuf {
+pub(crate) fn state_path(dest: &Path) -> PathBuf {
     let mut s = dest.as_os_str().to_owned();
     s.push(".hspart.json");
     PathBuf::from(s)
@@ -319,7 +321,7 @@ enum Attempt {
     Fatal(String),
 }
 
-fn client() -> Result<reqwest::Client, String> {
+pub(crate) fn client() -> Result<reqwest::Client, String> {
     // HTTP/1.1 only: HTTP/2 would squeeze every connection into one, which is exactly
     // what per-connection speed caps punish.
     reqwest::Client::builder()
@@ -331,7 +333,7 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
-fn header_map(pairs: &[(String, String)]) -> HeaderMap {
+pub(crate) fn header_map(pairs: &[(String, String)]) -> HeaderMap {
     let mut map = HeaderMap::new();
     for (k, v) in pairs {
         if let (Ok(name), Ok(value)) = (HeaderName::from_bytes(k.as_bytes()), HeaderValue::from_str(v)) {
@@ -353,17 +355,17 @@ fn start_from_content_range(value: &str) -> Option<u64> {
     value.trim().strip_prefix("bytes")?.trim().split('-').next()?.trim().parse().ok()
 }
 
-fn is_expired_status(status: u16) -> bool {
+pub(crate) fn is_expired_status(status: u16) -> bool {
     matches!(status, 401 | 403 | 404 | 410)
 }
 
 /// Server trouble that usually passes.
-fn is_temporary_status(status: u16) -> bool {
+pub(crate) fn is_temporary_status(status: u16) -> bool {
     matches!(status, 408 | 429 | 500..=599)
 }
 
 #[cfg(windows)]
-fn write_at(file: &std::fs::File, mut offset: u64, mut data: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_at(file: &std::fs::File, mut offset: u64, mut data: &[u8]) -> std::io::Result<()> {
     use std::os::windows::fs::FileExt;
     while !data.is_empty() {
         let n = file.seek_write(data, offset)?;
@@ -377,7 +379,7 @@ fn write_at(file: &std::fs::File, mut offset: u64, mut data: &[u8]) -> std::io::
 }
 
 #[cfg(unix)]
-fn write_at(file: &std::fs::File, offset: u64, data: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_at(file: &std::fs::File, offset: u64, data: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::FileExt;
     file.write_all_at(data, offset)
 }
@@ -397,7 +399,7 @@ fn validator_of(headers: &HeaderMap) -> Option<String> {
 
 /// Why a request got no answer.
 #[derive(Debug, PartialEq)]
-enum SendFailure {
+pub(crate) enum SendFailure {
     /// The server turned the connection away: it is reachable but wants fewer connections.
     Refused,
     /// No route, no name lookup, no answer: the network is down.
@@ -406,7 +408,7 @@ enum SendFailure {
     Unclear,
 }
 
-fn send_failure(e: &reqwest::Error) -> SendFailure {
+pub(crate) fn send_failure(e: &reqwest::Error) -> SendFailure {
     if e.is_timeout() {
         return SendFailure::Unreachable;
     }
@@ -429,7 +431,7 @@ fn send_failure(e: &reqwest::Error) -> SendFailure {
 }
 
 /// Sleeps up to `d`, waking early when the download is paused.
-async fn nap(cancel: &AtomicBool, d: Duration) {
+pub(crate) async fn nap(cancel: &AtomicBool, d: Duration) {
     let until = Instant::now() + d;
     while !cancel.load(Ordering::Relaxed) {
         let left = until.saturating_duration_since(Instant::now());
@@ -1345,7 +1347,7 @@ mod tests {
     }
 
     fn stream(url: &str, dest: &Path, max_request: Option<u64>) -> Stream {
-        Stream { url: url.into(), headers: vec![("User-Agent".into(), "test".into())], size: None, dest: dest.into(), max_request }
+        Stream { url: url.into(), headers: vec![("User-Agent".into(), "test".into())], size: None, dest: dest.into(), max_request, pieces: None }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
