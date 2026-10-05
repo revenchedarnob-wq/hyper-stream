@@ -240,6 +240,32 @@ pub fn remove_partial(dest: &Path) {
     let _ = std::fs::remove_file(state_path(dest));
 }
 
+/// Marks a file as NTFS sparse on Windows to eliminate synchronous zero-fill latency.
+#[cfg(windows)]
+pub(crate) fn make_sparse_if_possible(file: &std::fs::File) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Ioctl::FSCTL_SET_SPARSE;
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+
+    let handle = file.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
+    let mut returned = 0u32;
+    unsafe {
+        DeviceIoControl(
+            handle,
+            FSCTL_SET_SPARSE,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+        );
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn make_sparse_if_possible(_file: &std::fs::File) {}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ResumeState {
     size: u64,
@@ -327,6 +353,8 @@ pub(crate) fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .http1_only()
         .pool_max_idle_per_host(64)
+        .pool_idle_timeout(Some(Duration::from_secs(90)))
+        .tcp_keepalive(Some(Duration::from_secs(15)))
         .connect_timeout(Duration::from_secs(15))
         .tcp_nodelay(true)
         .build()
@@ -888,6 +916,7 @@ pub async fn download(streams: Vec<Stream>, limits: Limits, meter: Arc<Meter>, c
             .open(&part)
             .map_err(|e| TurboError::Fallback(format!("Couldn't create {}: {}", part.display(), e)))?;
         if resumed.is_none() {
+            make_sparse_if_possible(&file);
             file.set_len(size).map_err(|e| TurboError::Fallback(format!("Not enough disk space? {}", e)))?;
         }
         let pending = resumed.unwrap_or_else(|| vec![(0, size)]);

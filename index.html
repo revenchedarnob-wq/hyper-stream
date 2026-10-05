@@ -1,10 +1,37 @@
 <!doctype html>
-<html lang="en" style="background: transparent !important; background-color: transparent !important;">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HyperStream</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg-obsidian: #10121c;
+      }
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+      html, body {
+        background-color: #10121c !important;
+        color: #f1f5f9;
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+      #root {
+        background-color: #10121c !important;
+        height: 100vh;
+        width: 100vw;
+        display: flex;
+        flex-direction: column;
+      }
+    </style>
     <script>
       try {
         if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -13,8 +40,8 @@
       } catch {}
     </script>
   </head>
-  <body style="background: transparent !important; background-color: transparent !important; margin: 0; padding: 0; overflow: hidden;">
-    <div id="root" style="background: transparent !important; background-color: transparent !important;"></div>
+  <body>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
