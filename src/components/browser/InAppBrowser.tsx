@@ -567,6 +567,12 @@ export function InAppBrowser({
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
         onNewTab={() => handleNewTab(BLANK)}
+        sidebarArea={sidebarArea}
+        windowControls={windowControls}
+        onTopBarPointerDown={onTopBarPointerDown}
+        onTopBarPointerMove={onTopBarPointerMove}
+        onTopBarPointerUp={onTopBarPointerUp}
+        onTopBarDoubleClick={onTopBarDoubleClick}
       />
 
       <BrowserToolbar
@@ -597,12 +603,6 @@ export function InAppBrowser({
         focusAddressNonce={focusAddressNonce}
         isSaved={isSaved}
         onToggleSaved={toggleSaved}
-        sidebarArea={sidebarArea}
-        windowControls={windowControls}
-        onTopBarPointerDown={onTopBarPointerDown}
-        onTopBarPointerMove={onTopBarPointerMove}
-        onTopBarPointerUp={onTopBarPointerUp}
-        onTopBarDoubleClick={onTopBarDoubleClick}
       />
 
       <main className="browser-content-area">

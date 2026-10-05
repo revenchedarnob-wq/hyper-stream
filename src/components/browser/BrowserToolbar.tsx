@@ -330,48 +330,50 @@ export function BrowserToolbar({
           title={pageTitle || undefined}
         />
 
-        {inputValue.length > 0 && (
-          <button
-            type="button"
-            className="browser-omnibar-clear-btn"
-            onClick={handleClear}
-            aria-label="Clear address bar"
-            title="Clear"
-            data-testid="browser-omnibar-clear"
-          >
-            <IconX size={12} />
-          </button>
-        )}
+        <div className="browser-omnibar-actions">
+          {inputValue.length > 0 && (
+            <button
+              type="button"
+              className="browser-omnibar-clear-btn"
+              onClick={handleClear}
+              aria-label="Clear address bar"
+              title="Clear"
+              data-testid="browser-omnibar-clear"
+            >
+              <IconX size={12} />
+            </button>
+          )}
 
-        {currentUrl && currentUrl !== 'about:blank' && (
-          <button
-            type="button"
-            className={`browser-omnibar-copy-btn ${copied ? 'is-copied' : ''}`}
-            onClick={handleCopyUrl}
-            aria-label={copied ? 'Copied' : 'Copy address'}
-            title={copied ? 'Copied to clipboard!' : 'Copy address'}
-            data-testid="browser-omnibar-copy"
-          >
-            {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-          </button>
-        )}
+          {currentUrl && currentUrl !== 'about:blank' && (
+            <button
+              type="button"
+              className={`browser-omnibar-copy-btn ${copied ? 'is-copied' : ''}`}
+              onClick={handleCopyUrl}
+              aria-label={copied ? 'Copied' : 'Copy address'}
+              title={copied ? 'Copied to clipboard!' : 'Copy address'}
+              data-testid="browser-omnibar-copy"
+            >
+              {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+            </button>
+          )}
 
-        {onToggleSaved && /^https?:\/\//i.test(currentUrl) && (
-          <button
-            type="button"
-            className={`browser-omnibar-star ${isSaved ? 'is-saved' : ''}`}
-            onClick={() => {
-              playHapticClick()
-              onToggleSaved()
-            }}
-            aria-label={isSaved ? 'Remove from start page' : 'Add to start page'}
-            aria-pressed={isSaved}
-            title={isSaved ? 'Remove from start page (Ctrl+D)' : 'Add to start page (Ctrl+D)'}
-            data-testid="browser-omnibar-star"
-          >
-            <IconStar size={15} filled={isSaved} />
-          </button>
-        )}
+          {onToggleSaved && /^https?:\/\//i.test(currentUrl) && (
+            <button
+              type="button"
+              className={`browser-omnibar-star ${isSaved ? 'is-saved' : ''}`}
+              onClick={() => {
+                playHapticClick()
+                onToggleSaved()
+              }}
+              aria-label={isSaved ? 'Remove from start page' : 'Add to start page'}
+              aria-pressed={isSaved}
+              title={isSaved ? 'Remove from start page (Ctrl+D)' : 'Add to start page (Ctrl+D)'}
+              data-testid="browser-omnibar-star"
+            >
+              <IconStar size={15} filled={isSaved} />
+            </button>
+          )}
+        </div>
 
         <OmnibarDropdown
           query={inputValue}

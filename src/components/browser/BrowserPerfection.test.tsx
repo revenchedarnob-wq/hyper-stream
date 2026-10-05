@@ -65,6 +65,41 @@ describe('BrowserTabStrip Component Suite', () => {
 
     expect(html).toContain('browser-tab-spinner')
   })
+
+  it('omits close button when only one tab exists', () => {
+    const html = renderToString(
+      <BrowserTabStrip
+        tabs={[sampleTabs[0]]}
+        activeTabId="tab-1"
+        onSelectTab={vi.fn()}
+        onCloseTab={vi.fn()}
+        onNewTab={vi.fn()}
+      />
+    )
+
+    expect(html).not.toContain('browser-tab-close-btn')
+  })
+
+  it('renders unified header with sidebarArea, drag spacer, and windowControls in unified mode', () => {
+    const html = renderToString(
+      <BrowserTabStrip
+        tabs={sampleTabs}
+        activeTabId="tab-1"
+        onSelectTab={vi.fn()}
+        onCloseTab={vi.fn()}
+        onNewTab={vi.fn()}
+        sidebarArea={<div data-testid="test-unified-brand">HyperStream</div>}
+        windowControls={<div data-testid="test-unified-controls">Controls</div>}
+      />
+    )
+
+    expect(html).toContain('is-unified-header')
+    expect(html).toContain('browser-tab-strip-sidebar-slot')
+    expect(html).toContain('test-unified-brand')
+    expect(html).toContain('browser-tab-drag-spacer')
+    expect(html).toContain('browser-tab-win-controls')
+    expect(html).toContain('test-unified-controls')
+  })
 })
 
 describe('FindInPageBar Component Suite', () => {

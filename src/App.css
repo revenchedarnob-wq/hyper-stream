@@ -961,7 +961,9 @@ body.is-browser-dragging * {
 
 .app-shell.is-browser-full-mode .browser-content-area {
   width: 100%;
-  height: calc(100% - 44px);
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 /* Full flush viewport for active websites */

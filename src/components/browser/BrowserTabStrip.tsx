@@ -1,5 +1,5 @@
 import { type MouseEvent } from 'react'
-import { IconPlus, IconX, IconGlobe, IconHome } from './Icons'
+import { IconPlus, IconX, IconGlobe, IconCompass } from './Icons'
 import { playHapticClick, playHapticPop } from '@/lib/sound'
 
 export interface BrowserTab {
@@ -18,6 +18,14 @@ export interface BrowserTabStripProps {
   onSelectTab: (id: string) => void
   onCloseTab: (id: string) => void
   onNewTab: () => void
+  /** Unified header: Brand and sidebar toggle slot on the left. */
+  sidebarArea?: React.ReactNode
+  /** Unified header: Windows 11 window controls on the right. */
+  windowControls?: React.ReactNode
+  onTopBarPointerDown?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarPointerMove?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarPointerUp?: (e: React.PointerEvent<HTMLElement>) => void
+  onTopBarDoubleClick?: (e: React.MouseEvent<HTMLElement>) => void
 }
 
 export function BrowserTabStrip({
@@ -26,7 +34,15 @@ export function BrowserTabStrip({
   onSelectTab,
   onCloseTab,
   onNewTab,
+  sidebarArea,
+  windowControls,
+  onTopBarPointerDown,
+  onTopBarPointerMove,
+  onTopBarPointerUp,
+  onTopBarDoubleClick,
 }: BrowserTabStripProps) {
+  const isUnified = Boolean(windowControls)
+
   const handleTabClick = (id: string) => {
     if (id !== activeTabId) {
       playHapticClick()
@@ -36,7 +52,7 @@ export function BrowserTabStrip({
 
   const handleTabAuxClick = (e: MouseEvent, id: string) => {
     // Middle click closes tab
-    if (e.button === 1) {
+    if (e.button === 1 && tabs.length > 1) {
       e.preventDefault()
       e.stopPropagation()
       playHapticPop()
@@ -56,8 +72,25 @@ export function BrowserTabStrip({
   }
 
   return (
-    <div className="browser-tab-strip" role="tablist" aria-label="Browser tabs" data-testid="browser-tab-strip">
-      <div className="browser-tab-list">
+    <div
+      className={`browser-tab-strip ${isUnified ? 'is-unified-header' : ''}`}
+      role="tablist"
+      aria-label="Browser tabs"
+      data-testid="browser-tab-strip"
+      data-tauri-drag-region
+      onPointerDown={onTopBarPointerDown}
+      onPointerMove={onTopBarPointerMove}
+      onPointerUp={onTopBarPointerUp}
+      onPointerCancel={onTopBarPointerUp}
+      onDoubleClick={onTopBarDoubleClick}
+    >
+      {sidebarArea && (
+        <div className="browser-tab-strip-sidebar-slot" data-tauri-drag-region>
+          {sidebarArea}
+        </div>
+      )}
+
+      <div className="browser-tab-list" data-tauri-drag-region>
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId
           const isHome = tab.url === 'about:blank' || !tab.url
@@ -79,7 +112,7 @@ export function BrowserTabStrip({
                 {tab.isLoading ? (
                   <div className="browser-tab-spinner" />
                 ) : isHome ? (
-                  <IconHome size={13} />
+                  <IconCompass size={13} />
                 ) : (
                   <IconGlobe size={13} />
                 )}
@@ -111,9 +144,17 @@ export function BrowserTabStrip({
           title="New tab (Ctrl+T)"
           data-testid="browser-tab-new-btn"
         >
-          <IconPlus size={14} />
+          <IconPlus size={13} />
         </button>
       </div>
+
+      <div className="browser-tab-drag-spacer" data-tauri-drag-region />
+
+      {windowControls && (
+        <div className="browser-tab-win-controls" data-tauri-drag-region>
+          {windowControls}
+        </div>
+      )}
     </div>
   )
 }
