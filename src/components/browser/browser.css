@@ -2324,3 +2324,430 @@
     transform: none;
   }
 }
+
+/* ==========================================================================
+   HyperStream Browser Perfection Enhancements
+   ========================================================================== */
+
+/* 1. Desktop Tab Strip */
+.browser-tab-strip {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  min-height: 36px;
+  background: rgba(12, 14, 22, 0.65);
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  padding: 0 12px;
+  gap: 6px;
+  user-select: none;
+  flex-shrink: 0;
+  backdrop-filter: blur(12px);
+}
+
+.browser-tab-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.browser-tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+.browser-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  min-width: 110px;
+  max-width: 200px;
+  padding: 0 8px 0 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  color: var(--color-text-secondary, #94a3b8);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 140ms ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.browser-tab:hover {
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.05));
+  color: var(--color-text-primary, #f1f5f9);
+}
+
+.browser-tab.is-active {
+  background: var(--surface-level-2, rgba(255, 255, 255, 0.09));
+  border-color: var(--border-subtle, rgba(255, 255, 255, 0.08));
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.browser-tab.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  background: var(--color-brand-primary, #6366f1);
+  border-radius: 2px 2px 0 0;
+}
+
+.browser-tab-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  opacity: 0.85;
+}
+
+.browser-tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.browser-tab-close-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  opacity: 1;
+}
+
+.browser-tab-new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary, #94a3b8);
+  cursor: pointer;
+  transition: all 140ms ease;
+  flex-shrink: 0;
+}
+
+.browser-tab-new-btn:hover {
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.08));
+  color: var(--color-brand-primary, #6366f1);
+}
+
+.browser-tab-spinner {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--color-brand-primary, #6366f1);
+  border-radius: 50%;
+  animation: browser-tab-spin 0.8s linear infinite;
+}
+
+@keyframes browser-tab-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 2. Omnibar 2.0 Dropdown */
+.omnibar-dropdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  background: rgba(18, 20, 32, 0.94);
+  backdrop-filter: blur(24px) saturate(130%);
+  border: 1px solid var(--border-elevated, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-md, 10px);
+  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  z-index: 120;
+  animation: omnibar-fade-in 140ms ease;
+}
+
+@keyframes omnibar-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.omnibar-dropdown-list {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.omnibar-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: all 100ms ease;
+  user-select: none;
+}
+
+.omnibar-dropdown-item:hover,
+.omnibar-dropdown-item.is-selected {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.omnibar-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.omnibar-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.omnibar-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #ffffff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omnibar-item-subtitle {
+  font-size: 11px;
+  color: var(--color-text-tertiary, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omnibar-item-action {
+  opacity: 0;
+  transition: opacity 120ms ease;
+  color: var(--color-brand-primary, #6366f1);
+  display: flex;
+  align-items: center;
+}
+
+.omnibar-dropdown-item:hover .omnibar-item-action,
+.omnibar-dropdown-item.is-selected .omnibar-item-action {
+  opacity: 1;
+}
+
+/* Copy Address Button in Omnibar */
+.browser-omnibar-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--color-text-tertiary, #94a3b8);
+  cursor: pointer;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+.browser-omnibar-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.browser-omnibar-copy-btn.is-copied {
+  color: #10b981;
+}
+
+/* 3. Find in Page Bar */
+.find-in-page-bar {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(18, 20, 32, 0.94);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-elevated, rgba(255, 255, 255, 0.14));
+  border-radius: var(--radius-full, 9999px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  animation: find-bar-pop 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes find-bar-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.find-in-page-icon {
+  color: var(--color-text-tertiary, #94a3b8);
+  display: flex;
+  align-items: center;
+}
+
+.find-in-page-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-size: 13px;
+  width: 140px;
+  font-family: inherit;
+}
+
+.find-in-page-input::placeholder {
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+}
+
+.find-in-page-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-tertiary, #94a3b8);
+  padding: 0 4px;
+  user-select: none;
+}
+
+.find-in-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.find-in-page-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary, #94a3b8);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.find-in-page-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.find-in-page-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.find-in-page-btn.close-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* 4. Zoom HUD */
+.browser-zoom-hud {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: rgba(16, 18, 28, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-elevated, rgba(255, 255, 255, 0.14));
+  border-radius: var(--radius-full, 9999px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  transition: opacity 200ms ease, transform 200ms ease;
+  user-select: none;
+}
+
+.browser-zoom-hud.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.browser-zoom-hud.is-fading {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
+  pointer-events: none;
+}
+
+.browser-zoom-hud-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+}
+
+.browser-zoom-hud-reset {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 4px;
+  color: var(--color-brand-primary, #818cf8);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.browser-zoom-hud-reset:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}

@@ -11,10 +11,14 @@ import {
   IconShieldCheck,
   IconPuzzlePiece,
   IconStar,
+  IconCopy,
+  IconCheck,
 } from './Icons'
 import { StreamDetectorPill } from './StreamDetectorPill'
 import { ExtensionStorePill } from './ExtensionStorePill'
 import { ShieldsPopover } from './ShieldsPopover'
+import { OmnibarDropdown } from './OmnibarDropdown'
+import { getShortcuts } from './shortcuts'
 import { handleBrowserSubmit } from './url-utils'
 import { playHapticClick, playHapticGlass } from '@/lib/sound'
 import './browser.css'
@@ -190,7 +194,19 @@ export function BrowserToolbar({
     currentUrl === 'about:blank' || !currentUrl ? '' : currentUrl
   )
   const [isShieldsOpen, setIsShieldsOpen] = useState(false)
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleCopyUrl = async () => {
+    if (!currentUrl || currentUrl === 'about:blank') return
+    try {
+      await navigator.clipboard.writeText(currentUrl)
+      playHapticClick()
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1400)
+    } catch {}
+  }
 
   const onShieldsPanelChangeRef = useRef(onShieldsPanelChange)
   onShieldsPanelChangeRef.current = onShieldsPanelChange
@@ -212,6 +228,7 @@ export function BrowserToolbar({
 
   const handleFormSubmit = (e: FormEvent) => {
     e.preventDefault()
+    setIsDropdownOpen(false)
     const trimmed = inputValue.trim()
     if (!trimmed) return
     const resolved = handleBrowserSubmit(trimmed, onNavigate)
@@ -222,10 +239,12 @@ export function BrowserToolbar({
     playHapticClick()
     setInputValue('')
     inputRef.current?.focus()
+    setIsDropdownOpen(true)
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
+      setIsDropdownOpen(false)
       setInputValue(currentUrl === 'about:blank' || !currentUrl ? '' : currentUrl)
       inputRef.current?.blur()
     }
@@ -293,9 +312,18 @@ export function BrowserToolbar({
           className="browser-omnibar-input"
           placeholder="Search or enter address"
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={(e) => {
+            setInputValue(e.target.value)
+            setIsDropdownOpen(true)
+          }}
           onKeyDown={handleKeyDown}
-          onFocus={(e) => e.currentTarget.select()}
+          onFocus={(e) => {
+            e.currentTarget.select()
+            setIsDropdownOpen(true)
+          }}
+          onBlur={() => {
+            setTimeout(() => setIsDropdownOpen(false), 200)
+          }}
           autoComplete="off"
           spellCheck={false}
           aria-label="Address or search query"
@@ -315,6 +343,19 @@ export function BrowserToolbar({
           </button>
         )}
 
+        {currentUrl && currentUrl !== 'about:blank' && (
+          <button
+            type="button"
+            className={`browser-omnibar-copy-btn ${copied ? 'is-copied' : ''}`}
+            onClick={handleCopyUrl}
+            aria-label={copied ? 'Copied' : 'Copy address'}
+            title={copied ? 'Copied to clipboard!' : 'Copy address'}
+            data-testid="browser-omnibar-copy"
+          >
+            {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+          </button>
+        )}
+
         {onToggleSaved && /^https?:\/\//i.test(currentUrl) && (
           <button
             type="button"
@@ -331,6 +372,18 @@ export function BrowserToolbar({
             <IconStar size={15} filled={isSaved} />
           </button>
         )}
+
+        <OmnibarDropdown
+          query={inputValue}
+          isOpen={isDropdownOpen}
+          onSelect={(url) => {
+            setInputValue(url)
+            setIsDropdownOpen(false)
+            onNavigate(url)
+          }}
+          onClose={() => setIsDropdownOpen(false)}
+          shortcuts={getShortcuts()}
+        />
       </form>
 
       {storeListing && (

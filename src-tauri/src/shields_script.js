@@ -91,9 +91,78 @@
     injectStyles();
   }
 
+  // Active media stream sniffer: detects playing HTML5 video/audio, HLS, DASH, and WebM streams
+  var sniffedMedia = new Set();
+  function reportMedia(src, isVideo) {
+    if (!src || (src.indexOf('blob:') === 0 && !isVideo)) return;
+    if (sniffedMedia.has(src)) return;
+    sniffedMedia.add(src);
+    var format = 'MP4';
+    if (/\.m3u8([?#]|$)/i.test(src)) format = 'HLS';
+    else if (/\.mpd([?#]|$)/i.test(src)) format = 'DASH';
+    else if (/\.webm([?#]|$)/i.test(src)) format = 'WebM';
+    else if (/\.mp3([?#]|$)/i.test(src)) format = 'MP3';
+    else if (/\.ogg([?#]|$)/i.test(src)) format = 'OGG';
+    else if (/\.wav([?#]|$)/i.test(src)) format = 'WAV';
+
+    var title = document.title || (isVideo ? 'Web Video' : 'Web Audio');
+    try {
+      if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+        window.chrome.webview.postMessage(JSON.stringify({
+          type: 'media-sniffed',
+          url: src,
+          pageUrl: window.location.href,
+          title: title,
+          format: format,
+          isVideo: isVideo
+        }));
+      }
+    } catch (e) {}
+  }
+
+  function scanMediaElements() {
+    try {
+      var videos = document.getElementsByTagName('video');
+      for (var i = 0; i < videos.length; i++) {
+        var v = videos[i];
+        var src = v.currentSrc || v.src;
+        if (src) reportMedia(src, true);
+        else {
+          var sources = v.getElementsByTagName('source');
+          for (var j = 0; j < sources.length; j++) {
+            if (sources[j].src) reportMedia(sources[j].src, true);
+          }
+        }
+      }
+      var audios = document.getElementsByTagName('audio');
+      for (var k = 0; k < audios.length; k++) {
+        var a = audios[k];
+        var aSrc = a.currentSrc || a.src;
+        if (aSrc) reportMedia(aSrc, false);
+      }
+    } catch (e) {}
+  }
+
+  document.addEventListener('play', function (e) {
+    if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+      var isV = e.target.tagName === 'VIDEO';
+      var src = e.target.currentSrc || e.target.src;
+      if (src) reportMedia(src, isV);
+    }
+  }, true);
+
+  document.addEventListener('loadedmetadata', function (e) {
+    if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
+      var isV = e.target.tagName === 'VIDEO';
+      var src = e.target.currentSrc || e.target.src;
+      if (src) reportMedia(src, isV);
+    }
+  }, true);
+
   if (isTopFrame) {
     if (isYouTube) setInterval(skipYouTubeAds, 500);
     setInterval(declineCookieBanners, 1500);
+    setInterval(scanMediaElements, 2500);
   }
 
   window.__HYPERSTREAM_SHIELDS__ = {

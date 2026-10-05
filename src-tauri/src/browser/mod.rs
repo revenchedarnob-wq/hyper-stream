@@ -191,9 +191,7 @@ fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> 
                 };
             }
             if matches!(url.scheme(), "http" | "https") {
-                if let Some(w) = app_for_popups.get_webview(LABEL) {
-                    let _ = w.navigate(url);
-                }
+                let _ = app_for_popups.emit("browser-open-tab", url.to_string());
             }
             tauri::webview::NewWindowResponse::Deny
         });
@@ -555,6 +553,27 @@ pub fn browser_stop(app: AppHandle) {
     if let Some(w) = webview(&app) {
         native::stop(&w);
     }
+}
+
+#[tauri::command]
+pub fn get_browser_zoom() -> f64 {
+    native::get_zoom_factor()
+}
+
+#[tauri::command]
+pub fn set_browser_zoom(app: AppHandle, factor: f64) {
+    if let Some(w) = webview(&app) {
+        native::set_zoom_factor(&w, factor);
+    }
+}
+
+#[tauri::command]
+pub fn browser_find_in_page(app: AppHandle, query: String, backwards: bool) -> Result<(), String> {
+    let Some(w) = webview(&app) else { return Ok(()) };
+    let escaped = serde_json::to_string(&query).unwrap_or_default();
+    let code = format!("try {{ window.find({escaped}, false, {backwards}, true, false, false, false); }} catch(e) {{}}");
+    let _ = w.eval(code);
+    Ok(())
 }
 
 /// Latest navigation state (the UI asks when it mounts; later changes arrive as `browser-state`).

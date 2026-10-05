@@ -14,7 +14,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::*;
 use windows::core::{Interface, BOOL, HSTRING, PWSTR};
 use windows::Win32::System::Com::{IStream, STREAM_SEEK_SET};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_F6, VK_MENU};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_F6, VK_MENU, VK_SHIFT};
 use windows::Win32::UI::Shell::SHCreateMemStream;
 
 use super::shields;
@@ -212,9 +212,21 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
         }
     }
 
-    // Ctrl+L / Alt+D / F6 jump to the address bar even while the page has focus; Ctrl+D saves a shortcut.
+    // Full desktop accelerator parity:
+    // Ctrl+L / Alt+D / F6: jump to address bar
+    // Ctrl+D: bookmark / speed dial
+    // Ctrl+F: find in page
+    // Ctrl+T: new tab
+    // Ctrl+W: close tab
+    // Alt+Left: go back
+    // Alt+Right: go forward
+    // Ctrl++ / Ctrl+- / Ctrl+0: zoom in / out / reset
+    // Ctrl+Shift+R: reload bypassing cache
+    // Escape: defocus / dismiss
     {
         let app = app.clone();
+        let controller_for_zoom = controller.clone();
+        let core_for_nav = core.clone();
         controller.add_AcceleratorKeyPressed(
             &AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else { return Ok(()) };
@@ -227,13 +239,48 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
                 args.VirtualKey(&mut key)?;
                 let ctrl = GetKeyState(VK_CONTROL.0 as i32) < 0;
                 let alt = GetKeyState(VK_MENU.0 as i32) < 0;
+                let shift = GetKeyState(VK_SHIFT.0 as i32) < 0;
+
                 let action = if (ctrl && !alt && key == u32::from(b'L')) || (alt && !ctrl && key == u32::from(b'D')) || key == u32::from(VK_F6.0) {
                     Some("focus-address")
                 } else if ctrl && !alt && key == u32::from(b'D') {
                     Some("bookmark")
+                } else if ctrl && !alt && key == u32::from(b'F') {
+                    Some("find-in-page")
+                } else if ctrl && !alt && key == u32::from(b'T') {
+                    Some("new-tab")
+                } else if ctrl && !alt && key == u32::from(b'W') {
+                    Some("close-tab")
+                } else if alt && !ctrl && key == 0x25 { // VK_LEFT
+                    let _ = core_for_nav.GoBack();
+                    Some("go-back")
+                } else if alt && !ctrl && key == 0x27 { // VK_RIGHT
+                    let _ = core_for_nav.GoForward();
+                    Some("go-forward")
+                } else if ctrl && !alt && (key == 0xBB || key == 0x6B) { // '+'
+                    let mut factor = 1.0f64;
+                    if controller_for_zoom.ZoomFactor(&mut factor).is_ok() {
+                        let _ = controller_for_zoom.SetZoomFactor((factor * 1.1).min(3.0));
+                    }
+                    Some("zoom-in")
+                } else if ctrl && !alt && (key == 0xBD || key == 0x6D) { // '-'
+                    let mut factor = 1.0f64;
+                    if controller_for_zoom.ZoomFactor(&mut factor).is_ok() {
+                        let _ = controller_for_zoom.SetZoomFactor((factor / 1.1).max(0.3));
+                    }
+                    Some("zoom-out")
+                } else if ctrl && !alt && (key == u32::from(b'0') || key == 0x60) { // '0'
+                    let _ = controller_for_zoom.SetZoomFactor(1.0);
+                    Some("zoom-reset")
+                } else if ctrl && shift && key == u32::from(b'R') {
+                    let _ = core_for_nav.Reload();
+                    Some("reload-bypass-cache")
+                } else if key == 0x1B { // VK_ESCAPE
+                    Some("escape")
                 } else {
                     None
                 };
+
                 if let Some(action) = action {
                     args.SetHandled(true)?;
                     let app = app.clone();
@@ -245,6 +292,41 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
                         }
                         let _ = app.emit("browser-shortcut", action);
                     });
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+    }
+
+    // Zoom factor changes emitted to frontend for HUD badge
+    {
+        let app = app.clone();
+        let controller_for_zoom = controller.clone();
+        controller.add_ZoomFactorChanged(
+            &ZoomFactorChangedEventHandler::create(Box::new(move |_, _| {
+                let mut factor = 1.0f64;
+                if controller_for_zoom.ZoomFactor(&mut factor).is_ok() {
+                    CURRENT_ZOOM_BITS.store(factor.to_bits(), Ordering::Relaxed);
+                    let _ = app.emit("browser-zoom-changed", factor);
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+    }
+
+    // Active media stream sniffer messages from the page
+    {
+        let app = app.clone();
+        core.add_WebMessageReceived(
+            &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()) };
+                let msg = read_string(|p| args.TryGetWebMessageAsString(p));
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
+                    if parsed.get("type").and_then(|v| v.as_str()) == Some("media-sniffed") {
+                        let _ = app.emit("browser-media-sniffed", parsed);
+                    }
                 }
                 Ok(())
             })),
@@ -453,6 +535,20 @@ pub fn go_forward(webview: &tauri::Webview) {
 pub fn stop(webview: &tauri::Webview) {
     with_core_do(webview, |core| unsafe {
         let _ = core.Stop();
+    });
+}
+
+static CURRENT_ZOOM_BITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1.0f64.to_bits());
+
+pub fn get_zoom_factor() -> f64 {
+    f64::from_bits(CURRENT_ZOOM_BITS.load(Ordering::Relaxed))
+}
+
+pub fn set_zoom_factor(webview: &tauri::Webview, factor: f64) {
+    let clamped = factor.clamp(0.25, 5.0);
+    CURRENT_ZOOM_BITS.store(clamped.to_bits(), Ordering::Relaxed);
+    let _ = webview.with_webview(move |pw| unsafe {
+        let _ = pw.controller().SetZoomFactor(clamped);
     });
 }
 

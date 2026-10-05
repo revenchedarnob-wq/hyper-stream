@@ -559,6 +559,29 @@ export const browserStop = () => command('browser_stop')
 export const browserSetShields = (enabled: boolean, allowedSites: string[]) =>
   command('browser_set_shields', { enabled, allowedSites })
 
+export async function getBrowserZoom(): Promise<number> {
+  if (!isTauri()) return 1.0
+  try {
+    return (await invoke<number>('get_browser_zoom')) ?? 1.0
+  } catch {
+    return 1.0
+  }
+}
+
+export async function setBrowserZoom(factor: number): Promise<void> {
+  if (!isTauri()) return
+  try {
+    await invoke('set_browser_zoom', { factor })
+  } catch {}
+}
+
+export async function browserFindInPage(query: string, backwards = false): Promise<void> {
+  if (!isTauri()) return
+  try {
+    await invoke('browser_find_in_page', { query, backwards })
+  } catch {}
+}
+
 export async function browserState(): Promise<BrowserNavState | null> {
   if (!isTauri()) return null
   return (await invoke<BrowserNavState | null>('browser_state')) ?? null

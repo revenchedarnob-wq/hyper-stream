@@ -7,15 +7,22 @@ import {
   browserSetVisible,
   browserSnapshot,
   prewarmBrowser,
+  getBrowserZoom,
+  setBrowserZoom,
+  browserFindInPage,
   type BrowserRect,
 } from '@/lib/tauri-bridge'
 import { useSettings } from '@/lib/hooks'
 import { saveSettings } from '@/lib/settings'
 import { BrowserToolbar } from './BrowserToolbar'
+import { BrowserTabStrip, type BrowserTab } from './BrowserTabStrip'
+import { FindInPageBar } from './FindInPageBar'
+import { ZoomHud } from './ZoomHud'
 import { SpeedDial } from './SpeedDial'
 import { ExtensionStoreModal } from './ExtensionStoreModal'
 import { IconLock } from './Icons'
 import { detectStreamFromUrl, extensionStoreListing, resolveWebEmbedUrl, siteKey } from './url-utils'
+import type { DetectedStream } from './types'
 import { BLANK, useBrowserNavigation } from './use-browser-navigation'
 import { detectSite, findShortcut, getShortcuts, setShortcuts, shortcutTitle, useShortcuts } from './shortcuts'
 import { playHapticGlass } from '@/lib/sound'
@@ -122,6 +129,158 @@ export function InAppBrowser({
   const toggleSavedRef = useRef(toggleSaved)
   toggleSavedRef.current = toggleSaved
 
+  // Tab Session Management
+  const [tabs, setTabs] = useState<BrowserTab[]>(() => [
+    {
+      id: 'tab-initial',
+      url: initialUrl,
+      title: initialUrl === BLANK ? 'New Tab' : shortcutTitle(initialUrl, ''),
+      canGoBack: false,
+      canGoForward: false,
+      isLoading: false,
+      isSaved: Boolean(findShortcut(initialUrl)),
+    },
+  ])
+  const [activeTabId, setActiveTabId] = useState('tab-initial')
+  const activeTabIdRef = useRef(activeTabId)
+  activeTabIdRef.current = activeTabId
+
+  const navRef = useRef(nav)
+  navRef.current = nav
+
+  // Sync active tab state with navigation
+  useEffect(() => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId
+          ? {
+              ...t,
+              url: currentUrl,
+              title: isHome ? 'New Tab' : nav.title || siteKey(currentUrl) || currentUrl,
+              canGoBack: nav.canGoBack,
+              canGoForward: nav.canGoForward,
+              isLoading: nav.isLoading,
+              isSaved,
+            }
+          : t,
+      ),
+    )
+  }, [activeTabId, currentUrl, nav.title, nav.canGoBack, nav.canGoForward, nav.isLoading, isHome, isSaved])
+
+  const handleSelectTab = useCallback((id: string) => {
+    if (id === activeTabIdRef.current) return
+    setActiveTabId(id)
+    setTabs((prev) => {
+      const target = prev.find((t) => t.id === id)
+      if (target) {
+        if (target.url === BLANK) {
+          navRef.current.home()
+        } else {
+          navRef.current.navigate(target.url)
+        }
+      }
+      return prev
+    })
+  }, [])
+
+  const handleNewTab = useCallback((url = BLANK) => {
+    const newId = `tab-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    const newTab: BrowserTab = {
+      id: newId,
+      url,
+      title: url === BLANK ? 'New Tab' : shortcutTitle(url, ''),
+      canGoBack: false,
+      canGoForward: false,
+      isLoading: url !== BLANK,
+      isSaved: Boolean(findShortcut(url)),
+    }
+    setTabs((prev) => [...prev, newTab])
+    setActiveTabId(newId)
+    if (url === BLANK) {
+      navRef.current.home()
+    } else {
+      navRef.current.navigate(url)
+    }
+  }, [])
+
+  const handleCloseTab = useCallback((id: string) => {
+    setTabs((prev) => {
+      if (prev.length <= 1) {
+        navRef.current.home()
+        return [
+          {
+            id: `tab-${Date.now()}`,
+            url: BLANK,
+            title: 'New Tab',
+            canGoBack: false,
+            canGoForward: false,
+            isLoading: false,
+          },
+        ]
+      }
+      const filtered = prev.filter((t) => t.id !== id)
+      if (id === activeTabIdRef.current) {
+        const closedIndex = prev.findIndex((t) => t.id === id)
+        const nextIndex = Math.min(closedIndex, filtered.length - 1)
+        const nextTab = filtered[nextIndex]
+        setActiveTabId(nextTab.id)
+        if (nextTab.url === BLANK) {
+          navRef.current.home()
+        } else {
+          navRef.current.navigate(nextTab.url)
+        }
+      }
+      return filtered
+    })
+  }, [])
+
+  const handleNewTabRef = useRef(handleNewTab)
+  handleNewTabRef.current = handleNewTab
+
+  const handleCloseTabRef = useRef(handleCloseTab)
+  handleCloseTabRef.current = handleCloseTab
+
+  // Zoom HUD State & Handlers
+  const [zoomFactor, setZoomFactor] = useState(1.0)
+  const [showZoomHud, setShowZoomHud] = useState(false)
+  const zoomHudTimerRef = useRef<number | null>(null)
+
+  const triggerZoomHud = useCallback((factor: number) => {
+    setZoomFactor(factor)
+    setShowZoomHud(true)
+    if (zoomHudTimerRef.current) window.clearTimeout(zoomHudTimerRef.current)
+    zoomHudTimerRef.current = window.setTimeout(() => {
+      setShowZoomHud(false)
+    }, 2200)
+  }, [])
+
+  const handleResetZoom = useCallback(() => {
+    void setBrowserZoom(1.0)
+    triggerZoomHud(1.0)
+  }, [triggerZoomHud])
+
+  useEffect(() => {
+    if (inTauri) {
+      void getBrowserZoom().then((z) => {
+        if (typeof z === 'number' && !isNaN(z) && z > 0) {
+          setZoomFactor(z)
+        }
+      })
+    }
+  }, [inTauri])
+
+  // Find In Page State & Handlers
+  const [isFindOpen, setIsFindOpen] = useState(false)
+
+  const handleFind = useCallback((query: string, backwards = false) => {
+    void browserFindInPage(query, backwards)
+  }, [])
+
+  const handleCloseFind = useCallback(() => {
+    setIsFindOpen(false)
+    void browserFindInPage('', false)
+  }, [])
+
   const settings = useSettings()
   const site = siteKey(currentUrl)
   const shieldsOnForSite = settings.shieldsEnabled && !(site && settings.shieldsAllowedSites.includes(site))
@@ -132,6 +291,19 @@ export function InAppBrowser({
     [currentUrl, dismissedStreamUrl],
   )
   const storeListing = useMemo(() => extensionStoreListing(currentUrl), [currentUrl])
+
+  // Active Stream Sniffer
+  const [sniffedStream, setSniffedStream] = useState<DetectedStream | null>(null)
+
+  useEffect(() => {
+    setSniffedStream(null)
+  }, [currentUrl, activeTabId])
+
+  const effectiveStream = useMemo<DetectedStream | null>(() => {
+    if (dismissedStreamUrl === currentUrl) return null
+    if (detectedStream) return detectedStream
+    return sniffedStream
+  }, [dismissedStreamUrl, currentUrl, detectedStream, sniffedStream])
 
   const [iframeError, setIframeError] = useState(false)
   const [isExtensionStoreOpen, setIsExtensionStoreOpen] = useState(false)
@@ -254,20 +426,76 @@ export function InAppBrowser({
         })
         .catch(() => {})
     keep(
-      listen<string>('browser-shortcut', (e) =>
-        e.payload === 'bookmark' ? toggleSavedRef.current() : setFocusAddressNonce((n) => n + 1),
-      ),
+      listen<string>('browser-shortcut', (e) => {
+        switch (e.payload) {
+          case 'bookmark':
+            toggleSavedRef.current()
+            break
+          case 'find-in-page':
+            setIsFindOpen((prev) => !prev)
+            break
+          case 'new-tab':
+            handleNewTabRef.current()
+            break
+          case 'close-tab':
+            handleCloseTabRef.current(activeTabIdRef.current)
+            break
+          case 'go-back':
+            if (navRef.current.canGoBack) navRef.current.back()
+            break
+          case 'go-forward':
+            if (navRef.current.canGoForward) navRef.current.forward()
+            break
+          case 'reload-hard':
+            navRef.current.reloadOrStop()
+            break
+          case 'zoom-reset':
+            handleResetZoom()
+            break
+          case 'escape':
+            setIsFindOpen(false)
+            setIsShieldsPanelOpen(false)
+            setIsExtensionStoreOpen(false)
+            break
+          default:
+            setFocusAddressNonce((n) => n + 1)
+            break
+        }
+      }),
+    )
+    keep(
+      listen<string>('browser-open-tab', (e) => {
+        if (e.payload) handleNewTabRef.current(e.payload)
+      }),
+    )
+    keep(
+      listen<number>('browser-zoom-changed', (e) => {
+        if (typeof e.payload === 'number') triggerZoomHud(e.payload)
+      }),
+    )
+    keep(
+      listen<{ type?: string; mediaType?: string; src?: string; title?: string }>('browser-media-sniffed', (e) => {
+        if (e.payload?.src && e.payload.src !== dismissedStreamUrl) {
+          const mediaType = (e.payload.mediaType || 'STREAM').toUpperCase()
+          setSniffedStream({
+            id: `sniffed-${Date.now()}`,
+            url: e.payload.src,
+            title: e.payload.title || navRef.current.title || 'Detected Media Stream',
+            format: mediaType,
+            live: mediaType === 'HLS' || mediaType === 'DASH',
+            timestamp: Date.now(),
+          })
+        }
+      }),
     )
     keep(listen<string>('browser-download-request', (e) => e.payload && onOpenInHubRef.current(e.payload)))
     return () => {
       disposed = true
       unlisteners.forEach((fn) => fn())
     }
-  }, [inTauri])
+  }, [inTauri, dismissedStreamUrl, triggerZoomHud, handleResetZoom])
 
   // Browser shortcuts while the toolbar (not the page) has focus. The page handles its own.
-  const navRef = useRef(nav)
-  navRef.current = nav
   useEffect(() => {
     // Panels (Extensions, Shields) own the keyboard while open.
     if (!isWorkspaceActive || isPanelOpen) return
@@ -280,6 +508,23 @@ export function InAppBrowser({
       } else if (e.ctrlKey && !e.altKey && key === 'd') {
         e.preventDefault()
         toggleSavedRef.current()
+      } else if (e.ctrlKey && key === 'f') {
+        e.preventDefault()
+        setIsFindOpen((prev) => !prev)
+      } else if (e.ctrlKey && key === 't') {
+        e.preventDefault()
+        handleNewTabRef.current()
+      } else if (e.ctrlKey && key === 'w') {
+        e.preventDefault()
+        handleCloseTabRef.current(activeTabIdRef.current)
+      } else if (e.ctrlKey && key === '0') {
+        e.preventDefault()
+        handleResetZoom()
+      } else if (e.key === 'Escape') {
+        if (isFindOpen) {
+          e.preventDefault()
+          setIsFindOpen(false)
+        }
       } else if (e.key === 'F5' || (e.ctrlKey && key === 'r')) {
         e.preventDefault()
         if (!navRef.current.isLoading) navRef.current.reloadOrStop()
@@ -293,7 +538,7 @@ export function InAppBrowser({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isWorkspaceActive, isPanelOpen])
+  }, [isWorkspaceActive, isPanelOpen, isFindOpen, handleResetZoom])
 
   // Requests from other views (Stream Hub's "Open in Browser").
   const navigateRef = useRef(nav.navigate)
@@ -316,6 +561,14 @@ export function InAppBrowser({
 
   return (
     <div className={`in-app-browser ${isHome ? 'is-start-page' : 'is-active-site'}`} data-testid="in-app-browser">
+      <BrowserTabStrip
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelectTab={handleSelectTab}
+        onCloseTab={handleCloseTab}
+        onNewTab={() => handleNewTab(BLANK)}
+      />
+
       <BrowserToolbar
         currentUrl={currentUrl}
         pageTitle={nav.title}
@@ -334,10 +587,13 @@ export function InAppBrowser({
         onToggleShieldsForSite={handleToggleShieldsForSite}
         onOpenExtensions={() => setIsExtensionStoreOpen(true)}
         onShieldsPanelChange={setIsShieldsPanelOpen}
-        detectedStream={detectedStream}
+        detectedStream={effectiveStream}
         storeListing={storeListing}
         onOpenInHub={onOpenInHub}
-        onDismissStream={() => setDismissedStreamUrl(currentUrl)}
+        onDismissStream={() => {
+          setDismissedStreamUrl(currentUrl)
+          setSniffedStream(null)
+        }}
         focusAddressNonce={focusAddressNonce}
         isSaved={isSaved}
         onToggleSaved={toggleSaved}
@@ -350,6 +606,17 @@ export function InAppBrowser({
       />
 
       <main className="browser-content-area">
+        <FindInPageBar
+          isOpen={isFindOpen}
+          onClose={handleCloseFind}
+          onFind={handleFind}
+        />
+        <ZoomHud
+          zoom={zoomFactor}
+          visible={showZoomHud}
+          onReset={handleResetZoom}
+        />
+
         {/* Always mounted so the native page can be aligned to it. */}
         <div
           id="browser-viewport"
