@@ -636,6 +636,7 @@ pub async fn uninstall(app: &AppHandle, folder: &str) -> Result<(), String> {
     if !is_safe_folder_name(folder) {
         return Err("Unknown extension.".into());
     }
+    super::suppress_uninstall_popups(5);
     uninstall_from(&ready_webview(app).await?, folder).await
 }
 

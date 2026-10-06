@@ -167,6 +167,26 @@ fn shields_page_script() -> String {
     format!("{}\n{}", shields::page_script_config(), SHIELDS_SCRIPT)
 }
 
+static UNINSTALL_SUPPRESS_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+
+pub fn suppress_uninstall_popups(duration_secs: u64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    UNINSTALL_SUPPRESS_UNTIL_MS.store(now + duration_secs * 1000, Ordering::SeqCst);
+}
+
+pub fn is_uninstall_popup_suppressed(url: &tauri::Url) -> bool {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let in_suppression_window = now < UNINSTALL_SUPPRESS_UNTIL_MS.load(Ordering::Relaxed);
+    let url_str = url.as_str().to_lowercase();
+    in_suppression_window || url_str.contains("uninstall") || url_str.contains("farewell")
+}
+
 /// Creates the browser view once, hidden, at about:blank (so Back from the first page returns to the start page).
 fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> {
     let _guard = CREATE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -180,6 +200,12 @@ fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> 
         .data_directory(profile_dir())
         .additional_browser_args(&browser_args())
         .on_new_window(move |url, features| {
+            // Block uninvited extension farewell / uninstall survey popups
+            if is_uninstall_popup_suppressed(&url) {
+                log::info!("Blocked extension farewell/uninstall popup: {url}");
+                return tauri::webview::NewWindowResponse::Deny;
+            }
+
             // Sign-in popups (sized windows that talk back to the page) open as real popups;
             // plain "open in new tab" links open here, since the browser has one tab.
             if features.size().is_some() {
