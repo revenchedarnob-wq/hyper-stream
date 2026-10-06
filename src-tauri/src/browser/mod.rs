@@ -183,8 +183,21 @@ pub fn is_uninstall_popup_suppressed(url: &tauri::Url) -> bool {
         .unwrap_or_default()
         .as_millis() as u64;
     let in_suppression_window = now < UNINSTALL_SUPPRESS_UNTIL_MS.load(Ordering::Relaxed);
+    if in_suppression_window {
+        return true;
+    }
     let url_str = url.as_str().to_lowercase();
-    in_suppression_window || url_str.contains("uninstall") || url_str.contains("farewell")
+    let host = url.host_str().unwrap_or("").to_lowercase();
+    url_str.contains("uninstall")
+        || url_str.contains("uninstal")
+        || url_str.contains("farewell")
+        || url_str.contains("goodbye")
+        || url_str.contains("offboarding")
+        || url_str.contains("why-did-you-leave")
+        || url_str.contains("sorry-to-see-you-go")
+        || host.starts_with("welcome.adguard.")
+        || host.contains("survey")
+        || (host.contains("adguard") && url_str.contains("cxt.html"))
 }
 
 /// Creates the browser view once, hidden, at about:blank (so Back from the first page returns to the start page).
@@ -199,6 +212,13 @@ fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> 
         .browser_extensions_enabled(true)
         .data_directory(profile_dir())
         .additional_browser_args(&browser_args())
+        .on_navigation(|url| {
+            if is_uninstall_popup_suppressed(url) {
+                log::info!("Blocked navigation to farewell/uninstall page: {url}");
+                return false;
+            }
+            true
+        })
         .on_new_window(move |url, features| {
             // Block uninvited extension farewell / uninstall survey popups
             if is_uninstall_popup_suppressed(&url) {
@@ -261,6 +281,13 @@ fn open_popup(app: &AppHandle, features: tauri::webview::NewWindowFeatures) -> O
         .title("HyperStream")
         .theme(Some(tauri::Theme::Dark))
         .min_inner_size(320.0, 240.0)
+        .on_navigation(|url| {
+            if is_uninstall_popup_suppressed(url) {
+                log::info!("Blocked navigation inside popup: {url}");
+                return false;
+            }
+            true
+        })
         .on_document_title_changed(|window, title| {
             let title = title.trim();
             let _ = window.set_title(if title.is_empty() { "HyperStream" } else { title });
