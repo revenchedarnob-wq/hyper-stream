@@ -117,7 +117,7 @@
           isVideo: isVideo
         }));
       }
-    } catch (e) {}
+    } catch {}
   }
 
   function scanMediaElements() {
@@ -140,7 +140,7 @@
         var aSrc = a.currentSrc || a.src;
         if (aSrc) reportMedia(aSrc, false);
       }
-    } catch (e) {}
+    } catch {}
   }
 
   document.addEventListener('play', function (e) {
@@ -165,6 +165,80 @@
     setInterval(scanMediaElements, 2500);
   }
 
+  // Chrome Web Store & Edge Add-ons native install integration
+  if (host === 'chromewebstore.google.com' || host === 'chrome.google.com') {
+    try {
+      window.chrome = window.chrome || {};
+      window.chrome.webstorePrivate = {
+        beginInstallWithManifest3: function (details, callback) {
+          try {
+            var id = (details && details.id) || '';
+            if (id && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+              window.chrome.webview.postMessage(JSON.stringify({
+                type: 'extension-install-request',
+                store: 'chrome',
+                id: id,
+                name: (details && details.localizedName) || ''
+              }));
+            }
+          } catch {}
+          if (typeof callback === 'function') {
+            callback('');
+          }
+        },
+        completeInstall: function (expected_id, callback) {
+          if (typeof callback === 'function') callback();
+        },
+        getExtensionStatus: function (id, manifest, callback) {
+          if (typeof callback === 'function') callback('installable');
+        },
+        getFullChromeVersion: function (callback) {
+          if (typeof callback === 'function') callback({ version_number: '140.0.0.0' });
+        },
+        getMV2DeprecationStatus: function (callback) {
+          if (typeof callback === 'function') callback('inactive');
+        },
+        install: function (expected_id, callback) {
+          try {
+            if (expected_id && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+              window.chrome.webview.postMessage(JSON.stringify({
+                type: 'extension-install-request',
+                store: 'chrome',
+                id: expected_id
+              }));
+            }
+          } catch {}
+          if (typeof callback === 'function') callback();
+        }
+      };
+    } catch {}
+  }
+
+  // Universal button click listener for store pages (Chrome Web Store and Edge Add-ons)
+  if (host === 'chromewebstore.google.com' || host === 'chrome.google.com' || host === 'microsoftedge.microsoft.com') {
+    document.addEventListener('click', function (e) {
+      var target = e.target;
+      if (!target) return;
+      var btn = target.closest('button, [role="button"], a');
+      if (!btn) return;
+      var text = (btn.textContent || '').trim().toLowerCase();
+      if (text.indexOf('add to chrome') !== -1 || text.indexOf('get extension') !== -1 || text === 'get') {
+        var match = window.location.pathname.match(/\/detail\/(?:[^/]+\/)?([a-p]{32})/i);
+        if (match && match[1]) {
+          try {
+            if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+              window.chrome.webview.postMessage(JSON.stringify({
+                type: 'extension-install-request',
+                store: host.indexOf('edge') !== -1 ? 'edge' : 'chrome',
+                id: match[1].toLowerCase()
+              }));
+            }
+          } catch {}
+        }
+      }
+    }, true);
+  }
+
   window.__HYPERSTREAM_SHIELDS__ = {
     set: function (on) {
       enabled = !!on;
@@ -173,3 +247,4 @@
     }
   };
 })();
+

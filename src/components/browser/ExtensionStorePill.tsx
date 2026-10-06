@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { errorMessage, getInstalledExtensions, installStoreExtension } from '@/lib/tauri-bridge'
+import { listen } from '@tauri-apps/api/event'
+import { errorMessage, getInstalledExtensions, installStoreExtension, isTauri } from '@/lib/tauri-bridge'
 import { playHapticClick, playHapticPop } from '@/lib/sound'
 import { IconCheck } from '../stream-hub/Icons'
 import { IconPuzzlePiece } from './Icons'
@@ -26,6 +27,34 @@ export function ExtensionStorePill({ listing, onManage }: { listing: ExtensionSt
       .catch(() => !cancelled && setPhase('ready'))
     return () => {
       cancelled = true
+    }
+  }, [listing.id])
+
+  useEffect(() => {
+    if (!isTauri()) return
+
+    const unlistenInstalling = listen<string>('browser-extension-installing', (event) => {
+      if (event.payload?.toLowerCase() === listing.id.toLowerCase()) {
+        setPhase('installing')
+        setError('')
+      }
+    })
+
+    const unlistenInstalled = listen<string>('browser-extension-installed', (event) => {
+      if (event.payload?.toLowerCase() === listing.id.toLowerCase()) {
+        setPhase('installed')
+      }
+    })
+
+    const unlistenError = listen<string>('browser-extension-error', (event) => {
+      setError(event.payload || 'Failed to install extension')
+      setPhase('error')
+    })
+
+    return () => {
+      void unlistenInstalling.then((fn) => fn())
+      void unlistenInstalled.then((fn) => fn())
+      void unlistenError.then((fn) => fn())
     }
   }, [listing.id])
 

@@ -89,6 +89,48 @@ pub fn download_target(is_media: bool, is_page: bool, link: &str, source: &str, 
     None
 }
 
+/// Whether this download URL is an extension package (CRX) from Chrome Web Store or Edge Add-ons.
+pub fn is_extension_crx_download(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("clients2.google.com/service/update2/crx")
+        || lower.contains("edge.microsoft.com/extensionwebstorebase/v1/crx")
+        || lower.contains("/crx/blobs/")
+        || lower.ends_with(".crx")
+        || lower.split('?').next().unwrap_or("").ends_with(".crx")
+}
+
+/// Tries to extract the 32-letter store extension ID from a download URL or current tab state.
+pub fn extract_extension_id_from_url(url: &str) -> Option<String> {
+    if let Ok(parsed) = tauri::Url::parse(url) {
+        if let Some((_, val)) = parsed.query_pairs().find(|(k, _)| k == "x") {
+            let decoded = val.to_string();
+            for part in decoded.split('&') {
+                if let Some(id) = part.strip_prefix("id=").or_else(|| part.strip_prefix("id%3d")).or_else(|| part.strip_prefix("id%3D")) {
+                    let clean = id.trim();
+                    if clean.len() == 32 && clean.bytes().all(|b| (b'a'..=b'p').contains(&b)) {
+                        return Some(clean.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    for part in url.split(&['/', '?', '=', '&', '_'][..]) {
+        let clean = part.to_ascii_lowercase();
+        if clean.len() == 32 && clean.bytes().all(|b| (b'a'..=b'p').contains(&b)) {
+            return Some(clean);
+        }
+    }
+
+    if let Some(state) = last_state() {
+        if let Some((_, id)) = super::extensions::parse_store_input(&state.url) {
+            return Some(id);
+        }
+    }
+
+    None
+}
+
 /// Registers every browser event handler. Called once, right after the webview is created.
 pub fn attach(app: &AppHandle, webview: &tauri::Webview) {
     let app = app.clone();
@@ -316,7 +358,7 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
         )?;
     }
 
-    // Active media stream sniffer messages from the page
+    // Active media stream sniffer messages & webstore install messages from the page
     {
         let app = app.clone();
         core.add_WebMessageReceived(
@@ -324,8 +366,26 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
                 let Some(args) = args else { return Ok(()) };
                 let msg = read_string(|p| args.TryGetWebMessageAsString(p));
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
-                    if parsed.get("type").and_then(|v| v.as_str()) == Some("media-sniffed") {
+                    let msg_type = parsed.get("type").and_then(|v| v.as_str());
+                    if msg_type == Some("media-sniffed") {
                         let _ = app.emit("browser-media-sniffed", parsed);
+                    } else if msg_type == Some("extension-install-request") {
+                        if let Some(id) = parsed.get("id").and_then(|v| v.as_str()) {
+                            let app = app.clone();
+                            let id = id.to_string();
+                            let _ = app.emit("browser-extension-installing", id.clone());
+                            tauri::async_runtime::spawn(async move {
+                                match super::extensions::install_from_store(&app, &id).await {
+                                    Ok(installed_id) => {
+                                        let _ = app.emit("browser-extension-installed", installed_id);
+                                    }
+                                    Err(e) => {
+                                        log::warn!("In-page store extension install error: {e}");
+                                        let _ = app.emit("browser-extension-error", e);
+                                    }
+                                }
+                            });
+                        }
                     }
                 }
                 Ok(())
@@ -333,6 +393,7 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
             &mut token,
         )?;
     }
+
 
     // Keep each visited site's icon for the start page; covers sites that refuse direct requests.
     if let Ok(core15) = core.cast::<ICoreWebView2_15>() {
@@ -415,9 +476,44 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
         &mut token,
     )?;
 
+    // Download interceptor: catches extension package (CRX) downloads,
+    // suppresses WebView2's broken/interrupted default handling, and installs into HyperStream.
+    if let Ok(core4) = core.cast::<ICoreWebView2_4>() {
+        let app = app.clone();
+        core4.add_DownloadStarting(
+            &DownloadStartingEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()) };
+                let op = args.DownloadOperation()?;
+                let uri = read_string(|p| op.Uri(p));
+                if is_extension_crx_download(&uri) {
+                    let _ = args.SetCancel(true);
+                    let _ = args.SetHandled(true);
+                    if let Some(id) = extract_extension_id_from_url(&uri) {
+                        let app = app.clone();
+                        let _ = app.emit("browser-extension-installing", id.clone());
+                        tauri::async_runtime::spawn(async move {
+                            match super::extensions::install_from_store(&app, &id).await {
+                                Ok(installed_id) => {
+                                    let _ = app.emit("browser-extension-installed", installed_id);
+                                }
+                                Err(e) => {
+                                    log::warn!("CRX download install failed: {e}");
+                                    let _ = app.emit("browser-extension-error", e);
+                                }
+                            }
+                        });
+                    }
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+    }
+
     publish(&core);
     Ok(())
 }
+
 
 // ---------- One-shot calls with a result ----------
 
@@ -823,4 +919,25 @@ mod tests {
         assert!(download_target(false, false, "", "", "https://site/").is_none(), "images and selected text get no entry");
         assert!(download_target(false, true, "", "", "about:blank").is_none());
     }
+
+    #[test]
+    fn detects_crx_downloads_and_extracts_id() {
+        use super::{extract_extension_id_from_url, is_extension_crx_download};
+
+        let chrome_url = "https://clients2.google.com/service/update2/crx?response=redirect&acceptformat=crx2,crx3&prodversion=140.0.0.0&x=id%3Dkhollmcaijfbchfecahodpcmbeajkjgd%26installsource%3Dondemand%26uc";
+        assert!(is_extension_crx_download(chrome_url));
+        assert_eq!(extract_extension_id_from_url(chrome_url), Some("khollmcaijfbchfecahodpcmbeajkjgd".into()));
+
+        let blob_url = "https://clients2.googleusercontent.com/crx/blobs/AZPVhcQbj2aL0EBubK3E/KHOLLMCAIJFBCHFECAHODPCMBEAJKJGD_1_7_2_0.crx";
+        assert!(is_extension_crx_download(blob_url));
+        assert_eq!(extract_extension_id_from_url(blob_url), Some("khollmcaijfbchfecahodpcmbeajkjgd".into()));
+
+        let edge_url = "https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&x=id%3Dmnjggcdmjocbbbhaepdhchncahnbgone%26installsource%3Dondemand%26uc";
+        assert!(is_extension_crx_download(edge_url));
+        assert_eq!(extract_extension_id_from_url(edge_url), Some("mnjggcdmjocbbbhaepdhchncahnbgone".into()));
+
+        assert!(!is_extension_crx_download("https://example.com/video.mp4"));
+        assert!(!is_extension_crx_download("https://chromewebstore.google.com/detail/something"));
+    }
 }
+

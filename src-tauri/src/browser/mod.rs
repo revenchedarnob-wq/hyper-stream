@@ -212,13 +212,37 @@ fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> 
         .browser_extensions_enabled(true)
         .data_directory(profile_dir())
         .additional_browser_args(&browser_args())
-        .on_navigation(|url| {
-            if is_uninstall_popup_suppressed(url) {
-                log::info!("Blocked navigation to farewell/uninstall page: {url}");
-                return false;
+        .on_navigation({
+            let app_for_nav = app.clone();
+            move |url| {
+                if is_uninstall_popup_suppressed(url) {
+                    log::info!("Blocked navigation to farewell/uninstall page: {url}");
+                    return false;
+                }
+                let url_str = url.as_str();
+                if native::is_extension_crx_download(url_str) {
+                    log::info!("Intercepted CRX navigation: {url_str}");
+                    if let Some(id) = native::extract_extension_id_from_url(url_str) {
+                        let app = app_for_nav.clone();
+                        let _ = app.emit("browser-extension-installing", id.clone());
+                        tauri::async_runtime::spawn(async move {
+                            match extensions::install_from_store(&app, &id).await {
+                                Ok(installed_id) => {
+                                    let _ = app.emit("browser-extension-installed", installed_id);
+                                }
+                                Err(e) => {
+                                    log::warn!("CRX navigation install failed: {e}");
+                                    let _ = app.emit("browser-extension-error", e);
+                                }
+                            }
+                        });
+                    }
+                    return false;
+                }
+                true
             }
-            true
         })
+
         .on_new_window(move |url, features| {
             // Block uninvited extension farewell / uninstall survey popups
             if is_uninstall_popup_suppressed(&url) {
