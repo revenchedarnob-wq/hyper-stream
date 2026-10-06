@@ -332,16 +332,60 @@ fn shut_down(app: &tauri::AppHandle) {
         for w in app.webview_windows().values() {
             let _ = w.destroy();
         }
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while webview_engines_running() && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+        #[cfg(target_os = "windows")]
+        terminate_child_webview_engines();
+
         EXIT_READY.store(true, Ordering::SeqCst);
         // Changes from the last moments (a download that just failed) aren't saved yet.
         app.state::<downloader::DownloadOrchestrator>().save_now();
         // yt-dlp and FFmpeg still belong to the kill-on-close job object, so they exit with us.
         app.exit(0);
+
+        // Watchdog: If the event loop or lingering runtimes don't terminate the process within 600ms,
+        // forcibly terminate so no ghost processes or file locks are left behind.
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        std::process::exit(0);
     });
+}
+
+/// Forcibly terminates any child msedgewebview2 processes spawned by this instance.
+#[cfg(target_os = "windows")]
+fn terminate_child_webview_engines() {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+    let me = std::process::id();
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut ok = Process32FirstW(snap, &mut entry) != 0;
+        while ok {
+            if entry.th32ParentProcessID == me {
+                let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+                let name = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                if name.eq_ignore_ascii_case("msedgewebview2.exe") {
+                    let h = OpenProcess(PROCESS_TERMINATE, 0, entry.th32ProcessID);
+                    if !h.is_null() {
+                        let _ = TerminateProcess(h, 0);
+                        CloseHandle(h);
+                    }
+                }
+            }
+            ok = Process32NextW(snap, &mut entry) != 0;
+        }
+        CloseHandle(snap);
+    }
 }
 
 /// Whether a WebView2 browser process started by this app is still running.
@@ -696,9 +740,110 @@ pub fn run_browser_helper() {
     bridge::host_main();
 }
 
+#[cfg(target_os = "windows")]
+pub fn cleanup_stale_orphans_on_startup() {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, BOOL, HWND, LPARAM};
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowThreadProcessId, IsWindowVisible, SendMessageTimeoutW,
+        SMTO_ABORTIFHUNG, WM_NULL,
+    };
+
+    let my_pid = std::process::id();
+
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return;
+        }
+
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        let mut other_hyperstream_pids = Vec::new();
+        let mut all_pids = std::collections::HashSet::new();
+        let mut webview_entries = Vec::new();
+
+        let mut ok = Process32FirstW(snap, &mut entry) != 0;
+        while ok {
+            let pid = entry.th32ProcessID;
+            let parent_pid = entry.th32ParentProcessID;
+            all_pids.insert(pid);
+
+            let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+            let name = String::from_utf16_lossy(&entry.szExeFile[..len]);
+
+            if name.eq_ignore_ascii_case("HyperStream.exe") && pid != my_pid {
+                other_hyperstream_pids.push(pid);
+            } else if name.eq_ignore_ascii_case("msedgewebview2.exe") {
+                webview_entries.push((pid, parent_pid));
+            }
+
+            ok = Process32NextW(snap, &mut entry) != 0;
+        }
+        CloseHandle(snap);
+
+        // Check if other HyperStream instances have visible, responding windows.
+        // If not, they are headless/hung zombies from previous crashes.
+        let mut killed_pids = std::collections::HashSet::new();
+        for other_pid in other_hyperstream_pids {
+            struct WinCtx {
+                target_pid: u32,
+                has_responding_window: bool,
+            }
+            unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+                let ctx = &mut *(lparam as *mut WinCtx);
+                let mut pid = 0u32;
+                GetWindowThreadProcessId(hwnd, &mut pid);
+                if pid == ctx.target_pid && IsWindowVisible(hwnd) != 0 {
+                    let mut res: usize = 0;
+                    if SendMessageTimeoutW(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 300, &mut res) != 0 {
+                        ctx.has_responding_window = true;
+                        return 0;
+                    }
+                }
+                1
+            }
+
+            let mut ctx = WinCtx {
+                target_pid: other_pid,
+                has_responding_window: false,
+            };
+            EnumWindows(Some(enum_cb), &mut ctx as *mut _ as LPARAM);
+
+            if !ctx.has_responding_window {
+                let h = OpenProcess(PROCESS_TERMINATE, 0, other_pid);
+                if !h.is_null() {
+                    let _ = TerminateProcess(h, 1);
+                    CloseHandle(h);
+                    killed_pids.insert(other_pid);
+                }
+            }
+        }
+
+        // Clean up orphaned msedgewebview2.exe processes whose parents are dead or were killed
+        for (wv_pid, parent_pid) in webview_entries {
+            if !all_pids.contains(&parent_pid) || killed_pids.contains(&parent_pid) {
+                let h = OpenProcess(PROCESS_TERMINATE, 0, wv_pid);
+                if !h.is_null() {
+                    let _ = TerminateProcess(h, 1);
+                    CloseHandle(h);
+                }
+            }
+        }
+    }
+}
+
 pub fn run() {
+    // Proactively clean up any hung or headless ghost processes from previous crashes
+    // so WebView2 and single-instance locks are never blocked.
+    #[cfg(target_os = "windows")]
+    cleanup_stale_orphans_on_startup();
+
     // Child processes (WebView2, yt-dlp, ffmpeg) die with the app via a job object.
-    // Orphan cleanup only runs on exit: at launch it would kill an already-running instance.
     #[cfg(target_os = "windows")]
     enable_kill_child_processes_on_exit();
 
@@ -739,6 +884,17 @@ pub fn run() {
                 let _ = w.show();
                 let _ = w.unminimize();
                 let _ = w.set_focus();
+                #[cfg(target_os = "windows")]
+                if let Ok(hwnd) = w.hwnd() {
+                    unsafe {
+                        use windows_sys::Win32::UI::WindowsAndMessaging::{
+                            ShowWindow, SetForegroundWindow, BringWindowToTop, SW_RESTORE,
+                        };
+                        ShowWindow(hwnd.0 as _, SW_RESTORE);
+                        SetForegroundWindow(hwnd.0 as _);
+                        BringWindowToTop(hwnd.0 as _);
+                    }
+                }
             }
         }))
         .plugin(tauri_plugin_deep_link::init())

@@ -42,10 +42,19 @@ const kb = (f) => Math.round(fs.statSync(path.join(assets, f)).size / 1024)
 check('main script', Math.max(...files.filter((f) => /^index-.*\.js$/.test(f)).map(kb)), BUDGET.mainJsKB, ' KB')
 check('startup CSS', Math.max(...files.filter((f) => /^index-.*\.css$/.test(f)).map(kb)), BUDGET.startupCssKB, ' KB')
 
+import os from 'node:os'
+
 // ---------- Live: launch and inspect ----------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const SMOKE_DATA = path.join(os.tmpdir(), `hs-smoke-${Date.now()}`)
+fs.mkdirSync(SMOKE_DATA, { recursive: true })
+
 const app = spawn(EXE, [], {
-  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
+  env: {
+    ...process.env,
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`,
+    WEBVIEW2_USER_DATA_FOLDER: SMOKE_DATA,
+  },
   detached: false,
   stdio: 'ignore',
 })
@@ -91,6 +100,14 @@ try {
   await sleep(4000)
   check('first paint', Math.round(await js(`performance.getEntriesByType('paint').at(-1)?.startTime ?? 99999`)), BUDGET.firstPaintMs, ' ms')
 
+  // Dismiss first-run extension prompt if present so modal backdrop doesn't linger into layer measurements
+  await js(`try {
+    localStorage.setItem('hyperstream_extension_prompt', 'asked')
+    const btn = document.querySelector('.ext-setup-secondary')
+    if (btn) btn.click()
+  } catch {}`)
+  await sleep(500)
+
   // Every screen must be visible even while the window is unfocused (entrance animations must run).
   const blank = await js(`(async () => {
     const w = document.querySelector('.window-container'); w.classList.add('is-unfocused')
@@ -135,6 +152,16 @@ try {
   } catch {
     // already gone
   }
+  try {
+    execFileSync('powershell', [
+      '-NoProfile',
+      '-Command',
+      `Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" | Where-Object { $_.CommandLine -like "*${SMOKE_DATA.replace(/\\/g, '\\\\')}*" } | Stop-Process -Force -ErrorAction SilentlyContinue`,
+    ], { stdio: 'ignore' })
+  } catch {}
+  try {
+    fs.rmSync(SMOKE_DATA, { recursive: true, force: true })
+  } catch {}
 }
 
 let failed = 0
