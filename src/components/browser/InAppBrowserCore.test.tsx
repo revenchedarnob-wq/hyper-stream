@@ -96,6 +96,31 @@ describe('InAppBrowserCore Component Suite', () => {
       expect(html).toContain('browser-omnibar-clear-btn')
       expect(html).toContain('data-testid="browser-shields-button"')
       expect(html).toContain('data-testid="browser-shields-badge"')
+      expect(html).toContain('data-testid="browser-extensions-btn"')
+      expect(html).toContain('browser-extensions-wrapper')
+    })
+
+    it('anchors the extension store flyout directly inside the toolbar when isExtensionsOpen is true', () => {
+      const html = renderToString(
+        <BrowserToolbar
+          currentUrl="https://twitch.tv"
+          canGoBack={true}
+          canGoForward={false}
+          onBack={vi.fn()}
+          onForward={vi.fn()}
+          onReload={vi.fn()}
+          onHome={vi.fn()}
+          onNavigate={vi.fn()}
+          isExtensionsOpen={true}
+          onOpenInHub={vi.fn()}
+        />
+      )
+
+      expect(html).toContain('browser-extensions-wrapper')
+      expect(html).toContain('extension-store-flyout')
+      expect(html).toContain('data-testid="browser-extensions-btn"')
+      expect(html).toContain('is-active')
+      expect(html).toContain('Extensions')
     })
 
     it('renders #browser-viewport and dev preview when a URL is active', () => {

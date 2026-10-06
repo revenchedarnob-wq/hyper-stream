@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
-import { createPortal } from 'react-dom'
 import {
   errorMessage,
   extensionPageUrl,
@@ -16,7 +15,6 @@ import {
 import {
   IconPuzzlePiece,
   IconX,
-  IconLock,
   IconPlus,
   IconCheck,
   IconReload,
@@ -117,7 +115,7 @@ function ExtensionIcon({ icon, name, accent }: { icon?: string | null; name: str
         {name ? (
           <span className="extension-avatar-letter">{name.charAt(0).toUpperCase()}</span>
         ) : (
-          <IconPuzzlePiece size={16} color="#ffffff" />
+          <IconPuzzlePiece size={14} color="#ffffff" />
         )}
       </div>
     </div>
@@ -260,15 +258,32 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
     onOpenPage?.(url)
   }
 
-  const modalNode = (
-    <div className="extension-store-overlay" data-testid="extension-store-overlay">
-      <div className="extension-store-modal" ref={modalRef} role="dialog" aria-label="Browser extensions">
+  const close = () => {
+    playHapticGlass()
+    onClose()
+  }
+
+  return (
+    <>
+      <div
+        className="extension-store-backdrop"
+        onClick={close}
+        aria-hidden="true"
+        data-testid="extension-store-overlay"
+      />
+      <div
+        ref={modalRef}
+        className="extension-store-modal extension-store-flyout"
+        role="dialog"
+        aria-label="Browser extensions"
+        data-testid="extension-store-modal"
+      >
         {/* Header Bar */}
         <header className="extension-store-header">
           <div className="extension-store-header-top">
             <div className="extension-store-title-group">
               <div className="extension-store-brand-icon">
-                <IconPuzzlePiece size={18} />
+                <IconPuzzlePiece size={15} />
               </div>
               <div className="extension-store-title-text">
                 <div className="extension-store-title-row">
@@ -280,346 +295,347 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                     </span>
                   )}
                 </div>
-                <p className="extension-store-subtitle">
-                  {native
-                    ? 'Chrome and Edge extensions for the built-in browser. Changes apply right away.'
-                    : 'Extensions are available in the desktop app.'}
-                </p>
+                {!native && (
+                  <p className="extension-store-subtitle">
+                    Extensions are available in the desktop app.
+                  </p>
+                )}
               </div>
             </div>
 
             <button
               type="button"
               className="extension-store-close-btn"
-              onClick={() => {
-                playHapticGlass()
-                onClose()
-              }}
+              onClick={close}
               aria-label="Close extensions"
               title="Close (Esc)"
             >
-              <IconX size={15} />
+              <IconX size={13} />
             </button>
           </div>
 
-          {/* Navigation Bar: Segmented Tabs & Store Links */}
-          <div className="extension-store-nav-bar">
-            <div className="extension-store-tabs extension-store-tabs-bar" role="tablist">
-              {(['installed', 'recommended'] as Tab[]).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === id}
-                  className={`extension-tab-btn ${activeTab === id ? 'is-active' : ''}`}
-                  onClick={() => {
-                    playHapticClick()
-                    setTab(id)
-                  }}
-                >
-                  {id === 'installed' ? `Installed (${installed.length})` : 'Recommended'}
-                </button>
-              ))}
-            </div>
-
-            {native && (
-              <div className="extension-store-catalogs-strip">
-                <button
-                  type="button"
-                  className="extension-catalog-pill"
-                  onClick={() => openStore(CHROME_STORE_URL)}
-                  title="Open Chrome Web Store in browser"
-                >
-                  <IconChrome size={12} className="is-chrome" />
-                  <span>Chrome Web Store</span>
-                  <IconExternalLink size={10} className="is-arrow" />
-                </button>
-
-                <button
-                  type="button"
-                  className="extension-catalog-pill"
-                  onClick={() => openStore(EDGE_STORE_URL)}
-                  title="Open Edge Add-ons in browser"
-                >
-                  <IconEdge size={12} className="is-edge" />
-                  <span>Edge Add-ons</span>
-                  <IconExternalLink size={10} className="is-arrow" />
-                </button>
-
-                <button
-                  type="button"
-                  className="extension-catalog-pill is-unpacked"
-                  disabled={busy !== null}
-                  onClick={() => void handleLoadUnpacked()}
-                  title="Load unpacked extension folder"
-                >
-                  <IconFolder size={12} />
-                  <span>Load unpacked…</span>
-                </button>
-              </div>
-            )}
+          {/* Navigation Bar: Segmented Tabs */}
+          <div className="extension-store-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'installed'}
+              className={`extension-tab-btn ${activeTab === 'installed' ? 'is-active' : ''}`}
+              onClick={() => {
+                playHapticClick()
+                setTab('installed')
+              }}
+            >
+              {`Installed (${installed.length})`}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'recommended'}
+              className={`extension-tab-btn ${activeTab === 'recommended' ? 'is-active' : ''}`}
+              onClick={() => {
+                playHapticClick()
+                setTab('recommended')
+              }}
+            >
+              Recommended
+            </button>
           </div>
         </header>
 
-        {/* Quick URL Install Form (Desktop Only) */}
-        {native && (
-          <div className="extension-store-controls">
-            <form className="extension-add-form" onSubmit={handleAddLink}>
-              <div className="extension-input-wrapper">
-                <IconPuzzlePiece size={14} className="extension-input-icon" />
-                <input
-                  type="text"
-                  className="extension-search-input"
-                  placeholder="Paste a Chrome Web Store or Edge Add-ons link"
-                  aria-label="Extension link"
-                  value={link}
-                  onChange={(e) => setLink(e.target.value)}
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                {link && (
-                  <button
-                    type="button"
-                    className="extension-input-clear-btn"
-                    onClick={() => setLink('')}
-                    aria-label="Clear link input"
-                  >
-                    <IconX size={12} />
-                  </button>
-                )}
+        {/* Smart Advisory: Duplicate Ad Blockers */}
+        {blockerCount >= 2 && !dismissBlockerWarning && (
+          <div className="extension-notice is-warn" role="status" data-testid="duplicate-blockers">
+            <div className="extension-notice-icon-box">
+              <IconAlertTriangle size={13} />
+            </div>
+            <div className="extension-notice-content">
+              <div className="extension-notice-headline">
+                Multiple ad blockers active ({blockerNames.join(', ')})
               </div>
-              <button
-                type="submit"
-                className="extension-install-btn"
-                disabled={!link.trim() || busy !== null}
-              >
-                {busy === link.trim() && busy ? (
-                  <span className="extension-btn-spinner-row">
-                    <span className="extension-spinner" />
-                    <span>Adding…</span>
-                  </span>
-                ) : (
-                  <span>Add</span>
-                )}
-              </button>
-            </form>
+              <div className="extension-notice-body">
+                {blockerCount} ad blockers are running. Keep just one active for peak speed.
+              </div>
+            </div>
+            <button
+              type="button"
+              className="extension-notice-dismiss"
+              onClick={() => setDismissBlockerWarning(true)}
+              aria-label="Dismiss warning"
+              title="Dismiss tip"
+            >
+              <IconX size={12} />
+            </button>
+          </div>
+        )}
 
-            {/* Smart Advisory: Duplicate Ad Blockers */}
-            {blockerCount >= 2 && !dismissBlockerWarning && (
-              <div className="extension-notice is-warn" role="status" data-testid="duplicate-blockers">
-                <div className="extension-notice-icon-box">
-                  <IconAlertTriangle size={14} />
-                </div>
-                <div className="extension-notice-content">
-                  <div className="extension-notice-headline">
-                    Multiple ad blockers active ({blockerNames.join(', ')})
-                  </div>
-                  <div className="extension-notice-body">
-                    {blockerCount} ad blockers are running ({blockerNames.join(', ')}). They do the same job, and each
-                    one uses memory. Turn off or remove all but one to keep the browser light.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="extension-notice-dismiss"
-                  onClick={() => setDismissBlockerWarning(true)}
-                  aria-label="Dismiss warning"
-                  title="Dismiss tip"
-                >
-                  <IconX size={13} />
-                </button>
-              </div>
-            )}
-
-            {/* Status / Error Toast Notice */}
-            {notice && (
-              <div
-                className={`extension-notice is-${notice.kind}`}
-                role={notice.kind === 'error' ? 'alert' : 'status'}
-              >
-                <div className="extension-notice-icon-box">
-                  {notice.kind === 'error' ? <IconAlertTriangle size={14} /> : <IconCheck size={14} />}
-                </div>
-                <div className="extension-notice-content">
-                  <div className="extension-notice-body">{notice.text}</div>
-                </div>
-              </div>
-            )}
+        {/* Status / Error Toast Notice */}
+        {notice && (
+          <div
+            className={`extension-notice is-${notice.kind}`}
+            role={notice.kind === 'error' ? 'alert' : 'status'}
+          >
+            <div className="extension-notice-icon-box">
+              {notice.kind === 'error' ? <IconAlertTriangle size={13} /> : <IconCheck size={13} />}
+            </div>
+            <div className="extension-notice-content">
+              <div className="extension-notice-body">{notice.text}</div>
+            </div>
           </div>
         )}
 
         {/* Extension Content Body */}
-        {activeTab === 'installed' ? (
-          <div className="extension-list">
-            {!loaded ? (
-              <div className="extension-empty-state">
-                <span className="extension-spinner is-large" />
-                <p className="extension-empty">Loading extensions…</p>
-              </div>
-            ) : installed.length === 0 ? (
-              <div className="extension-empty-state">
-                <div className="extension-empty-icon-wrap">
-                  <IconPuzzlePiece size={28} />
+        <div className="extension-store-body">
+          {activeTab === 'installed' ? (
+            <div className="extension-list">
+              {!loaded ? (
+                <div className="extension-empty-state">
+                  <span className="extension-spinner is-large" />
+                  <p className="extension-empty">Loading extensions…</p>
                 </div>
-                <h4 className="extension-empty-heading">No extensions installed yet</h4>
-                <p className="extension-empty">
-                  No extensions yet. Add one from the Recommended tab, or open a Chrome Web Store page and click Add to HyperStream.
-                </p>
-                <button
-                  type="button"
-                  className="extension-tab-switch-cta"
-                  onClick={() => {
-                    playHapticClick()
-                    setTab('recommended')
-                  }}
-                >
-                  Explore Recommended
-                </button>
-              </div>
-            ) : (
-              installed.map((ext) => (
-                <div key={ext.id} className={`extension-row ${ext.enabled ? '' : 'is-off'}`}>
-                  <ExtensionIcon icon={ext.icon} name={ext.name} />
-                  <div className="extension-meta">
-                    <div className="extension-name-row">
-                      <h3 className="extension-name">{ext.name}</h3>
-                      {ext.version && <span className="extension-version">v{ext.version}</span>}
-                      {ext.store && (
-                        <span className={`extension-source is-${ext.store}`}>
-                          {ext.store === 'chrome' ? 'Chrome Web Store' : 'Edge Add-ons'}
-                        </span>
-                      )}
-                      {ext.legacyFormat && (
-                        <span
-                          className="extension-source is-legacy"
-                          title="Built for Manifest V2, which browsers are phasing out. It may stop working after a WebView2 update."
-                        >
-                          Older format
+              ) : installed.length === 0 ? (
+                <div className="extension-empty-state">
+                  <div className="extension-empty-icon-wrap">
+                    <IconPuzzlePiece size={24} />
+                  </div>
+                  <h4 className="extension-empty-heading">No extensions installed yet</h4>
+                  <p className="extension-empty">
+                    Add recommended extensions or browse the Chrome Web Store.
+                  </p>
+                  <button
+                    type="button"
+                    className="extension-tab-switch-cta"
+                    onClick={() => {
+                      playHapticClick()
+                      setTab('recommended')
+                    }}
+                  >
+                    Explore Recommended
+                  </button>
+                </div>
+              ) : (
+                installed.map((ext) => (
+                  <div key={ext.id} className={`extension-row ${ext.enabled ? '' : 'is-off'}`}>
+                    <ExtensionIcon icon={ext.icon} name={ext.name} />
+                    <div className="extension-meta">
+                      <div className="extension-name-row">
+                        <h3 className="extension-name" title={ext.name}>{ext.name}</h3>
+                        {ext.version && <span className="extension-version">v{ext.version}</span>}
+                        {ext.store && (
+                          <span className={`extension-source is-${ext.store}`}>
+                            {ext.store === 'chrome' ? 'Chrome' : 'Edge'}
+                          </span>
+                        )}
+                        {ext.legacyFormat && (
+                          <span
+                            className="extension-source is-legacy"
+                            title="Built for Manifest V2, which browsers are phasing out."
+                          >
+                            MV2
+                          </span>
+                        )}
+                      </div>
+                      {ext.error ? (
+                        <span className="extension-row-error">{ext.error}</span>
+                      ) : (
+                        <span className="extension-tagline" title={ext.description || ''}>
+                          {ext.description || 'Loaded extension'}
                         </span>
                       )}
                     </div>
-                    {ext.error ? (
-                      <span className="extension-row-error">{ext.error}</span>
-                    ) : (
-                      <span className="extension-tagline">{ext.description || 'Loaded from a folder'}</span>
-                    )}
-                  </div>
-                  <div className="extension-row-actions">
-                    {(ext.hasOptions || ext.hasPopup) && !ext.error && (
+                    <div className="extension-row-actions">
+                      {(ext.hasOptions || ext.hasPopup) && !ext.error && (
+                        <button
+                          type="button"
+                          className="extension-action-btn is-settings"
+                          disabled={busy === ext.id || !ext.enabled}
+                          onClick={() => void handleOpenSettings(ext)}
+                          title="Extension options"
+                          aria-label={`Settings for ${ext.name}`}
+                        >
+                          <IconSettings size={13} />
+                        </button>
+                      )}
                       <button
                         type="button"
-                        className="extension-action-btn is-settings"
-                        disabled={busy === ext.id || !ext.enabled}
-                        onClick={() => void handleOpenSettings(ext)}
-                        title="Extension settings"
-                        aria-label={`Settings for ${ext.name}`}
+                        role="switch"
+                        aria-checked={ext.enabled}
+                        aria-label={`${ext.enabled ? 'Turn off' : 'Turn on'} ${ext.name}`}
+                        className={`extension-switch-btn ${ext.enabled ? 'is-active' : ''}`}
+                        disabled={busy === ext.id}
+                        onClick={() => void handleToggle(ext)}
+                        title={ext.enabled ? 'Enabled' : 'Disabled'}
                       >
-                        <IconSettings size={13} />
-                        <span>Settings</span>
+                        <span className="extension-switch-knob" />
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={ext.enabled}
-                      aria-label={`${ext.enabled ? 'Turn off' : 'Turn on'} ${ext.name}`}
-                      className={`extension-switch-btn ${ext.enabled ? 'is-active' : ''}`}
-                      disabled={busy === ext.id}
-                      onClick={() => void handleToggle(ext)}
-                      title={ext.enabled ? 'Enabled' : 'Disabled'}
-                    >
-                      <span className="extension-switch-knob" />
-                    </button>
-                    <button
-                      type="button"
-                      className="extension-remove-btn"
-                      disabled={busy === ext.id}
-                      onClick={() => void handleRemove(ext)}
-                      aria-label={`Remove ${ext.name}`}
-                      title={`Remove ${ext.name}`}
-                    >
-                      <IconTrash size={13} />
-                      <span>Remove</span>
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        ) : (
-          <div className="extension-card-grid">
-            {RECOMMENDED_EXTENSIONS.map((ext) => {
-              const added = isInstalled(ext.storeId)
-              return (
-                <div key={ext.storeId} className={`extension-card ${added ? 'is-installed' : ''}`}>
-                  <div className="extension-card-top">
-                    <ExtensionIcon
-                      icon={installed.find((e) => e.storeId === ext.storeId || e.id === ext.storeId)?.icon}
-                      name={ext.name}
-                      accent={ext.accent}
-                    />
-                    <div className="extension-meta">
-                      <div className="extension-card-title-row">
-                        <h3 className="extension-name">{ext.name}</h3>
-                        <span className="extension-author">by {ext.author}</span>
-                      </div>
-                      <span className="extension-tagline">{ext.tagline}</span>
+                      <button
+                        type="button"
+                        className="extension-remove-btn"
+                        disabled={busy === ext.id}
+                        onClick={() => void handleRemove(ext)}
+                        aria-label={`Remove ${ext.name}`}
+                        title={`Remove ${ext.name}`}
+                      >
+                        <IconTrash size={13} />
+                      </button>
                     </div>
                   </div>
-                  <div className="extension-card-actions">
-                    <button
-                      type="button"
-                      className={`extension-install-btn ${added ? 'is-added' : ''}`}
-                      disabled={!native || added || busy !== null}
-                      onClick={() => void install(ext.storeId, ext.name)}
-                      aria-label={added ? `${ext.name} installed` : `Add ${ext.name}`}
-                    >
-                      {added ? (
-                        <>
-                          <IconCheck size={13} />
-                          <span>Installed</span>
-                        </>
-                      ) : busy === ext.storeId ? (
-                        <span className="extension-btn-spinner-row">
-                          <span className="extension-spinner" />
-                          <span>Adding…</span>
-                        </span>
-                      ) : (
-                        <>
-                          <IconPlus size={13} />
-                          <span>Add</span>
-                        </>
-                      )}
-                    </button>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="extension-card-grid extension-recommended-list">
+              {RECOMMENDED_EXTENSIONS.map((ext) => {
+                const added = isInstalled(ext.storeId)
+                return (
+                  <div key={ext.storeId} className={`extension-card extension-recommended-row ${added ? 'is-installed' : ''}`}>
+                    <div className="extension-card-top">
+                      <ExtensionIcon
+                        icon={installed.find((e) => e.storeId === ext.storeId || e.id === ext.storeId)?.icon}
+                        name={ext.name}
+                        accent={ext.accent}
+                      />
+                      <div className="extension-meta">
+                        <div className="extension-card-title-row">
+                          <h3 className="extension-name">{ext.name}</h3>
+                          <span className="extension-author">by {ext.author}</span>
+                        </div>
+                        <span className="extension-tagline">{ext.tagline}</span>
+                      </div>
+                    </div>
+                    <div className="extension-card-actions">
+                      <button
+                        type="button"
+                        className={`extension-install-btn ${added ? 'is-added' : ''}`}
+                        disabled={!native || added || busy !== null}
+                        onClick={() => void install(ext.storeId, ext.name)}
+                        aria-label={added ? `${ext.name} installed` : `Add ${ext.name}`}
+                      >
+                        {added ? (
+                          <>
+                            <IconCheck size={12} />
+                            <span>Installed</span>
+                          </>
+                        ) : busy === ext.storeId ? (
+                          <span className="extension-btn-spinner-row">
+                            <span className="extension-spinner" />
+                            <span>Adding…</span>
+                          </span>
+                        ) : (
+                          <>
+                            <IconPlus size={12} />
+                            <span>Add</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
+                )
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Footer Bar */}
         <footer className="extension-store-footer">
-          <div className="extension-store-status-note">
-            <IconLock size={12} className="extension-footer-lock-icon" />
-            <span>Installed straight from the Chrome Web Store or Edge Add-ons, and kept up to date.</span>
-          </div>
-          {native && installed.some((e) => e.store) && (
+          {/* Quick Catalogs Strip */}
+          <div className="extension-store-catalogs-strip">
             <button
               type="button"
-              className="extension-update-btn"
-              disabled={busy !== null}
-              onClick={() => void handleCheckUpdates()}
-              title="Check all installed extensions for updates"
+              className="extension-catalog-pill"
+              onClick={() => openStore(CHROME_STORE_URL)}
+              title="Open Chrome Web Store in browser"
             >
-              <IconReload size={12} className={busy === 'updates' ? 'is-spinning' : ''} />
-              <span>{busy === 'updates' ? 'Checking…' : 'Check for updates'}</span>
+              <IconChrome size={12} className="is-chrome" />
+              <span>Chrome Store</span>
+              <IconExternalLink size={10} className="is-arrow" />
             </button>
+
+            <button
+              type="button"
+              className="extension-catalog-pill"
+              onClick={() => openStore(EDGE_STORE_URL)}
+              title="Open Edge Add-ons in browser"
+            >
+              <IconEdge size={12} className="is-edge" />
+              <span>Edge Add-ons</span>
+              <IconExternalLink size={10} className="is-arrow" />
+            </button>
+
+            {native && (
+              <button
+                type="button"
+                className="extension-catalog-pill is-unpacked"
+                disabled={busy !== null}
+                onClick={() => void handleLoadUnpacked()}
+                title="Load unpacked extension folder"
+              >
+                <IconFolder size={12} />
+                <span>Unpacked…</span>
+              </button>
+            )}
+          </div>
+
+          {/* Quick link paste bar (Desktop Only) */}
+          {native && (
+            <div className="extension-store-controls">
+              <form className="extension-add-form" onSubmit={handleAddLink}>
+                <div className="extension-input-wrapper">
+                  <IconPuzzlePiece size={12} className="extension-input-icon" />
+                  <input
+                    type="text"
+                    className="extension-search-input"
+                    placeholder="Paste a Chrome Web Store or Edge link"
+                    aria-label="Extension link"
+                    value={link}
+                    onChange={(e) => setLink(e.target.value)}
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                  {link && (
+                    <button
+                      type="button"
+                      className="extension-input-clear-btn"
+                      onClick={() => setLink('')}
+                      aria-label="Clear link input"
+                    >
+                      <IconX size={11} />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  className="extension-install-btn is-compact"
+                  disabled={!link.trim() || busy !== null}
+                >
+                  {busy === link.trim() && busy ? (
+                    <span className="extension-btn-spinner-row">
+                      <span className="extension-spinner" />
+                    </span>
+                  ) : (
+                    <span>Add</span>
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {native && installed.some((e) => e.store) && (
+            <div className="extension-store-footer-meta">
+              <button
+                type="button"
+                className="extension-update-btn"
+                disabled={busy !== null}
+                onClick={() => void handleCheckUpdates()}
+                title="Check all installed extensions for updates"
+              >
+                <IconReload size={11} className={busy === 'updates' ? 'is-spinning' : ''} />
+                <span>{busy === 'updates' ? 'Checking…' : 'Check for updates'}</span>
+              </button>
+            </div>
           )}
         </footer>
       </div>
-    </div>
+    </>
   )
-
-  return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode
 }

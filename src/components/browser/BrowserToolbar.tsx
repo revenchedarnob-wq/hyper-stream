@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, type FormEvent, type KeyboardEvent } from 'react'
 import type { DetectedStream } from './types'
 import type { ExtensionStoreListing } from './url-utils'
 import {
@@ -17,6 +17,7 @@ import {
 import { StreamDetectorPill } from './StreamDetectorPill'
 import { ExtensionStorePill } from './ExtensionStorePill'
 import { ShieldsPopover } from './ShieldsPopover'
+import { ExtensionStoreModal } from './ExtensionStoreModal'
 import { OmnibarDropdown } from './OmnibarDropdown'
 import { getShortcuts } from './shortcuts'
 import { handleBrowserSubmit } from './url-utils'
@@ -138,7 +139,11 @@ export interface BrowserToolbarProps {
   detectedStream?: DetectedStream | null
   onOpenInHub: (url: string) => void
   onDismissStream?: () => void
+  isExtensionsOpen?: boolean
   onOpenExtensions?: () => void
+  onCloseExtensions?: () => void
+  onToggleExtensions?: (open: boolean) => void
+  onOpenExtensionPage?: (url: string) => void
   /** Fires when the Shields panel opens or closes (the native page must hide so it can't cover the panel). */
   onShieldsPanelChange?: (open: boolean) => void
   /** Increments to move focus to the address bar (Ctrl+L inside the page). */
@@ -177,7 +182,11 @@ export function BrowserToolbar({
   detectedStream = null,
   onOpenInHub,
   onDismissStream,
+  isExtensionsOpen,
   onOpenExtensions,
+  onCloseExtensions,
+  onToggleExtensions,
+  onOpenExtensionPage,
   onShieldsPanelChange,
   focusAddressNonce = 0,
   isSaved = false,
@@ -194,9 +203,35 @@ export function BrowserToolbar({
     currentUrl === 'about:blank' || !currentUrl ? '' : currentUrl
   )
   const [isShieldsOpen, setIsShieldsOpen] = useState(false)
+  const [internalExtensionsOpen, setInternalExtensionsOpen] = useState(false)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const isExtOpen = isExtensionsOpen !== undefined ? isExtensionsOpen : internalExtensionsOpen
+
+  const handleCloseExtensions = useCallback(() => {
+    if (isExtensionsOpen === undefined) {
+      setInternalExtensionsOpen(false)
+    }
+    onToggleExtensions?.(false)
+    onCloseExtensions?.()
+  }, [isExtensionsOpen, onToggleExtensions, onCloseExtensions])
+
+  const handleToggleExtensions = useCallback(() => {
+    playHapticClick()
+    setIsShieldsOpen(false)
+    const next = !isExtOpen
+    if (isExtensionsOpen === undefined) {
+      setInternalExtensionsOpen(next)
+    }
+    onToggleExtensions?.(next)
+    if (next) {
+      onOpenExtensions?.()
+    } else {
+      onCloseExtensions?.()
+    }
+  }, [isExtOpen, isExtensionsOpen, onToggleExtensions, onOpenExtensions, onCloseExtensions])
 
   const handleCopyUrl = async () => {
     if (!currentUrl || currentUrl === 'about:blank') return
@@ -252,6 +287,9 @@ export function BrowserToolbar({
 
   const handleToggleShieldsPopover = () => {
     playHapticGlass()
+    if (isExtOpen) {
+      handleCloseExtensions()
+    }
     setIsShieldsOpen((prev) => !prev)
   }
 
@@ -390,7 +428,15 @@ export function BrowserToolbar({
 
       {storeListing && (
         <div className="browser-stream-detector-slot" data-testid="browser-store-slot">
-          <ExtensionStorePill key={storeListing.id} listing={storeListing} onManage={onOpenExtensions} />
+          <ExtensionStorePill
+            key={storeListing.id}
+            listing={storeListing}
+            onManage={() => {
+              if (isExtensionsOpen === undefined) setInternalExtensionsOpen(true)
+              onToggleExtensions?.(true)
+              onOpenExtensions?.()
+            }}
+          />
         </div>
       )}
 
@@ -437,21 +483,35 @@ export function BrowserToolbar({
         )}
       </div>
 
-      {/* Extension Store Trigger Button */}
-      <button
-        type="button"
-        className="browser-extensions-btn"
-        onClick={() => {
-          playHapticClick()
-          setIsShieldsOpen(false)
-          onOpenExtensions?.()
-        }}
-        aria-label="Extensions"
-        title="Extensions"
-        data-testid="browser-extensions-btn"
-      >
-        <IconPuzzlePiece size={16} />
-      </button>
+      {/* Extension Store Flyout Anchor */}
+      <div className="browser-extensions-wrapper">
+        <button
+          type="button"
+          className={`browser-extensions-btn ${isExtOpen ? 'is-active' : ''}`}
+          onClick={handleToggleExtensions}
+          aria-label="Extensions"
+          aria-expanded={isExtOpen}
+          title="Extensions"
+          data-testid="browser-extensions-btn"
+        >
+          <IconPuzzlePiece size={16} />
+        </button>
+
+        {isExtOpen && (
+          <ExtensionStoreModal
+            isOpen={isExtOpen}
+            onClose={handleCloseExtensions}
+            onOpenPage={(url) => {
+              handleCloseExtensions()
+              if (onOpenExtensionPage) {
+                onOpenExtensionPage(url)
+              } else {
+                onNavigate(url)
+              }
+            }}
+          />
+        )}
+      </div>
 
       {/* Drag spacer and window controls only when toolbar acts as topbar */}
       {windowControls && (

@@ -19,7 +19,6 @@ import { BrowserTabStrip, type BrowserTab } from './BrowserTabStrip'
 import { FindInPageBar } from './FindInPageBar'
 import { ZoomHud } from './ZoomHud'
 import { SpeedDial } from './SpeedDial'
-import { ExtensionStoreModal } from './ExtensionStoreModal'
 import { IconLock } from './Icons'
 import { detectStreamFromUrl, extensionStoreListing, resolveWebEmbedUrl, siteKey } from './url-utils'
 import type { DetectedStream } from './types'
@@ -591,7 +590,11 @@ export function InAppBrowser({
         shieldsSite={site}
         onToggleShields={handleToggleShieldsGlobal}
         onToggleShieldsForSite={handleToggleShieldsForSite}
+        isExtensionsOpen={isExtensionStoreOpen}
         onOpenExtensions={() => setIsExtensionStoreOpen(true)}
+        onCloseExtensions={() => setIsExtensionStoreOpen(false)}
+        onToggleExtensions={setIsExtensionStoreOpen}
+        onOpenExtensionPage={openExtensionPage}
         onShieldsPanelChange={setIsShieldsPanelOpen}
         detectedStream={effectiveStream}
         storeListing={storeListing}
@@ -712,12 +715,6 @@ export function InAppBrowser({
           </div>
         )}
       </main>
-
-      <ExtensionStoreModal
-        isOpen={isExtensionStoreOpen}
-        onClose={() => setIsExtensionStoreOpen(false)}
-        onOpenPage={openExtensionPage}
-      />
     </div>
   )
 }

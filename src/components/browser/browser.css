@@ -1433,7 +1433,14 @@
   transition: all var(--duration-normal, 180ms) var(--ease-out);
 }
 
-/* Browser Extension Store Button */
+/* Browser Extension Store Button & Wrapper */
+.browser-extensions-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
 .browser-extensions-btn {
   display: inline-flex;
   align-items: center;
@@ -1460,6 +1467,13 @@
 
 .browser-extensions-btn:active {
   transform: translateY(0);
+}
+
+.browser-extensions-btn.is-active {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #818cf8;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.25);
 }
 
 /* Content Area & Viewport */
