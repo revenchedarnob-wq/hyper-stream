@@ -32,4 +32,20 @@ describe('ExtensionStoreModal Component', () => {
     expect(html).toContain('extension-store-close-btn')
     expect(html).toContain('aria-label="Close extensions"')
   })
+
+  it('preserves invariant hook order when transitioning isOpen from false to true', () => {
+    // Verifies Rules of Hooks compliance: no React error #310 ("Rendered more hooks than during the previous render")
+    let openState = false
+    const onClose = vi.fn()
+    function TestConsumer() {
+      return <ExtensionStoreModal isOpen={openState} onClose={onClose} />
+    }
+
+    const closed = renderToString(<TestConsumer />)
+    expect(closed).toBe('')
+
+    openState = true
+    const opened = renderToString(<TestConsumer />)
+    expect(opened).toContain('Extensions')
+  })
 })

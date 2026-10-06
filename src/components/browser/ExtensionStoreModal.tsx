@@ -93,6 +93,7 @@ function ExtensionIcon({ icon, name, accent }: { icon?: string | null; name: str
 
 export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionStoreModalProps) {
   const native = isTauri()
+  const settings = useSettings()
   const [installed, setInstalled] = useState<InstalledExtension[]>([])
   const [loaded, setLoaded] = useState(false)
   const [tab, setTab] = useState<Tab | null>(null)
@@ -143,7 +144,6 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
   if (!isOpen) return null
 
   // Every extra ad blocker is another always-running process (often 100 MB+) doing Shields' job.
-  const settings = useSettings()
   const blockers = installed.filter((e) => e.enabled && isAdBlocker(e))
   const blockerCount = blockers.length + (settings.shieldsEnabled ? 1 : 0)
   const blockerNames = [...(settings.shieldsEnabled ? ['Shields'] : []), ...blockers.map((e) => e.name)]
