@@ -63,7 +63,7 @@ async function connect() {
   for (let i = 0; i < 100; i++) {
     try {
       const targets = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json()
-      const page = targets.find((t) => t.type === 'page' && /tauri\.localhost/.test(t.url))
+      const page = targets.find((t) => t.type === 'page' && (/tauri\.localhost/.test(t.url) || /localhost:5173/.test(t.url) || t.url.startsWith('http')) && !t.url.includes('about:blank'))
       if (page) return page.webSocketDebuggerUrl
     } catch {
       // not up yet
