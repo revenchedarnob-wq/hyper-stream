@@ -373,6 +373,7 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
                         if let Some(id) = parsed.get("id").and_then(|v| v.as_str()) {
                             let app = app.clone();
                             let id = id.to_string();
+                            super::suppress_extension_popups(&app, 30);
                             let _ = app.emit("browser-extension-installing", id.clone());
                             tauri::async_runtime::spawn(async move {
                                 match super::extensions::install_from_store(&app, &id).await {
@@ -490,6 +491,7 @@ unsafe fn register(app: AppHandle, controller: ICoreWebView2Controller, env: ICo
                     let _ = args.SetHandled(true);
                     if let Some(id) = extract_extension_id_from_url(&uri) {
                         let app = app.clone();
+                        super::suppress_extension_popups(&app, 30);
                         let _ = app.emit("browser-extension-installing", id.clone());
                         tauri::async_runtime::spawn(async move {
                             match super::extensions::install_from_store(&app, &id).await {

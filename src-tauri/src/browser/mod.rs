@@ -167,27 +167,59 @@ fn shields_page_script() -> String {
     format!("{}\n{}", shields::page_script_config(), SHIELDS_SCRIPT)
 }
 
-static UNINSTALL_SUPPRESS_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+static EXTENSION_GUARD_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Suppresses all unwanted popups, new windows, and external tab triggers for `duration_secs`.
+/// Closes any rogue popup windows immediately.
+pub fn suppress_extension_popups(app: &AppHandle, duration_secs: u64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let target = now + duration_secs * 1000;
+    let _ = EXTENSION_GUARD_UNTIL_MS.fetch_max(target, Ordering::SeqCst);
+    close_all_popups(app);
+}
+
+pub fn close_all_popups(app: &AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if label.starts_with("browser-popup-") {
+            let _ = window.close();
+        }
+    }
+}
+
+pub fn is_extension_guard_active() -> bool {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    now < EXTENSION_GUARD_UNTIL_MS.load(Ordering::Relaxed)
+}
 
 pub fn suppress_uninstall_popups(duration_secs: u64) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    UNINSTALL_SUPPRESS_UNTIL_MS.store(now + duration_secs * 1000, Ordering::SeqCst);
+    let target = now + duration_secs * 1000;
+    let _ = EXTENSION_GUARD_UNTIL_MS.fetch_max(target, Ordering::SeqCst);
 }
 
-pub fn is_uninstall_popup_suppressed(url: &tauri::Url) -> bool {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let in_suppression_window = now < UNINSTALL_SUPPRESS_UNTIL_MS.load(Ordering::Relaxed);
-    if in_suppression_window {
+pub fn is_unwanted_popup(url: &tauri::Url) -> bool {
+    // 1. If an extension lifecycle event is active, block ALL popups unconditionally.
+    if is_extension_guard_active() {
         return true;
     }
+    // 2. If the user is not actively on the Browser tab, block ALL popups unconditionally.
+    if !WANT_VISIBLE.load(Ordering::Relaxed) {
+        return true;
+    }
+
     let url_str = url.as_str().to_lowercase();
     let host = url.host_str().unwrap_or("").to_lowercase();
+
+    // 3. Block all known patterns of extension farewell, onboarding, survey, review, and game popups
     url_str.contains("uninstall")
         || url_str.contains("uninstal")
         || url_str.contains("farewell")
@@ -195,9 +227,61 @@ pub fn is_uninstall_popup_suppressed(url: &tauri::Url) -> bool {
         || url_str.contains("offboarding")
         || url_str.contains("why-did-you-leave")
         || url_str.contains("sorry-to-see-you-go")
-        || host.starts_with("welcome.adguard.")
+        || url_str.contains("after-install")
+        || url_str.contains("welcome")
+        || url_str.contains("thank-you")
+        || url_str.contains("thanks-for-installing")
+        || url_str.contains("installed")
+        || url_str.contains("onboarding")
         || host.contains("survey")
+        || host.contains("feedback")
+        || host.starts_with("welcome.adguard.")
         || (host.contains("adguard") && url_str.contains("cxt.html"))
+        || host.contains("subwaysurfers")
+        || host.contains("classroom-6x")
+        || url.scheme() == "chrome-extension"
+}
+
+pub fn is_uninstall_popup_suppressed(url: &tauri::Url) -> bool {
+    is_unwanted_popup(url)
+}
+
+fn is_likely_auth_or_dialog_popup(url: &tauri::Url, features: &tauri::webview::NewWindowFeatures) -> bool {
+    if !WANT_VISIBLE.load(Ordering::Relaxed) || is_extension_guard_active() {
+        return false;
+    }
+    if is_unwanted_popup(url) {
+        return false;
+    }
+    // Sized popup windows: must have realistic dialog proportions (not a full screen or giant game)
+    if let Some(size) = features.size() {
+        if size.width > 920.0 || size.height > 920.0 {
+            return false;
+        }
+    }
+    let url_str = url.as_str().to_lowercase();
+    let host = url.host_str().unwrap_or("").to_lowercase();
+
+    url_str.contains("oauth")
+        || url_str.contains("auth")
+        || url_str.contains("login")
+        || url_str.contains("signin")
+        || url_str.contains("sign-in")
+        || url_str.contains("log-in")
+        || url_str.contains("sso")
+        || url_str.contains("authorize")
+        || url_str.contains("authenticate")
+        || url_str.contains("checkout")
+        || url_str.contains("stripe")
+        || url_str.contains("paypal")
+        || host.ends_with("google.com")
+        || host.ends_with("appleid.apple.com")
+        || host.ends_with("microsoftonline.com")
+        || host.ends_with("live.com")
+        || host.ends_with("github.com")
+        || host.ends_with("discord.com")
+        || host.ends_with("twitter.com")
+        || host.ends_with("x.com")
 }
 
 /// Creates the browser view once, hidden, at about:blank (so Back from the first page returns to the start page).
@@ -215,8 +299,8 @@ fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> 
         .on_navigation({
             let app_for_nav = app.clone();
             move |url| {
-                if is_uninstall_popup_suppressed(url) {
-                    log::info!("Blocked navigation to farewell/uninstall page: {url}");
+                if is_unwanted_popup(url) {
+                    log::info!("Blocked navigation to unwanted/farewell page: {url}");
                     return false;
                 }
                 let url_str = url.as_str();
@@ -224,6 +308,7 @@ fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> 
                     log::info!("Intercepted CRX navigation: {url_str}");
                     if let Some(id) = native::extract_extension_id_from_url(url_str) {
                         let app = app_for_nav.clone();
+                        suppress_extension_popups(&app, 30);
                         let _ = app.emit("browser-extension-installing", id.clone());
                         tauri::async_runtime::spawn(async move {
                             match extensions::install_from_store(&app, &id).await {
@@ -242,23 +327,26 @@ fn create(app: &AppHandle, rect: tauri::Rect) -> Result<tauri::Webview, String> 
                 true
             }
         })
-
         .on_new_window(move |url, features| {
-            // Block uninvited extension farewell / uninstall survey popups
-            if is_uninstall_popup_suppressed(&url) {
-                log::info!("Blocked extension farewell/uninstall popup: {url}");
+            // Block all uninvited extension farewell, welcome, survey, or background popups
+            if is_unwanted_popup(&url) {
+                log::info!("Blocked unwanted popup: {url}");
                 return tauri::webview::NewWindowResponse::Deny;
             }
 
-            // Sign-in popups (sized windows that talk back to the page) open as real popups;
-            // plain "open in new tab" links open here, since the browser has one tab.
-            if features.size().is_some() {
-                return match open_popup(&app_for_popups, features) {
-                    Some(window) => tauri::webview::NewWindowResponse::Create { window },
-                    None => tauri::webview::NewWindowResponse::Deny,
-                };
+            // Dedicated popup windows are reserved for authentic OAuth / sign-in dialogs
+            // while the browser tab is actively visible.
+            if features.size().is_some() && WANT_VISIBLE.load(Ordering::Relaxed) {
+                if is_likely_auth_or_dialog_popup(&url, &features) {
+                    return match open_popup(&app_for_popups, features) {
+                        Some(window) => tauri::webview::NewWindowResponse::Create { window },
+                        None => tauri::webview::NewWindowResponse::Deny,
+                    };
+                }
             }
-            if matches!(url.scheme(), "http" | "https") {
+
+            // Normal web links opening in new window/tab: open inside HyperStream browser tabs
+            if matches!(url.scheme(), "http" | "https") && WANT_VISIBLE.load(Ordering::Relaxed) && !is_unwanted_popup(&url) {
                 let _ = app_for_popups.emit("browser-open-tab", url.to_string());
             }
             tauri::webview::NewWindowResponse::Deny
@@ -296,18 +384,26 @@ fn total_ram_gb() -> Option<f64> {
 /// A site's popup (e.g. "Sign in with Google") as a HyperStream window owned by the main window,
 /// sharing the browser's session. Closing the app closes it too.
 fn open_popup(app: &AppHandle, features: tauri::webview::NewWindowFeatures) -> Option<tauri::WebviewWindow> {
+    if !WANT_VISIBLE.load(Ordering::Relaxed) || is_extension_guard_active() {
+        return None;
+    }
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     let label = format!("browser-popup-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let main = app.get_window("main")?;
+    let popup_app = app.clone();
+    let label_for_nav = label.clone();
     let mut builder = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::External("about:blank".parse().ok()?))
         .window_features(features)
         // The opener's WebView2 environment (profile, extensions) comes with the features.
         .title("HyperStream")
         .theme(Some(tauri::Theme::Dark))
         .min_inner_size(320.0, 240.0)
-        .on_navigation(|url| {
-            if is_uninstall_popup_suppressed(url) {
+        .on_navigation(move |url| {
+            if is_unwanted_popup(url) {
                 log::info!("Blocked navigation inside popup: {url}");
+                if let Some(w) = popup_app.get_webview_window(&label_for_nav) {
+                    let _ = w.close();
+                }
                 return false;
             }
             true
@@ -705,16 +801,19 @@ pub async fn get_installed_extensions(app: AppHandle) -> Result<Vec<extensions::
 
 #[tauri::command]
 pub async fn install_store_extension(app: AppHandle, input: String) -> Result<String, String> {
+    suppress_extension_popups(&app, 30);
     extensions::install_from_store(&app, &input).await
 }
 
 #[tauri::command]
 pub async fn uninstall_browser_extension(app: AppHandle, extension_id: String) -> Result<(), String> {
+    suppress_extension_popups(&app, 30);
     extensions::uninstall(&app, &extension_id).await
 }
 
 #[tauri::command]
 pub async fn set_extension_enabled(app: AppHandle, extension_id: String, enabled: bool) -> Result<(), String> {
+    suppress_extension_popups(&app, 30);
     extensions::set_enabled(&app, &extension_id, enabled).await
 }
 
@@ -724,11 +823,13 @@ pub async fn load_unpacked_extension(app: AppHandle, source_path: String) -> Res
     if !src.is_dir() {
         return Err("Selected path is not a folder.".to_string());
     }
+    suppress_extension_popups(&app, 30);
     extensions::install_from_folder(&app, &src).await
 }
 
 #[tauri::command]
 pub async fn update_browser_extensions(app: AppHandle) -> Result<u32, String> {
+    suppress_extension_popups(&app, 30);
     let webview = extensions::ready_webview(&app).await?;
     extensions::update_all(&webview).await
 }
@@ -781,5 +882,47 @@ mod tests {
         std::fs::create_dir_all(root.join("b")).unwrap();
         assert!(hoist_single_subfolder(&root).is_err());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn popup_armor_filters_unwanted_popups_and_extension_spam() {
+        // 1. With browser visible and guard off
+        WANT_VISIBLE.store(true, Ordering::SeqCst);
+        EXTENSION_GUARD_UNTIL_MS.store(0, Ordering::SeqCst);
+
+        let subway: tauri::Url = "https://subwaysurfersgame.org/game/subway-surfers-winter-holiday".parse().unwrap();
+        assert!(is_unwanted_popup(&subway), "Subway surfers game URL must be blocked");
+
+        let adguard: tauri::Url = "https://welcome.adguard.com/cxt.html?source=uninstall".parse().unwrap();
+        assert!(is_unwanted_popup(&adguard), "AdGuard farewell must be blocked");
+
+        let survey: tauri::Url = "https://survey.example.com/feedback".parse().unwrap();
+        assert!(is_unwanted_popup(&survey), "Surveys must be blocked");
+
+        let onboarding: tauri::Url = "https://example.com/extension/onboarding".parse().unwrap();
+        assert!(is_unwanted_popup(&onboarding), "Onboarding must be blocked");
+
+        let normal_site: tauri::Url = "https://news.ycombinator.com".parse().unwrap();
+        assert!(!is_unwanted_popup(&normal_site), "Normal web browsing should not be blocked when visible");
+
+        // 2. When browser is not visible / off-screen, all popups must be blocked
+        WANT_VISIBLE.store(false, Ordering::SeqCst);
+        EXTENSION_GUARD_UNTIL_MS.store(0, Ordering::SeqCst);
+        let youtube: tauri::Url = "https://youtube.com".parse().unwrap();
+        assert!(is_unwanted_popup(&youtube), "All popups must be blocked when browser is hidden/offscreen");
+
+        // 3. During extension lifecycle guard window, all popups must be blocked
+        WANT_VISIBLE.store(true, Ordering::SeqCst);
+        let future = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64 + 60000;
+        EXTENSION_GUARD_UNTIL_MS.store(future, Ordering::SeqCst);
+        let google: tauri::Url = "https://google.com".parse().unwrap();
+        assert!(is_unwanted_popup(&google), "All popups must be blocked during extension lifecycle guard");
+
+        // Clean up statics
+        EXTENSION_GUARD_UNTIL_MS.store(0, Ordering::SeqCst);
+        WANT_VISIBLE.store(false, Ordering::SeqCst);
     }
 }

@@ -577,6 +577,7 @@ async fn install_package(webview: &tauri::Webview, store: Store, id: &str, bytes
 
 /// Installs from a store link or id. Tries the Chrome Web Store, then Edge Add-ons, for bare ids.
 pub async fn install_from_store(app: &AppHandle, input: &str) -> Result<String, String> {
+    super::suppress_extension_popups(app, 30);
     let (store, id) = parse_store_input(input)
         .ok_or("Paste a link to an extension in the Chrome Web Store or Edge Add-ons.")?;
     let (store, bytes) = match store {
@@ -636,7 +637,7 @@ pub async fn uninstall(app: &AppHandle, folder: &str) -> Result<(), String> {
     if !is_safe_folder_name(folder) {
         return Err("Unknown extension.".into());
     }
-    super::suppress_uninstall_popups(10);
+    super::suppress_extension_popups(app, 30);
     uninstall_from(&ready_webview(app).await?, folder).await
 }
 
@@ -657,6 +658,7 @@ async fn uninstall_from(webview: &tauri::Webview, folder: &str) -> Result<(), St
 }
 
 pub async fn set_enabled(app: &AppHandle, folder: &str, enabled: bool) -> Result<(), String> {
+    super::suppress_extension_popups(app, 30);
     let webview = ready_webview(app).await?;
     let _op = OPERATION.lock().await;
     let runtime_id = with_state(|s| {
@@ -674,6 +676,7 @@ pub async fn set_enabled(app: &AppHandle, folder: &str, enabled: bool) -> Result
 }
 
 pub async fn install_from_folder(app: &AppHandle, source: &Path) -> Result<String, String> {
+    super::suppress_extension_popups(app, 30);
     if !source.join("manifest.json").is_file() {
         return Err("That folder doesn't contain a manifest.json file.".into());
     }
