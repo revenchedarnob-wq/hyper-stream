@@ -108,8 +108,8 @@ function ExtensionIcon({ icon, name, accent }: { icon?: string | null; name: str
     <div
       className="extension-avatar-frame"
       style={{
-        background: accent ? `linear-gradient(135deg, ${accent}40, ${accent}15)` : undefined,
-        borderColor: accent ? `${accent}55` : undefined,
+        background: accent ? `linear-gradient(135deg, ${accent}33, ${accent}12)` : undefined,
+        borderColor: accent ? `${accent}44` : undefined,
       }}
       aria-hidden="true"
     >
@@ -117,7 +117,7 @@ function ExtensionIcon({ icon, name, accent }: { icon?: string | null; name: str
         {name ? (
           <span className="extension-avatar-letter">{name.charAt(0).toUpperCase()}</span>
         ) : (
-          <IconPuzzlePiece size={18} color="#ffffff" />
+          <IconPuzzlePiece size={16} color="#ffffff" />
         )}
       </div>
     </div>
@@ -134,6 +134,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
   const [link, setLink] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [dismissBlockerWarning, setDismissBlockerWarning] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
@@ -153,6 +154,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
   useEffect(() => {
     if (!isOpen) return
     setNotice(null)
+    setDismissBlockerWarning(false)
     void refresh()
   }, [isOpen, refresh])
 
@@ -263,30 +265,45 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
       <div className="extension-store-modal" ref={modalRef} role="dialog" aria-label="Browser extensions">
         {/* Header Bar */}
         <header className="extension-store-header">
-          <div className="extension-store-title-group">
-            <div className="extension-store-brand-icon">
-              <IconPuzzlePiece size={20} />
-            </div>
-            <div className="extension-store-title-text">
-              <div className="extension-store-title-row">
-                <h2 className="extension-store-title">Extensions</h2>
-                {native && (
-                  <span className="extension-store-count-badge">
-                    <span className="extension-store-count-dot" />
-                    {installed.length} installed
-                  </span>
-                )}
+          <div className="extension-store-header-top">
+            <div className="extension-store-title-group">
+              <div className="extension-store-brand-icon">
+                <IconPuzzlePiece size={18} />
               </div>
-              <p className="extension-store-subtitle">
-                {native
-                  ? 'Chrome and Edge extensions for the built-in browser. Changes apply right away.'
-                  : 'Extensions are available in the desktop app.'}
-              </p>
+              <div className="extension-store-title-text">
+                <div className="extension-store-title-row">
+                  <h2 className="extension-store-title">Extensions</h2>
+                  {native && (
+                    <span className="extension-store-count-badge">
+                      <span className="extension-store-count-dot" />
+                      {installed.length} installed
+                    </span>
+                  )}
+                </div>
+                <p className="extension-store-subtitle">
+                  {native
+                    ? 'Chrome and Edge extensions for the built-in browser. Changes apply right away.'
+                    : 'Extensions are available in the desktop app.'}
+                </p>
+              </div>
             </div>
+
+            <button
+              type="button"
+              className="extension-store-close-btn"
+              onClick={() => {
+                playHapticGlass()
+                onClose()
+              }}
+              aria-label="Close extensions"
+              title="Close (Esc)"
+            >
+              <IconX size={15} />
+            </button>
           </div>
 
-          <div className="extension-store-header-right">
-            {/* Segmented Control Tab Switcher */}
+          {/* Navigation Bar: Segmented Tabs & Store Links */}
+          <div className="extension-store-nav-bar">
             <div className="extension-store-tabs extension-store-tabs-bar" role="tablist">
               {(['installed', 'recommended'] as Tab[]).map((id) => (
                 <button
@@ -305,114 +322,112 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
               ))}
             </div>
 
-            <button
-              type="button"
-              className="extension-store-close-btn"
-              onClick={() => {
-                playHapticGlass()
-                onClose()
-              }}
-              aria-label="Close extensions"
-              title="Close (Esc)"
-            >
-              <IconX size={15} />
-            </button>
+            {native && (
+              <div className="extension-store-catalogs-strip">
+                <button
+                  type="button"
+                  className="extension-catalog-pill"
+                  onClick={() => openStore(CHROME_STORE_URL)}
+                  title="Open Chrome Web Store in browser"
+                >
+                  <IconChrome size={12} className="is-chrome" />
+                  <span>Chrome Web Store</span>
+                  <IconExternalLink size={10} className="is-arrow" />
+                </button>
+
+                <button
+                  type="button"
+                  className="extension-catalog-pill"
+                  onClick={() => openStore(EDGE_STORE_URL)}
+                  title="Open Edge Add-ons in browser"
+                >
+                  <IconEdge size={12} className="is-edge" />
+                  <span>Edge Add-ons</span>
+                  <IconExternalLink size={10} className="is-arrow" />
+                </button>
+
+                <button
+                  type="button"
+                  className="extension-catalog-pill is-unpacked"
+                  disabled={busy !== null}
+                  onClick={() => void handleLoadUnpacked()}
+                  title="Load unpacked extension folder"
+                >
+                  <IconFolder size={12} />
+                  <span>Load unpacked…</span>
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
-        {/* Toolbar & Quick Actions (Desktop only) */}
+        {/* Quick URL Install Form (Desktop Only) */}
         {native && (
           <div className="extension-store-controls">
-            <div className="extension-omni-row">
-              <form className="extension-add-form" onSubmit={handleAddLink}>
-                <div className="extension-input-wrapper">
-                  <IconPuzzlePiece size={15} className="extension-input-icon" />
-                  <input
-                    type="text"
-                    className="extension-search-input"
-                    placeholder="Paste a Chrome Web Store or Edge Add-ons link"
-                    aria-label="Extension link"
-                    value={link}
-                    onChange={(e) => setLink(e.target.value)}
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  {link && (
-                    <button
-                      type="button"
-                      className="extension-input-clear-btn"
-                      onClick={() => setLink('')}
-                      aria-label="Clear link input"
-                    >
-                      <IconX size={13} />
-                    </button>
-                  )}
-                </div>
-                <button
-                  type="submit"
-                  className="extension-install-btn"
-                  disabled={!link.trim() || busy !== null}
-                >
-                  {busy === link.trim() && busy ? (
-                    <span className="extension-btn-spinner-row">
-                      <span className="extension-spinner" />
-                      <span>Adding…</span>
-                    </span>
-                  ) : (
-                    <span>Add</span>
-                  )}
-                </button>
-              </form>
-            </div>
-
-            <div className="extension-add-links">
-              <span className="extension-catalogs-label">Browse</span>
+            <form className="extension-add-form" onSubmit={handleAddLink}>
+              <div className="extension-input-wrapper">
+                <IconPuzzlePiece size={14} className="extension-input-icon" />
+                <input
+                  type="text"
+                  className="extension-search-input"
+                  placeholder="Paste a Chrome Web Store or Edge Add-ons link"
+                  aria-label="Extension link"
+                  value={link}
+                  onChange={(e) => setLink(e.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                {link && (
+                  <button
+                    type="button"
+                    className="extension-input-clear-btn"
+                    onClick={() => setLink('')}
+                    aria-label="Clear link input"
+                  >
+                    <IconX size={12} />
+                  </button>
+                )}
+              </div>
               <button
-                type="button"
-                className="extension-catalog-chip"
-                onClick={() => openStore(CHROME_STORE_URL)}
-                title="Open Chrome Web Store in browser"
+                type="submit"
+                className="extension-install-btn"
+                disabled={!link.trim() || busy !== null}
               >
-                <IconChrome size={13} className="extension-catalog-brand-icon is-chrome" />
-                <span>Chrome Web Store</span>
-                <IconExternalLink size={10} className="extension-catalog-arrow" />
+                {busy === link.trim() && busy ? (
+                  <span className="extension-btn-spinner-row">
+                    <span className="extension-spinner" />
+                    <span>Adding…</span>
+                  </span>
+                ) : (
+                  <span>Add</span>
+                )}
               </button>
-              <button
-                type="button"
-                className="extension-catalog-chip"
-                onClick={() => openStore(EDGE_STORE_URL)}
-                title="Open Edge Add-ons in browser"
-              >
-                <IconEdge size={13} className="extension-catalog-brand-icon is-edge" />
-                <span>Edge Add-ons</span>
-                <IconExternalLink size={10} className="extension-catalog-arrow" />
-              </button>
-              <span className="extension-add-links-sep" aria-hidden="true" />
-              <button
-                type="button"
-                className="extension-catalog-chip is-unpacked"
-                disabled={busy !== null}
-                onClick={() => void handleLoadUnpacked()}
-                title="Load unpacked extension from disk"
-              >
-                <IconFolder size={13} />
-                <span>Load unpacked…</span>
-              </button>
-            </div>
+            </form>
 
             {/* Smart Advisory: Duplicate Ad Blockers */}
-            {blockerCount >= 2 && (
+            {blockerCount >= 2 && !dismissBlockerWarning && (
               <div className="extension-notice is-warn" role="status" data-testid="duplicate-blockers">
                 <div className="extension-notice-icon-box">
-                  <IconAlertTriangle size={15} />
+                  <IconAlertTriangle size={14} />
                 </div>
                 <div className="extension-notice-content">
-                  <div className="extension-notice-headline">Ad Blocker Overlap Detected</div>
+                  <div className="extension-notice-headline">
+                    Multiple ad blockers active ({blockerNames.join(', ')})
+                  </div>
                   <div className="extension-notice-body">
                     {blockerCount} ad blockers are running ({blockerNames.join(', ')}). They do the same job, and each
                     one uses memory. Turn off or remove all but one to keep the browser light.
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className="extension-notice-dismiss"
+                  onClick={() => setDismissBlockerWarning(true)}
+                  aria-label="Dismiss warning"
+                  title="Dismiss tip"
+                >
+                  <IconX size={13} />
+                </button>
               </div>
             )}
 
@@ -423,7 +438,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                 role={notice.kind === 'error' ? 'alert' : 'status'}
               >
                 <div className="extension-notice-icon-box">
-                  {notice.kind === 'error' ? <IconAlertTriangle size={15} /> : <IconCheck size={15} />}
+                  {notice.kind === 'error' ? <IconAlertTriangle size={14} /> : <IconCheck size={14} />}
                 </div>
                 <div className="extension-notice-content">
                   <div className="extension-notice-body">{notice.text}</div>
@@ -444,9 +459,9 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
             ) : installed.length === 0 ? (
               <div className="extension-empty-state">
                 <div className="extension-empty-icon-wrap">
-                  <IconPuzzlePiece size={32} />
+                  <IconPuzzlePiece size={28} />
                 </div>
-                <h4 className="extension-empty-heading">No extensions installed</h4>
+                <h4 className="extension-empty-heading">No extensions installed yet</h4>
                 <p className="extension-empty">
                   No extensions yet. Add one from the Recommended tab, or open a Chrome Web Store page and click Add to HyperStream.
                 </p>
@@ -471,15 +486,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                       {ext.version && <span className="extension-version">v{ext.version}</span>}
                       {ext.store && (
                         <span className={`extension-source is-${ext.store}`}>
-                          {ext.store === 'chrome' ? (
-                            <>
-                              <IconChrome size={10} /> Chrome Web Store
-                            </>
-                          ) : (
-                            <>
-                              <IconEdge size={10} /> Edge Add-ons
-                            </>
-                          )}
+                          {ext.store === 'chrome' ? 'Chrome Web Store' : 'Edge Add-ons'}
                         </span>
                       )}
                       {ext.legacyFormat && (
@@ -594,7 +601,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
         {/* Footer Bar */}
         <footer className="extension-store-footer">
           <div className="extension-store-status-note">
-            <IconLock size={13} className="extension-footer-lock-icon" />
+            <IconLock size={12} className="extension-footer-lock-icon" />
             <span>Installed straight from the Chrome Web Store or Edge Add-ons, and kept up to date.</span>
           </div>
           {native && installed.some((e) => e.store) && (
@@ -605,7 +612,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
               onClick={() => void handleCheckUpdates()}
               title="Check all installed extensions for updates"
             >
-              <IconReload size={13} className={busy === 'updates' ? 'is-spinning' : ''} />
+              <IconReload size={12} className={busy === 'updates' ? 'is-spinning' : ''} />
               <span>{busy === 'updates' ? 'Checking…' : 'Check for updates'}</span>
             </button>
           )}
