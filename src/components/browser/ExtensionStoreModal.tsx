@@ -46,35 +46,35 @@ export const RECOMMENDED_EXTENSIONS: RecommendedExtension[] = [
     name: 'uBlock Origin Lite',
     tagline: 'Light, efficient content blocker. No telemetry.',
     author: 'Raymond Hill',
-    accent: '#800000',
+    accent: '#ef4444',
   },
   {
     storeId: 'bgnkhhnnamicmpeenaelnjfhikgbkllg',
     name: 'AdGuard AdBlocker',
     tagline: 'Blocks ads, trackers and annoyances.',
     author: 'AdGuard Software',
-    accent: '#68BC71',
+    accent: '#10b981',
   },
   {
     storeId: 'mnjggcdmjocbbbhaepdhchncahnbgone',
     name: 'SponsorBlock for YouTube',
     tagline: 'Skips sponsor segments, intros and reminders.',
     author: 'Ajay Ramachandran',
-    accent: '#CC0000',
+    accent: '#f87171',
   },
   {
     storeId: 'eimadpbcbfnmbkopoojfekhnkhdbieeh',
     name: 'Dark Reader',
     tagline: 'Dark mode for every website.',
     author: 'Alexander Shutau',
-    accent: '#1F2430',
+    accent: '#818cf8',
   },
   {
     storeId: 'gebbhagfogifgggkldgodflihgfeippi',
     name: 'Return YouTube Dislike',
     tagline: 'Shows dislike counts on YouTube again.',
     author: 'Return YouTube Dislike',
-    accent: '#2BA640',
+    accent: '#38bdf8',
   },
 ]
 
@@ -94,7 +94,16 @@ interface Notice {
   text: string
 }
 
-function ExtensionIcon({ icon, name, accent }: { icon?: string | null; name: string; accent?: string }) {
+function ExtensionIcon({
+  storeId,
+  icon,
+  name,
+}: {
+  storeId?: string
+  icon?: string | null
+  name: string
+  accent?: string
+}) {
   if (icon) {
     return (
       <div className="extension-avatar-frame">
@@ -102,20 +111,69 @@ function ExtensionIcon({ icon, name, accent }: { icon?: string | null; name: str
       </div>
     )
   }
+
+  // Bespoke iconography tailored to each recommended extension in HyperStream style
+  if (storeId === 'ddkjiahejlhfcafbddmgiahcphecmpfh') {
+    return (
+      <div className="extension-avatar-frame is-ublock" aria-hidden="true">
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      </div>
+    )
+  }
+
+  if (storeId === 'bgnkhhnnamicmpeenaelnjfhikgbkllg') {
+    return (
+      <div className="extension-avatar-frame is-adguard" aria-hidden="true">
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      </div>
+    )
+  }
+
+  if (storeId === 'mnjggcdmjocbbbhaepdhchncahnbgone') {
+    return (
+      <div className="extension-avatar-frame is-sponsorblock" aria-hidden="true">
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="13 19 22 12 13 5 13 19" />
+          <polygon points="2 19 11 12 2 5 2 19" />
+        </svg>
+      </div>
+    )
+  }
+
+  if (storeId === 'eimadpbcbfnmbkopoojfekhnkhdbieeh') {
+    return (
+      <div className="extension-avatar-frame is-darkreader" aria-hidden="true">
+        <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      </div>
+    )
+  }
+
+  if (storeId === 'gebbhagfogifgggkldgodflihgfeippi') {
+    return (
+      <div className="extension-avatar-frame is-dislike" aria-hidden="true">
+        <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 14V2" />
+          <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h-1.5a1.5 1.5 0 0 1-1.5-1.5v-2.38z" />
+        </svg>
+      </div>
+    )
+  }
+
   return (
-    <div
-      className="extension-avatar-frame"
-      style={{
-        background: accent ? `linear-gradient(135deg, ${accent}33, ${accent}12)` : undefined,
-        borderColor: accent ? `${accent}44` : undefined,
-      }}
-      aria-hidden="true"
-    >
-      <div className="extension-avatar" style={{ background: accent ?? '#334155' }}>
+    <div className="extension-avatar-frame" aria-hidden="true">
+      <div className="extension-avatar">
         {name ? (
           <span className="extension-avatar-letter">{name.charAt(0).toUpperCase()}</span>
         ) : (
-          <IconPuzzlePiece size={14} color="#ffffff" />
+          <IconPuzzlePiece size={16} />
         )}
       </div>
     </div>
@@ -281,25 +339,16 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
         {/* Header Bar */}
         <header className="extension-store-header">
           <div className="extension-store-header-top">
-            <div className="extension-store-title-group">
-              <div className="extension-store-brand-icon">
-                <IconPuzzlePiece size={15} />
+            <div className="extension-store-header-brand">
+              <div className="extension-store-lion-badge">
+                <IconPuzzlePiece size={18} />
               </div>
-              <div className="extension-store-title-text">
-                <div className="extension-store-title-row">
-                  <h2 className="extension-store-title">Extensions</h2>
-                  {native && (
-                    <span className="extension-store-count-badge">
-                      <span className="extension-store-count-dot" />
-                      {installed.length} installed
-                    </span>
-                  )}
+              <div className="extension-store-header-titles">
+                <h3 className="extension-store-title">Extensions</h3>
+                <div className={`extension-store-status-subtitle ${installed.length > 0 ? 'is-up' : 'is-idle'}`}>
+                  <span className="extension-store-status-dot" />
+                  <span>{installed.length === 0 ? 'No extensions installed' : `${installed.length} active`}</span>
                 </div>
-                {!native && (
-                  <p className="extension-store-subtitle">
-                    Extensions are available in the desktop app.
-                  </p>
-                )}
               </div>
             </div>
 
@@ -310,9 +359,15 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
               aria-label="Close extensions"
               title="Close (Esc)"
             >
-              <IconX size={13} />
+              <IconX size={14} />
             </button>
           </div>
+
+          {!native && (
+            <p className="extension-store-subtitle">
+              Extensions are available in the desktop app.
+            </p>
+          )}
 
           {/* Navigation Bar: Segmented Tabs */}
           <div className="extension-store-tabs" role="tablist">
@@ -398,7 +453,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                   <div className="extension-empty-icon-wrap">
                     <IconPuzzlePiece size={24} />
                   </div>
-                  <h4 className="extension-empty-heading">No extensions installed yet</h4>
+                  <h4 className="extension-empty-heading">No extensions installed</h4>
                   <p className="extension-empty">
                     Add recommended extensions or browse the Chrome Web Store.
                   </p>
@@ -489,19 +544,16 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                 const added = isInstalled(ext.storeId)
                 return (
                   <div key={ext.storeId} className={`extension-card extension-recommended-row ${added ? 'is-installed' : ''}`}>
-                    <div className="extension-card-top">
-                      <ExtensionIcon
-                        icon={installed.find((e) => e.storeId === ext.storeId || e.id === ext.storeId)?.icon}
-                        name={ext.name}
-                        accent={ext.accent}
-                      />
-                      <div className="extension-meta">
-                        <div className="extension-card-title-row">
-                          <h3 className="extension-name">{ext.name}</h3>
-                          <span className="extension-author">by {ext.author}</span>
-                        </div>
-                        <span className="extension-tagline">{ext.tagline}</span>
-                      </div>
+                    <ExtensionIcon
+                      storeId={ext.storeId}
+                      icon={installed.find((e) => e.storeId === ext.storeId || e.id === ext.storeId)?.icon}
+                      name={ext.name}
+                      accent={ext.accent}
+                    />
+                    <div className="extension-meta">
+                      <h3 className="extension-name" title={ext.name}>{ext.name}</h3>
+                      <span className="extension-tagline">{ext.tagline}</span>
+                      <span className="extension-author">by {ext.author}</span>
                     </div>
                     <div className="extension-card-actions">
                       <button
@@ -547,7 +599,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
               title="Open Chrome Web Store in browser"
             >
               <IconChrome size={12} className="is-chrome" />
-              <span>Chrome Store</span>
+              <span>Chrome Web Store</span>
               <IconExternalLink size={10} className="is-arrow" />
             </button>
 
@@ -571,7 +623,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                 title="Load unpacked extension folder"
               >
                 <IconFolder size={12} />
-                <span>Unpacked…</span>
+                <span>Load unpacked…</span>
               </button>
             )}
           </div>
