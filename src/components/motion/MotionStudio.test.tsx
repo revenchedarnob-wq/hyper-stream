@@ -23,6 +23,7 @@ describe('MotionStudio Component Suite', () => {
     expect(html).toContain('HyperStream Motion Graphics Studio')
     expect(html).toContain('Forensic Engine')
     expect(html).toContain('Master AI Generation Prompt')
+    expect(html).toContain('Custom Logo')
     expect(html).toContain('9:16 Reel (Creator Format)')
     expect(html).toContain('16:9 Cinematic')
     expect(html).toContain('0.00s (Identity)')
