@@ -1,5 +1,5 @@
-/* HyperStream Modern Extension Flyout (Obsidian & Wallpaper-Harmonized Frosted Glass)
-   Harmonizes seamlessly with ShieldsPopover, Omnibar dropdown, and active wallpaper themes. */
+/* HyperStream Modern Extension Flyout (True Translucent Frosted Glass)
+   100% matched to the app's transparent optical glass, wallpaper refraction & environmental tokens. */
 
 .extension-store-backdrop,
 .extension-store-overlay {
@@ -23,19 +23,19 @@
   display: flex;
   flex-direction: column;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 40%, transparent 80%),
-    color-mix(in srgb, var(--surface-level-2, rgba(25, 20, 35, 0.2)) 45%, rgba(16, 18, 28, 0.88));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
-  border-top: 1.5px solid var(--border-specular-top, rgba(255, 255, 255, 0.45));
-  border-left: 1px solid var(--env-specular-side, rgba(255, 255, 255, 0.22));
-  border-radius: var(--radius-xl, 18px);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 45%, rgba(0, 0, 0, 0.12) 100%),
+    color-mix(in srgb, var(--surface-level-2) 65%, rgba(12, 16, 28, 0.48));
+  border: 1px solid var(--border-normal, rgba(255, 255, 255, 0.18));
+  border-top: 1.5px solid var(--border-specular-top, rgba(255, 255, 255, 0.65));
+  border-left: 1px solid var(--env-specular-side, rgba(255, 255, 255, 0.30));
+  border-radius: var(--radius-xl, 20px);
   box-shadow:
-    0 32px 70px -12px rgba(0, 0, 0, 0.65),
-    0 12px 28px -6px rgba(0, 0, 0, 0.40),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 0 0 1px rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(36px) saturate(140%) brightness(103%);
-  -webkit-backdrop-filter: blur(36px) saturate(140%) brightness(103%);
+    0 28px 65px -10px rgba(0, 0, 0, 0.40),
+    0 12px 28px -5px rgba(0, 0, 0, 0.25),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(36px) saturate(140%) brightness(104%);
+  -webkit-backdrop-filter: blur(36px) saturate(140%) brightness(104%);
   z-index: 9999;
   overflow: hidden;
   animation: ext-flyout-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -59,14 +59,15 @@
 [data-wallpaper-theme="light"] .extension-store-modal,
 [data-wallpaper-theme="light"] .extension-store-flyout {
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(245, 248, 255, 0.90) 100%);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-top: 1.5px solid rgba(255, 255, 255, 0.95);
-  border-left: 1px solid rgba(255, 255, 255, 0.75);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.40) 100%),
+    color-mix(in srgb, var(--surface-level-2) 50%, rgba(255, 255, 255, 0.50));
+  border: 1px solid rgba(255, 255, 255, 0.60);
+  border-top: 1.5px solid #ffffff;
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
   box-shadow:
-    0 24px 50px -10px rgba(0, 0, 0, 0.16),
-    0 10px 20px -4px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    0 24px 50px -10px rgba(0, 0, 0, 0.10),
+    0 10px 20px -4px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 #ffffff;
   color: #0f172a;
 }
 
@@ -89,13 +90,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 13px 16px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
   gap: var(--space-2, 8px);
 }
 
 [data-wallpaper-theme="light"] .extension-store-header {
-  background: rgba(255, 255, 255, 0.50);
+  background: rgba(255, 255, 255, 0.35);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
@@ -113,9 +114,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-top: 1px solid rgba(255, 255, 255, 0.28);
+  background: var(--surface-control, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.30));
   color: var(--color-brand-primary, #818cf8);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
   flex-shrink: 0;
@@ -181,8 +182,8 @@
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-control, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
   color: var(--color-text-tertiary, #94a3b8);
   cursor: pointer;
   display: flex;
@@ -193,8 +194,8 @@
 }
 
 .extension-store-close-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.20);
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.15));
+  border-color: var(--border-normal, rgba(255, 255, 255, 0.22));
   color: var(--color-text-primary, #ffffff);
   transform: scale(1.04);
 }
@@ -235,8 +236,8 @@
 }
 
 .extension-notice.is-warn {
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.30);
   color: #fef3c7;
 }
 
@@ -247,8 +248,8 @@
 }
 
 .extension-notice.is-error {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.32);
   color: #fee2e2;
 }
 
@@ -259,8 +260,8 @@
 }
 
 .extension-notice.is-ok {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.32);
   color: #d1fae5;
 }
 
@@ -331,12 +332,12 @@
 }
 
 .extension-store-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 3px;
 }
 
 .extension-store-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 [data-wallpaper-theme="light"] .extension-store-body::-webkit-scrollbar-thumb {
@@ -357,40 +358,40 @@
   gap: 12px;
   padding: 10px 14px;
   border-radius: var(--radius-lg, 12px);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.18));
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
+  background: var(--surface-level-3, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
+  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.22));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   transition: all var(--duration-fast, 120ms) var(--ease-out);
 }
 
 .extension-row:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.14);
-  border-top-color: rgba(255, 255, 255, 0.26);
+  background: var(--surface-level-3-hover, rgba(255, 255, 255, 0.14));
+  border-color: var(--border-normal, rgba(255, 255, 255, 0.18));
+  border-top-color: var(--border-specular-top, rgba(255, 255, 255, 0.35));
   transform: translateY(-0.5px);
 }
 
 .extension-row.is-off {
-  opacity: 0.52;
-  background: rgba(255, 255, 255, 0.02);
-  border-color: rgba(255, 255, 255, 0.04);
+  opacity: 0.50;
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.05);
 }
 
 .extension-row.is-off:hover {
-  opacity: 0.82;
-  background: rgba(255, 255, 255, 0.05);
+  opacity: 0.80;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 [data-wallpaper-theme="light"] .extension-row {
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.55);
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-top: 1px solid rgba(255, 255, 255, 0.95);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
 }
 
 [data-wallpaper-theme="light"] .extension-row:hover {
-  background: rgba(255, 255, 255, 0.90);
+  background: rgba(255, 255, 255, 0.80);
   border-color: rgba(0, 0, 0, 0.12);
 }
 
@@ -407,12 +408,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.28));
   flex-shrink: 0;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 [data-wallpaper-theme="light"] .extension-icon-frame {
@@ -499,8 +500,8 @@
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-control, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
   color: var(--color-text-tertiary, #94a3b8);
   cursor: pointer;
   display: flex;
@@ -511,15 +512,15 @@
 }
 
 .extension-action-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.10);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.15));
+  border-color: var(--border-normal, rgba(255, 255, 255, 0.22));
   color: var(--color-text-primary, #ffffff);
 }
 
 .extension-action-btn.is-remove:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #f87171;
+  background: rgba(239, 68, 68, 0.20);
+  border-color: rgba(239, 68, 68, 0.40);
+  color: #fca5a5;
 }
 
 .extension-action-btn:disabled {
@@ -543,8 +544,8 @@
   width: 36px;
   height: 20px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.20);
   position: relative;
   cursor: pointer;
   transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -554,14 +555,14 @@
 }
 
 .extension-switch-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.30);
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.32);
 }
 
 .extension-switch-btn.is-active {
   background: var(--color-brand-primary, #6366f1);
-  border-color: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--color-brand-primary, #6366f1) 45%, transparent);
+  border-color: rgba(255, 255, 255, 0.40);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-brand-primary, #6366f1) 50%, transparent);
 }
 
 [data-wallpaper-theme="light"] .extension-switch-btn {
@@ -613,9 +614,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--surface-control, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
+  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.24));
   color: var(--color-text-tertiary, #94a3b8);
   margin-bottom: 4px;
 }
@@ -665,17 +666,17 @@
   border-radius: 8px;
   font-size: 11px;
   font-weight: 500;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--surface-control, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.22));
   color: var(--color-text-secondary, #e2e8f0);
   cursor: pointer;
   transition: all var(--duration-fast, 120ms) var(--ease-out);
 }
 
 .extension-empty-catalog-btn:hover {
-  background: rgba(255, 255, 255, 0.10);
-  border-color: rgba(255, 255, 255, 0.20);
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.14));
+  border-color: var(--border-normal, rgba(255, 255, 255, 0.22));
   color: #ffffff;
   transform: translateY(-1px);
 }
@@ -718,7 +719,7 @@
 /* Streamlined Footer Bar */
 .extension-store-footer {
   padding: 10px 14px 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
   border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
   display: flex;
   flex-direction: column;
@@ -726,7 +727,7 @@
 }
 
 [data-wallpaper-theme="light"] .extension-store-footer {
-  background: rgba(255, 255, 255, 0.50);
+  background: rgba(255, 255, 255, 0.35);
   border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
@@ -741,16 +742,16 @@
   flex: 1;
   height: 30px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md, 8px);
   font-size: 11.5px;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  background: var(--surface-control, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
+  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.20));
   color: var(--color-text-secondary, #cbd5e1);
   cursor: pointer;
   transition: all var(--duration-fast, 120ms) var(--ease-out);
@@ -758,14 +759,14 @@
 }
 
 .extension-footer-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.15));
+  border-color: var(--border-normal, rgba(255, 255, 255, 0.20));
   color: var(--color-text-primary, #ffffff);
   transform: translateY(-0.5px);
 }
 
 .extension-footer-btn.is-active {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--surface-control-active, rgba(255, 255, 255, 0.22));
   border-color: var(--color-brand-primary, #818cf8);
   color: #ffffff;
 }
@@ -822,10 +823,10 @@
 .extension-input-wrapper {
   flex: 1;
   height: 30px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-md, 8px);
+  background: var(--surface-control, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.24));
   display: flex;
   align-items: center;
   padding: 0 8px;
@@ -834,7 +835,7 @@
 }
 
 .extension-input-wrapper:focus-within {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.12));
   border-color: var(--color-brand-primary, #6366f1);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand-primary, #6366f1) 25%, transparent);
 }
@@ -893,7 +894,7 @@
 .extension-install-btn.is-compact {
   height: 30px;
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md, 8px);
   font-size: 11.5px;
   font-weight: 600;
   background: var(--color-brand-primary, #6366f1);
