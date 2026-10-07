@@ -1486,6 +1486,22 @@
   overflow: hidden;
   padding: 0;
   box-sizing: border-box;
+  transition: filter var(--duration-normal, 200ms) cubic-bezier(0.16, 1, 0.3, 1),
+              opacity var(--duration-normal, 200ms) cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.browser-content-area.is-panel-open {
+  filter: blur(14px) brightness(0.92);
+  user-select: none;
+}
+
+[data-wallpaper-theme="light"] .browser-content-area.is-panel-open {
+  filter: blur(14px) brightness(0.96);
+}
+
+.window-container.potato-mode .browser-content-area.is-panel-open {
+  filter: none !important;
+  opacity: 0.60 !important;
 }
 
 .browser-speed-dial-overlay {

@@ -1,0 +1,670 @@
+/* =========================================================================
+   HYPERSTREAM MOTION STUDIO - ELITE OBSIDIAN & REEL STYLING
+   ========================================================================= */
+
+.hs-motion-studio {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background-color: #07080c;
+  color: #f1f5f9;
+  font-family: 'Plus Jakarta Sans Variable', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Studio Header / Toolbar */
+.hs-ms-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: rgba(14, 16, 23, 0.7);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.12);
+  z-index: 30;
+  flex-shrink: 0;
+}
+
+.hs-ms-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hs-ms-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #38bdf8;
+  text-transform: uppercase;
+}
+
+.hs-ms-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  margin: 0;
+}
+
+.hs-ms-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hs-ms-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hs-ms-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(56, 189, 248, 0.3);
+  color: #ffffff;
+}
+
+.hs-ms-btn.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.hs-ms-btn-primary {
+  background: linear-gradient(135deg, #0284c7 0%, #6366f1 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.25);
+}
+
+.hs-ms-btn-primary:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+}
+
+/* Studio Main Stage */
+.hs-ms-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: auto;
+  padding: 24px;
+  background: radial-gradient(circle at center, #0e111a 0%, #050608 100%);
+}
+
+/* 9:16 Reel Viewport Container */
+.hs-ms-viewport-9-16 {
+  width: 405px;
+  height: 720px;
+  position: relative;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  background: #f4f3ee;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 16:9 Cinematic Viewport Container */
+.hs-ms-viewport-16-9 {
+  width: 1000px;
+  height: 562.5px;
+  max-width: 95%;
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(56, 189, 248, 0.2);
+  background: #07080c;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Vertical Reel Canvas Components (Matching Creator Style) */
+.hs-reel-canvas {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background-color: #f6f5f1;
+  background-image: 
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 20px 20px;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+/* Decorative Organic Silhouettes */
+.hs-leaf-tl {
+  position: absolute;
+  top: -15px;
+  left: -20px;
+  width: 110px;
+  height: 110px;
+  opacity: 0.85;
+  pointer-events: none;
+  filter: blur(0.5px);
+}
+
+.hs-leaf-bl {
+  position: absolute;
+  bottom: -20px;
+  left: -20px;
+  width: 100px;
+  height: 100px;
+  opacity: 0.85;
+  pointer-events: none;
+  filter: blur(0.5px);
+}
+
+/* Reel Card Panels */
+.hs-reel-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  justify-content: center;
+}
+
+.hs-reel-card-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hs-reel-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.hs-reel-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.hs-pill-ae {
+  background: #00005b;
+  color: #9999ff;
+  border: 1px solid rgba(153, 153, 255, 0.3);
+}
+
+.hs-pill-gemini {
+  background: linear-gradient(135deg, #4285f4 0%, #ea4335 100%);
+  color: #ffffff;
+}
+
+.hs-reel-card-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #111111;
+  letter-spacing: -0.01em;
+}
+
+.hs-reel-screen-window {
+  width: 100%;
+  height: 200px;
+  background: #07080c;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+/* Card comparison bottom viral CTA */
+.hs-reel-footer-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: auto;
+  padding-bottom: 8px;
+  text-align: center;
+}
+
+.hs-reel-cta-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #111111;
+  margin: 0;
+}
+
+.hs-reel-cta-highlight {
+  position: relative;
+  display: inline-block;
+  font-weight: 900;
+  color: #000000;
+}
+
+.hs-reel-cta-highlight::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -3px;
+  width: 100%;
+  height: 2px;
+  background: #111111;
+  border-radius: 2px;
+}
+
+.hs-reel-cta-subtitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4b5563;
+  margin-top: 4px;
+}
+
+/* =========================================================================
+   ANIMATED SCREEN CHOREOGRAPHY (OBSIDIAN COMPUTING ENVIRONMENT)
+   ========================================================================= */
+
+.hs-screen-content {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #07080c;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Ambient Horizon Glow */
+.hs-ambient-glow {
+  position: absolute;
+  bottom: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120%;
+  height: 120px;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(40px);
+  opacity: 0.65;
+  transition: background 0.5s ease;
+}
+
+.hs-glow-cyan {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.5) 0%, rgba(99, 102, 241, 0.25) 50%, transparent 80%);
+}
+
+.hs-glow-indigo {
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.6) 0%, rgba(168, 85, 247, 0.25) 50%, transparent 80%);
+}
+
+.hs-glow-crimson {
+  background: radial-gradient(circle, rgba(225, 29, 72, 0.6) 0%, rgba(244, 63, 94, 0.25) 50%, transparent 80%);
+}
+
+/* Floating Brand Lockup (Top-Left or Center) */
+.hs-motion-brand-lockup {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 10;
+}
+
+.hs-brand-center {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(1.3);
+}
+
+.hs-brand-top-left {
+  top: 18px;
+  left: 20px;
+  transform: translate(0, 0) scale(1);
+}
+
+.hs-motion-glyph {
+  width: 32px;
+  height: 32px;
+  filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.5));
+}
+
+.hs-motion-wordmark {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  text-transform: uppercase;
+}
+
+/* Floating Omnibar Pill */
+.hs-motion-omnibar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 82%;
+  max-width: 440px;
+  height: 44px;
+  padding: 0 10px 0 14px;
+  border-radius: 9999px;
+  background: rgba(18, 22, 34, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px);
+  z-index: 10;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hs-omnibar-input-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  color: #e2e8f0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.hs-omnibar-icon {
+  color: #38bdf8;
+  flex-shrink: 0;
+}
+
+.hs-caret {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: #38bdf8;
+  margin-left: 2px;
+  animation: hsBlink 1s infinite steps(1);
+}
+
+@keyframes hsBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.hs-motion-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  background: #38bdf8;
+  color: #07080c;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+}
+
+.hs-motion-action-btn.hovered {
+  filter: brightness(1.15);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.7);
+}
+
+.hs-motion-action-btn.clicked {
+  transform: scale(0.94);
+  filter: brightness(0.9);
+}
+
+/* Kinetic Cursor */
+.hs-motion-cursor {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  z-index: 25;
+  transition: transform 0.05s linear;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+/* Telemetry Status HUD Panel */
+.hs-motion-status-panel {
+  position: absolute;
+  width: 86%;
+  max-width: 480px;
+  border-radius: 14px;
+  background: rgba(14, 18, 28, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(20px);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 10;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hs-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hs-status-heading {
+  font-size: 12px;
+  font-weight: 700;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.hs-status-latency-badge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.hs-status-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hs-status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hs-status-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.hs-status-progress-track {
+  width: 100%;
+  height: 5px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.hs-status-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #4ade80);
+  border-radius: 9999px;
+  transition: width 0.1s linear;
+}
+
+/* Resolution Stream Display */
+.hs-stream-resolution-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-size: cover;
+  background-position: center;
+  z-index: 15;
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hs-stream-overlay-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: 9999px;
+  background: rgba(7, 8, 12, 0.7);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  letter-spacing: -0.01em;
+}
+
+/* =========================================================================
+   BOTTOM SCRUBBER & CONTROLS DOCK
+   ========================================================================= */
+
+.hs-ms-footer-timeline {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 24px;
+  background: rgba(14, 16, 23, 0.85);
+  backdrop-filter: blur(24px);
+  border-top: 1px solid rgba(56, 189, 248, 0.12);
+  gap: 10px;
+  z-index: 30;
+  flex-shrink: 0;
+}
+
+.hs-ms-timeline-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hs-ms-timeline-progress {
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8 0%, #818cf8 100%);
+  border-radius: 9999px;
+  position: relative;
+}
+
+.hs-ms-timeline-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+  border: 2px solid #38bdf8;
+}
+
+.hs-ms-timeline-indicators {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.hs-ms-playback-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hs-ms-timecode {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Prompt Export Modal */
+.hs-ms-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
+
+.hs-ms-modal-card {
+  width: 100%;
+  max-width: 680px;
+  max-height: 85vh;
+  background: #0f121a;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.hs-ms-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hs-ms-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #cbd5e1;
+  background: #07080c;
+  white-space: pre-wrap;
+}

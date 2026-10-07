@@ -10,9 +10,11 @@ import { StreamHub } from './components/stream-hub/StreamHub'
 const loadLibrary = () => import('./components/media-library/MediaLibrary')
 const loadSettings = () => import('./components/settings/Settings')
 const loadBrowser = () => import('./components/browser/InAppBrowser')
+const loadMotion = () => import('./components/motion/MotionStudio')
 const MediaLibrary = lazy(() => loadLibrary().then((m) => ({ default: m.MediaLibrary })))
 const Settings = lazy(() => loadSettings().then((m) => ({ default: m.Settings })))
 const InAppBrowser = lazy(() => loadBrowser().then((m) => ({ default: m.InAppBrowser })))
+const MotionStudio = lazy(() => loadMotion().then((m) => ({ default: m.MotionStudio })))
 // First run only: offers to add the browser extension. Loaded after startup has settled.
 const ExtensionPrompt = lazy(() => import('./components/extension/ExtensionSetup'))
 import { IconCompass } from './components/browser/Icons'
@@ -21,6 +23,7 @@ import {
   IconSparkles,
   IconFilm,
   IconCpu,
+  IconPlay,
 } from './components/stream-hub/Icons'
 import {
   playHapticClick,
@@ -59,6 +62,7 @@ const NAV_ITEMS = [
   { id: 'hub', label: 'Stream Hub', icon: IconSparkles },
   { id: 'browser', label: 'Browser', icon: IconCompass },
   { id: 'library', label: 'Media Library', icon: IconFilm },
+  { id: 'motion', label: 'Motion Studio', icon: IconPlay },
   { id: 'settings', label: 'Settings', icon: IconCpu },
 ]
 
@@ -932,6 +936,13 @@ export default function App() {
             <div key="library" className="hub-view-container jelly-content">
               <Suspense fallback={null}>
                 <MediaLibrary />
+              </Suspense>
+            </div>
+          )}
+          {activeNav === 'motion' && (
+            <div key="motion" className="hub-view-container jelly-content" style={{ padding: 0, height: '100%', overflow: 'hidden' }}>
+              <Suspense fallback={null}>
+                <MotionStudio />
               </Suspense>
             </div>
           )}

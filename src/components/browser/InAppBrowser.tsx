@@ -608,7 +608,7 @@ export function InAppBrowser({
         onToggleSaved={toggleSaved}
       />
 
-      <main className="browser-content-area">
+      <main className={`browser-content-area ${isPanelOpen ? 'is-panel-open' : ''}`}>
         <FindInPageBar
           isOpen={isFindOpen}
           onClose={handleCloseFind}
