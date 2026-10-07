@@ -1,5 +1,5 @@
-/* HyperStream Modern Extension Flyout (True Translucent Frosted Glass)
-   100% matched to the app's transparent optical glass, wallpaper refraction & environmental tokens. */
+/* HyperStream Modern Extension Flyout (Pure Translucent Frosted Optical Glass)
+   100% transparent blurred glass matching the window container and wallpaper refraction. */
 
 .extension-store-backdrop,
 .extension-store-overlay {
@@ -23,19 +23,18 @@
   display: flex;
   flex-direction: column;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 45%, rgba(0, 0, 0, 0.12) 100%),
-    color-mix(in srgb, var(--surface-level-2) 65%, rgba(12, 16, 28, 0.48));
-  border: 1px solid var(--border-normal, rgba(255, 255, 255, 0.18));
-  border-top: 1.5px solid var(--border-specular-top, rgba(255, 255, 255, 0.65));
-  border-left: 1px solid var(--env-specular-side, rgba(255, 255, 255, 0.30));
+    linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.03) 40%, rgba(255, 255, 255, 0.01) 100%),
+    rgba(18, 16, 26, 0.28) !important;
+  backdrop-filter: blur(32px) saturate(140%) brightness(105%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(140%) brightness(105%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-top: 1.5px solid rgba(255, 255, 255, 0.55) !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.28) !important;
   border-radius: var(--radius-xl, 20px);
   box-shadow:
-    0 28px 65px -10px rgba(0, 0, 0, 0.40),
-    0 12px 28px -5px rgba(0, 0, 0, 0.25),
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.35),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(36px) saturate(140%) brightness(104%);
-  -webkit-backdrop-filter: blur(36px) saturate(140%) brightness(104%);
+    0 24px 50px -12px rgba(0, 0, 0, 0.35),
+    0 8px 20px -4px rgba(0, 0, 0, 0.20),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.40);
   z-index: 9999;
   overflow: hidden;
   animation: ext-flyout-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -59,29 +58,18 @@
 [data-wallpaper-theme="light"] .extension-store-modal,
 [data-wallpaper-theme="light"] .extension-store-flyout {
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.40) 100%),
-    color-mix(in srgb, var(--surface-level-2) 50%, rgba(255, 255, 255, 0.50));
-  border: 1px solid rgba(255, 255, 255, 0.60);
-  border-top: 1.5px solid #ffffff;
-  border-left: 1px solid rgba(255, 255, 255, 0.85);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.35) 100%),
+    rgba(255, 255, 255, 0.30) !important;
+  backdrop-filter: blur(32px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(140%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.60) !important;
+  border-top: 1.5px solid #ffffff !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.85) !important;
   box-shadow:
-    0 24px 50px -10px rgba(0, 0, 0, 0.10),
-    0 10px 20px -4px rgba(0, 0, 0, 0.05),
+    0 20px 40px -10px rgba(0, 0, 0, 0.10),
+    0 6px 16px -4px rgba(0, 0, 0, 0.05),
     inset 0 1px 0 #ffffff;
   color: #0f172a;
-}
-
-/* Potato Mode Fallback Layer (Zero Nested GPU Blurs) */
-.window-container.potato-mode .extension-store-modal,
-.window-container.potato-mode .extension-store-flyout {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  background: #12172a !important;
-}
-
-.window-container.potato-mode[data-wallpaper-theme="light"] .extension-store-modal,
-.window-container.potato-mode[data-wallpaper-theme="light"] .extension-store-flyout {
-  background: #ffffff !important;
 }
 
 /* Header Area */
@@ -91,7 +79,7 @@
   justify-content: space-between;
   padding: 13px 16px;
   background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
   gap: var(--space-2, 8px);
 }
 
@@ -114,11 +102,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-control, rgba(255, 255, 255, 0.08));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.30));
-  color: var(--color-brand-primary, #818cf8);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 1px solid rgba(255, 255, 255, 0.30);
+  color: var(--color-brand-primary, #fb7185);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
   flex-shrink: 0;
 }
 
@@ -126,7 +114,7 @@
   background: rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-top: 1px solid rgba(255, 255, 255, 0.9);
-  color: #4f46e5;
+  color: var(--color-brand-primary, #4f46e5);
 }
 
 .extension-store-header-titles {
@@ -153,8 +141,9 @@
 .extension-store-count-badge {
   font-size: 11px;
   font-weight: 500;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary, #cbd5e1);
   letter-spacing: -0.01em;
+  opacity: 0.85;
 }
 
 [data-wallpaper-theme="light"] .extension-store-count-badge {
@@ -169,7 +158,7 @@
 
 .extension-store-subtitle {
   font-size: 11px;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary, #cbd5e1);
   margin: 0;
   line-height: 1.4;
 }
@@ -182,9 +171,9 @@
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: var(--surface-control, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
-  color: var(--color-text-tertiary, #94a3b8);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--color-text-tertiary, #cbd5e1);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -194,8 +183,8 @@
 }
 
 .extension-store-close-btn:hover {
-  background: var(--surface-control-hover, rgba(255, 255, 255, 0.15));
-  border-color: var(--border-normal, rgba(255, 255, 255, 0.22));
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
   color: var(--color-text-primary, #ffffff);
   transform: scale(1.04);
 }
@@ -236,8 +225,8 @@
 }
 
 .extension-notice.is-warn {
-  background: rgba(245, 158, 11, 0.16);
-  border: 1px solid rgba(245, 158, 11, 0.30);
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.35);
   color: #fef3c7;
 }
 
@@ -248,8 +237,8 @@
 }
 
 .extension-notice.is-error {
-  background: rgba(239, 68, 68, 0.16);
-  border: 1px solid rgba(239, 68, 68, 0.32);
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.35);
   color: #fee2e2;
 }
 
@@ -260,8 +249,8 @@
 }
 
 .extension-notice.is-ok {
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.32);
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.35);
   color: #d1fae5;
 }
 
@@ -332,12 +321,12 @@
 }
 
 .extension-store-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.20);
   border-radius: 3px;
 }
 
 .extension-store-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.32);
 }
 
 [data-wallpaper-theme="light"] .extension-store-body::-webkit-scrollbar-thumb {
@@ -351,36 +340,36 @@
   gap: 7px;
 }
 
-/* Row Item */
+/* Row Item - Translucent Frosted Glass Card */
 .extension-row {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
   border-radius: var(--radius-lg, 12px);
-  background: var(--surface-level-3, rgba(255, 255, 255, 0.08));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.22));
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   transition: all var(--duration-fast, 120ms) var(--ease-out);
 }
 
 .extension-row:hover {
-  background: var(--surface-level-3-hover, rgba(255, 255, 255, 0.14));
-  border-color: var(--border-normal, rgba(255, 255, 255, 0.18));
-  border-top-color: var(--border-specular-top, rgba(255, 255, 255, 0.35));
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.18);
+  border-top-color: rgba(255, 255, 255, 0.35);
   transform: translateY(-0.5px);
 }
 
 .extension-row.is-off {
   opacity: 0.50;
   background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .extension-row.is-off:hover {
   opacity: 0.80;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 [data-wallpaper-theme="light"] .extension-row {
@@ -409,8 +398,8 @@
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.28));
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 1px solid rgba(255, 255, 255, 0.28);
   flex-shrink: 0;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
@@ -435,7 +424,7 @@
 }
 
 .extension-icon-frame.is-fallback {
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary, #cbd5e1);
 }
 
 /* Extension Metadata */
@@ -471,11 +460,12 @@
 
 .extension-tagline {
   font-size: 11.5px;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary, #cbd5e1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.35;
+  opacity: 0.85;
 }
 
 [data-wallpaper-theme="light"] .extension-tagline {
@@ -500,9 +490,9 @@
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: var(--surface-control, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
-  color: var(--color-text-tertiary, #94a3b8);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--color-text-tertiary, #cbd5e1);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -512,14 +502,14 @@
 }
 
 .extension-action-btn:hover:not(:disabled) {
-  background: var(--surface-control-hover, rgba(255, 255, 255, 0.15));
-  border-color: var(--border-normal, rgba(255, 255, 255, 0.22));
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
   color: var(--color-text-primary, #ffffff);
 }
 
 .extension-action-btn.is-remove:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.20);
-  border-color: rgba(239, 68, 68, 0.40);
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.45);
   color: #fca5a5;
 }
 
@@ -539,13 +529,13 @@
   color: #0f172a;
 }
 
-/* Toggle Switch (Tuned to Brand Accent) */
+/* Toggle Switch */
 .extension-switch-btn {
   width: 36px;
   height: 20px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   position: relative;
   cursor: pointer;
   transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -555,14 +545,14 @@
 }
 
 .extension-switch-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.24);
-  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .extension-switch-btn.is-active {
-  background: var(--color-brand-primary, #6366f1);
-  border-color: rgba(255, 255, 255, 0.40);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--color-brand-primary, #6366f1) 50%, transparent);
+  background: var(--color-brand-primary, #fb7185);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-brand-primary, #fb7185) 60%, transparent);
 }
 
 [data-wallpaper-theme="light"] .extension-switch-btn {
@@ -584,7 +574,7 @@
   top: 2px;
   left: 2px;
   transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .extension-switch-btn.is-active .extension-switch-knob {
@@ -614,10 +604,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-control, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.24));
-  color: var(--color-text-tertiary, #94a3b8);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  color: var(--color-text-tertiary, #cbd5e1);
   margin-bottom: 4px;
 }
 
@@ -640,7 +630,7 @@
 
 .extension-empty {
   font-size: 11.5px;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary, #cbd5e1);
   max-width: 280px;
   line-height: 1.45;
   margin: 0;
@@ -666,17 +656,17 @@
   border-radius: 8px;
   font-size: 11px;
   font-weight: 500;
-  background: var(--surface-control, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.22));
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
   color: var(--color-text-secondary, #e2e8f0);
   cursor: pointer;
   transition: all var(--duration-fast, 120ms) var(--ease-out);
 }
 
 .extension-empty-catalog-btn:hover {
-  background: var(--surface-control-hover, rgba(255, 255, 255, 0.14));
-  border-color: var(--border-normal, rgba(255, 255, 255, 0.22));
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
   color: #ffffff;
   transform: translateY(-1px);
 }
@@ -720,7 +710,7 @@
 .extension-store-footer {
   padding: 10px 14px 12px;
   background: rgba(255, 255, 255, 0.03);
-  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -749,9 +739,9 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  background: var(--surface-control, rgba(255, 255, 255, 0.08));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.20));
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
   color: var(--color-text-secondary, #cbd5e1);
   cursor: pointer;
   transition: all var(--duration-fast, 120ms) var(--ease-out);
@@ -759,15 +749,15 @@
 }
 
 .extension-footer-btn:hover:not(:disabled) {
-  background: var(--surface-control-hover, rgba(255, 255, 255, 0.15));
-  border-color: var(--border-normal, rgba(255, 255, 255, 0.20));
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
   color: var(--color-text-primary, #ffffff);
   transform: translateY(-0.5px);
 }
 
 .extension-footer-btn.is-active {
-  background: var(--surface-control-active, rgba(255, 255, 255, 0.22));
-  border-color: var(--color-brand-primary, #818cf8);
+  background: rgba(255, 255, 255, 0.20);
+  border-color: var(--color-brand-primary, #fb7185);
   color: #ffffff;
 }
 
@@ -824,9 +814,9 @@
   flex: 1;
   height: 30px;
   border-radius: var(--radius-md, 8px);
-  background: var(--surface-control, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
-  border-top: 1px solid var(--border-specular-top, rgba(255, 255, 255, 0.24));
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 1px solid rgba(255, 255, 255, 0.28);
   display: flex;
   align-items: center;
   padding: 0 8px;
@@ -835,9 +825,9 @@
 }
 
 .extension-input-wrapper:focus-within {
-  background: var(--surface-control-hover, rgba(255, 255, 255, 0.12));
-  border-color: var(--color-brand-primary, #6366f1);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand-primary, #6366f1) 25%, transparent);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--color-brand-primary, #fb7185);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand-primary, #fb7185) 30%, transparent);
 }
 
 [data-wallpaper-theme="light"] .extension-input-wrapper {
@@ -852,7 +842,7 @@
 }
 
 .extension-input-icon {
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary, #cbd5e1);
   flex-shrink: 0;
 }
 
@@ -872,14 +862,14 @@
 }
 
 .extension-search-input::placeholder {
-  color: var(--color-text-tertiary, #64748b);
+  color: var(--color-text-tertiary, #94a3b8);
   opacity: 0.8;
 }
 
 .extension-input-clear-btn {
   background: transparent;
   border: none;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary, #cbd5e1);
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -897,9 +887,9 @@
   border-radius: var(--radius-md, 8px);
   font-size: 11.5px;
   font-weight: 600;
-  background: var(--color-brand-primary, #6366f1);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-top: 1px solid rgba(255, 255, 255, 0.45);
+  background: var(--color-brand-primary, #fb7185);
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.60);
   color: #ffffff;
   cursor: pointer;
   display: inline-flex;
@@ -931,7 +921,7 @@
   background: transparent;
   border: none;
   font-size: 11px;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary, #cbd5e1);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -939,11 +929,13 @@
   padding: 3px 8px;
   border-radius: 5px;
   transition: all var(--duration-fast, 120ms) var(--ease-out);
+  opacity: 0.85;
 }
 
 .extension-update-btn:hover:not(:disabled) {
   color: var(--color-text-primary, #ffffff);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 1;
 }
 
 [data-wallpaper-theme="light"] .extension-update-btn:hover:not(:disabled) {
