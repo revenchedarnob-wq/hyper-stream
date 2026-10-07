@@ -31,53 +31,6 @@ import { useSettings } from '@/lib/hooks'
 import { isAdBlocker } from './ad-blockers'
 import './extension-store.css'
 
-export interface RecommendedExtension {
-  /** Chrome Web Store id; installs always fetch the latest version. */
-  storeId: string
-  name: string
-  tagline: string
-  author: string
-  accent: string
-}
-
-export const RECOMMENDED_EXTENSIONS: RecommendedExtension[] = [
-  {
-    storeId: 'ddkjiahejlhfcafbddmgiahcphecmpfh',
-    name: 'uBlock Origin Lite',
-    tagline: 'Light, efficient content blocker. No telemetry.',
-    author: 'Raymond Hill',
-    accent: '#ef4444',
-  },
-  {
-    storeId: 'bgnkhhnnamicmpeenaelnjfhikgbkllg',
-    name: 'AdGuard AdBlocker',
-    tagline: 'Blocks ads, trackers and annoyances.',
-    author: 'AdGuard Software',
-    accent: '#10b981',
-  },
-  {
-    storeId: 'mnjggcdmjocbbbhaepdhchncahnbgone',
-    name: 'SponsorBlock for YouTube',
-    tagline: 'Skips sponsor segments, intros and reminders.',
-    author: 'Ajay Ramachandran',
-    accent: '#f87171',
-  },
-  {
-    storeId: 'eimadpbcbfnmbkopoojfekhnkhdbieeh',
-    name: 'Dark Reader',
-    tagline: 'Dark mode for every website.',
-    author: 'Alexander Shutau',
-    accent: '#818cf8',
-  },
-  {
-    storeId: 'gebbhagfogifgggkldgodflihgfeippi',
-    name: 'Return YouTube Dislike',
-    tagline: 'Shows dislike counts on YouTube again.',
-    author: 'Return YouTube Dislike',
-    accent: '#38bdf8',
-  },
-]
-
 const CHROME_STORE_URL = 'https://chromewebstore.google.com/category/extensions'
 const EDGE_STORE_URL = 'https://microsoftedge.microsoft.com/addons/Microsoft-Edge-Extensions-Home'
 
@@ -88,94 +41,37 @@ export interface ExtensionStoreModalProps {
   onOpenPage?: (url: string) => void
 }
 
-type Tab = 'installed' | 'recommended'
 interface Notice {
   kind: 'ok' | 'error'
   text: string
 }
 
 function ExtensionIcon({
-  storeId,
   icon,
   name,
 }: {
-  storeId?: string
   icon?: string | null
   name: string
-  accent?: string
 }) {
-  if (icon) {
-    return (
-      <div className="extension-avatar-frame">
-        <img className="extension-avatar extension-avatar-img" src={icon} alt="" draggable={false} />
-      </div>
-    )
-  }
+  const [imgFailed, setImgFailed] = useState(false)
 
-  // Bespoke iconography tailored to each recommended extension in HyperStream style
-  if (storeId === 'ddkjiahejlhfcafbddmgiahcphecmpfh') {
+  if (icon && !imgFailed) {
     return (
-      <div className="extension-avatar-frame is-ublock" aria-hidden="true">
-        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          <path d="m9 12 2 2 4-4" />
-        </svg>
-      </div>
-    )
-  }
-
-  if (storeId === 'bgnkhhnnamicmpeenaelnjfhikgbkllg') {
-    return (
-      <div className="extension-avatar-frame is-adguard" aria-hidden="true">
-        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          <path d="m9 12 2 2 4-4" />
-        </svg>
-      </div>
-    )
-  }
-
-  if (storeId === 'mnjggcdmjocbbbhaepdhchncahnbgone') {
-    return (
-      <div className="extension-avatar-frame is-sponsorblock" aria-hidden="true">
-        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polygon points="13 19 22 12 13 5 13 19" />
-          <polygon points="2 19 11 12 2 5 2 19" />
-        </svg>
-      </div>
-    )
-  }
-
-  if (storeId === 'eimadpbcbfnmbkopoojfekhnkhdbieeh') {
-    return (
-      <div className="extension-avatar-frame is-darkreader" aria-hidden="true">
-        <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
-      </div>
-    )
-  }
-
-  if (storeId === 'gebbhagfogifgggkldgodflihgfeippi') {
-    return (
-      <div className="extension-avatar-frame is-dislike" aria-hidden="true">
-        <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M17 14V2" />
-          <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h-1.5a1.5 1.5 0 0 1-1.5-1.5v-2.38z" />
-        </svg>
+      <div className="extension-icon-frame">
+        <img
+          className="extension-official-icon"
+          src={icon}
+          alt={name ? `${name} icon` : 'Extension icon'}
+          draggable={false}
+          onError={() => setImgFailed(true)}
+        />
       </div>
     )
   }
 
   return (
-    <div className="extension-avatar-frame" aria-hidden="true">
-      <div className="extension-avatar">
-        {name ? (
-          <span className="extension-avatar-letter">{name.charAt(0).toUpperCase()}</span>
-        ) : (
-          <IconPuzzlePiece size={16} />
-        )}
-      </div>
+    <div className="extension-icon-frame is-fallback" aria-hidden="true">
+      <IconPuzzlePiece size={16} />
     </div>
   )
 }
@@ -185,8 +81,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
   const native = isTauri()
   const settings = useSettings()
   const [installed, setInstalled] = useState<InstalledExtension[]>([])
-  const [loaded, setLoaded] = useState(false)
-  const [tab, setTab] = useState<Tab | null>(null)
+  const [loaded, setLoaded] = useState(!native)
   const [link, setLink] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -235,13 +130,11 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
 
   if (!isOpen) return null
 
-  // Every extra ad blocker is another always-running process (often 100 MB+) doing Shields' job.
+  // Every extra ad blocker is another always-running process doing Shields' job.
   const blockers = installed.filter((e) => e.enabled && isAdBlocker(e))
   const blockerCount = blockers.length + (settings.shieldsEnabled ? 1 : 0)
   const blockerNames = [...(settings.shieldsEnabled ? ['Shields'] : []), ...blockers.map((e) => e.name)]
-
-  const activeTab: Tab = tab ?? (installed.length > 0 ? 'installed' : 'recommended')
-  const isInstalled = (storeId: string) => installed.some((e) => e.storeId === storeId || e.id === storeId)
+  const activeCount = installed.filter((e) => e.enabled).length
 
   const run = async (key: string, action: () => Promise<string | void>) => {
     setBusy(key)
@@ -262,7 +155,6 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
       playHapticPop()
       const id = await installStoreExtension(input)
       const added = (await getInstalledExtensions()).find((e) => e.id === id || e.storeId === id)
-      setTab('installed')
       return `${added?.name ?? name ?? 'Extension'} added.`
     })
 
@@ -279,7 +171,6 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
     if (!folder) return
     await run('unpacked', async () => {
       await loadUnpackedExtension(folder)
-      setTab('installed')
       return 'Extension loaded.'
     })
   }
@@ -338,65 +229,41 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
       >
         {/* Header Bar */}
         <header className="extension-store-header">
-          <div className="extension-store-header-top">
-            <div className="extension-store-header-brand">
-              <div className="extension-store-lion-badge">
-                <IconPuzzlePiece size={18} />
-              </div>
-              <div className="extension-store-header-titles">
-                <h3 className="extension-store-title">Extensions</h3>
-                <div className={`extension-store-status-subtitle ${installed.length > 0 ? 'is-up' : 'is-idle'}`}>
-                  <span className="extension-store-status-dot" />
-                  <span>{installed.length === 0 ? 'No extensions installed' : `${installed.length} active`}</span>
-                </div>
+          <div className="extension-store-header-brand">
+            <div className="extension-header-icon-box" aria-hidden="true">
+              <IconPuzzlePiece size={16} />
+            </div>
+            <div className="extension-store-header-titles">
+              <h3 className="extension-store-title">Extensions</h3>
+              <div className={`extension-store-status-subtitle ${activeCount > 0 ? 'is-up' : 'is-idle'}`}>
+                <span className="extension-store-status-dot" />
+                <span>
+                  {installed.length === 0
+                    ? 'None installed'
+                    : `${activeCount} enabled · ${installed.length} total`}
+                </span>
               </div>
             </div>
-
-            <button
-              type="button"
-              className="extension-store-close-btn"
-              onClick={close}
-              aria-label="Close extensions"
-              title="Close (Esc)"
-            >
-              <IconX size={14} />
-            </button>
           </div>
 
-          {!native && (
+          <button
+            type="button"
+            className="extension-store-close-btn"
+            onClick={close}
+            aria-label="Close extensions"
+            title="Close (Esc)"
+          >
+            <IconX size={13} />
+          </button>
+        </header>
+
+        {!native && (
+          <div className="extension-desktop-notice">
             <p className="extension-store-subtitle">
               Extensions are available in the desktop app.
             </p>
-          )}
-
-          {/* Navigation Bar: Segmented Tabs */}
-          <div className="extension-store-tabs" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'installed'}
-              className={`extension-tab-btn ${activeTab === 'installed' ? 'is-active' : ''}`}
-              onClick={() => {
-                playHapticClick()
-                setTab('installed')
-              }}
-            >
-              {`Installed (${installed.length})`}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'recommended'}
-              className={`extension-tab-btn ${activeTab === 'recommended' ? 'is-active' : ''}`}
-              onClick={() => {
-                playHapticClick()
-                setTab('recommended')
-              }}
-            >
-              Recommended
-            </button>
           </div>
-        </header>
+        )}
 
         {/* Smart Advisory: Duplicate Ad Blockers */}
         {blockerCount >= 2 && !dismissBlockerWarning && (
@@ -441,156 +308,117 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
 
         {/* Extension Content Body */}
         <div className="extension-store-body">
-          {activeTab === 'installed' ? (
-            <div className="extension-list">
-              {!loaded ? (
-                <div className="extension-empty-state">
-                  <span className="extension-spinner is-large" />
-                  <p className="extension-empty">Loading extensions…</p>
+          <div className="extension-list">
+            {!loaded ? (
+              <div className="extension-empty-state">
+                <span className="extension-spinner is-large" />
+                <p className="extension-empty">Loading extensions…</p>
+              </div>
+            ) : installed.length === 0 ? (
+              <div className="extension-empty-state">
+                <div className="extension-empty-icon-wrap" aria-hidden="true">
+                  <IconPuzzlePiece size={22} />
                 </div>
-              ) : installed.length === 0 ? (
-                <div className="extension-empty-state">
-                  <div className="extension-empty-icon-wrap">
-                    <IconPuzzlePiece size={24} />
-                  </div>
-                  <h4 className="extension-empty-heading">No extensions installed</h4>
-                  <p className="extension-empty">
-                    Add recommended extensions or browse the Chrome Web Store.
-                  </p>
+                <h4 className="extension-empty-heading">No extensions installed</h4>
+                <p className="extension-empty">
+                  Install extensions directly from the Chrome Web Store, Edge Add-ons, or load an unpacked folder.
+                </p>
+                <div className="extension-empty-catalog-actions">
                   <button
                     type="button"
-                    className="extension-tab-switch-cta"
-                    onClick={() => {
-                      playHapticClick()
-                      setTab('recommended')
-                    }}
+                    className="extension-empty-catalog-btn is-chrome"
+                    onClick={() => openStore(CHROME_STORE_URL)}
                   >
-                    Explore Recommended
+                    <IconChrome size={13} />
+                    <span>Chrome Web Store</span>
+                    <IconExternalLink size={10} />
+                  </button>
+                  <button
+                    type="button"
+                    className="extension-empty-catalog-btn is-edge"
+                    onClick={() => openStore(EDGE_STORE_URL)}
+                  >
+                    <IconEdge size={13} />
+                    <span>Edge Add-ons</span>
+                    <IconExternalLink size={10} />
                   </button>
                 </div>
-              ) : (
-                installed.map((ext) => (
-                  <div key={ext.id} className={`extension-row ${ext.enabled ? '' : 'is-off'}`}>
-                    <ExtensionIcon icon={ext.icon} name={ext.name} />
-                    <div className="extension-meta">
-                      <div className="extension-name-row">
-                        <h3 className="extension-name" title={ext.name}>{ext.name}</h3>
-                        {ext.version && <span className="extension-version">v{ext.version}</span>}
-                        {ext.store && (
-                          <span className={`extension-source is-${ext.store}`}>
-                            {ext.store === 'chrome' ? 'Chrome' : 'Edge'}
-                          </span>
-                        )}
-                        {ext.legacyFormat && (
-                          <span
-                            className="extension-source is-legacy"
-                            title="Built for Manifest V2, which browsers are phasing out."
-                          >
-                            MV2
-                          </span>
-                        )}
-                      </div>
-                      {ext.error ? (
-                        <span className="extension-row-error">{ext.error}</span>
-                      ) : (
-                        <span className="extension-tagline" title={ext.description || ''}>
-                          {ext.description || 'Loaded extension'}
+              </div>
+            ) : (
+              installed.map((ext) => (
+                <div key={ext.id} className={`extension-row ${ext.enabled ? '' : 'is-off'}`}>
+                  <ExtensionIcon icon={ext.icon} name={ext.name} />
+                  <div className="extension-meta">
+                    <div className="extension-name-row">
+                      <h4 className="extension-name" title={ext.name}>{ext.name}</h4>
+                      {ext.version && <span className="extension-version">v{ext.version}</span>}
+                      {ext.store && (
+                        <span className={`extension-source is-${ext.store}`}>
+                          {ext.store === 'chrome' ? 'Chrome' : 'Edge'}
+                        </span>
+                      )}
+                      {ext.legacyFormat && (
+                        <span
+                          className="extension-source is-legacy"
+                          title="Built for Manifest V2, which browsers are phasing out."
+                        >
+                          MV2
                         </span>
                       )}
                     </div>
-                    <div className="extension-row-actions">
-                      {(ext.hasOptions || ext.hasPopup) && !ext.error && (
-                        <button
-                          type="button"
-                          className="extension-action-btn is-settings"
-                          disabled={busy === ext.id || !ext.enabled}
-                          onClick={() => void handleOpenSettings(ext)}
-                          title="Extension options"
-                          aria-label={`Settings for ${ext.name}`}
-                        >
-                          <IconSettings size={13} />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={ext.enabled}
-                        aria-label={`${ext.enabled ? 'Turn off' : 'Turn on'} ${ext.name}`}
-                        className={`extension-switch-btn ${ext.enabled ? 'is-active' : ''}`}
-                        disabled={busy === ext.id}
-                        onClick={() => void handleToggle(ext)}
-                        title={ext.enabled ? 'Enabled' : 'Disabled'}
-                      >
-                        <span className="extension-switch-knob" />
-                      </button>
-                      <button
-                        type="button"
-                        className="extension-remove-btn"
-                        disabled={busy === ext.id}
-                        onClick={() => void handleRemove(ext)}
-                        aria-label={`Remove ${ext.name}`}
-                        title={`Remove ${ext.name}`}
-                      >
-                        <IconTrash size={13} />
-                      </button>
-                    </div>
+                    {ext.error ? (
+                      <span className="extension-row-error">{ext.error}</span>
+                    ) : (
+                      <span className="extension-tagline" title={ext.description || ''}>
+                        {ext.description || 'Extension'}
+                      </span>
+                    )}
                   </div>
-                ))
-              )}
-            </div>
-          ) : (
-            <div className="extension-card-grid extension-recommended-list">
-              {RECOMMENDED_EXTENSIONS.map((ext) => {
-                const added = isInstalled(ext.storeId)
-                return (
-                  <div key={ext.storeId} className={`extension-card extension-recommended-row ${added ? 'is-installed' : ''}`}>
-                    <ExtensionIcon
-                      storeId={ext.storeId}
-                      icon={installed.find((e) => e.storeId === ext.storeId || e.id === ext.storeId)?.icon}
-                      name={ext.name}
-                      accent={ext.accent}
-                    />
-                    <div className="extension-meta">
-                      <h3 className="extension-name" title={ext.name}>{ext.name}</h3>
-                      <span className="extension-tagline">{ext.tagline}</span>
-                      <span className="extension-author">by {ext.author}</span>
-                    </div>
-                    <div className="extension-card-actions">
+                  <div className="extension-row-actions">
+                    {(ext.hasOptions || ext.hasPopup) && !ext.error && (
                       <button
                         type="button"
-                        className={`extension-install-btn ${added ? 'is-added' : ''}`}
-                        disabled={!native || added || busy !== null}
-                        onClick={() => void install(ext.storeId, ext.name)}
-                        aria-label={added ? `${ext.name} installed` : `Add ${ext.name}`}
+                        className="extension-action-btn is-settings"
+                        disabled={busy === ext.id || !ext.enabled}
+                        onClick={() => void handleOpenSettings(ext)}
+                        title="Extension options"
+                        aria-label={`Settings for ${ext.name}`}
                       >
-                        {added ? (
-                          <>
-                            <IconCheck size={12} />
-                            <span>Installed</span>
-                          </>
-                        ) : busy === ext.storeId ? (
-                          <span className="extension-btn-spinner-row">
-                            <span className="extension-spinner" />
-                            <span>Adding…</span>
-                          </span>
-                        ) : (
-                          <>
-                            <IconPlus size={12} />
-                            <span>Add</span>
-                          </>
-                        )}
+                        <IconSettings size={13} />
                       </button>
-                    </div>
+                    )}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={ext.enabled}
+                      aria-label={`${ext.enabled ? 'Turn off' : 'Turn on'} ${ext.name}`}
+                      className={`extension-switch-btn ${ext.enabled ? 'is-active' : ''}`}
+                      disabled={busy === ext.id}
+                      onClick={() => void handleToggle(ext)}
+                      title={ext.enabled ? 'Enabled' : 'Disabled'}
+                    >
+                      <span className="extension-switch-knob" />
+                    </button>
+                    <button
+                      type="button"
+                      className="extension-action-btn is-remove"
+                      disabled={busy === ext.id}
+                      onClick={() => void handleRemove(ext)}
+                      aria-label={`Remove ${ext.name}`}
+                      title={`Remove ${ext.name}`}
+                    >
+                      <IconTrash size={13} />
+                    </button>
                   </div>
-                )
-              })}
-            </div>
-          )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         {/* Footer Bar */}
         <footer className="extension-store-footer">
-          {/* Quick Catalogs Strip */}
+          {/* Catalogs & Actions Strip */}
           <div className="extension-store-catalogs-strip">
             <button
               type="button"
@@ -599,7 +427,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
               title="Open Chrome Web Store in browser"
             >
               <IconChrome size={12} className="is-chrome" />
-              <span>Chrome Web Store</span>
+              <span>Chrome Store</span>
               <IconExternalLink size={10} className="is-arrow" />
             </button>
 
@@ -637,7 +465,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                   <input
                     type="text"
                     className="extension-search-input"
-                    placeholder="Paste a Chrome Web Store or Edge link"
+                    placeholder="Paste Chrome Web Store or Edge link"
                     aria-label="Extension link"
                     value={link}
                     onChange={(e) => setLink(e.target.value)}
@@ -665,7 +493,10 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                       <span className="extension-spinner" />
                     </span>
                   ) : (
-                    <span>Add</span>
+                    <>
+                      <IconPlus size={11} />
+                      <span>Add</span>
+                    </>
                   )}
                 </button>
               </form>

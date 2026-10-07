@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { renderToString } from 'react-dom/server'
-import { ExtensionStoreModal, RECOMMENDED_EXTENSIONS } from './ExtensionStoreModal'
+import { ExtensionStoreModal } from './ExtensionStoreModal'
 
 describe('ExtensionStoreModal Component', () => {
   it('does not render when isOpen is false', () => {
@@ -8,29 +8,26 @@ describe('ExtensionStoreModal Component', () => {
     expect(html).toBe('')
   })
 
-  it('recommends store extensions by id, without made-up versions', () => {
+  it('renders extension management header and clean empty state when no extensions are loaded', () => {
     const html = renderToString(<ExtensionStoreModal isOpen={true} onClose={vi.fn()} />)
     expect(html).toContain('Extensions')
-    for (const name of ['uBlock Origin Lite', 'AdGuard AdBlocker', 'SponsorBlock for YouTube', 'Dark Reader', 'Return YouTube Dislike']) {
-      expect(html).toContain(name)
-    }
-    expect(html).not.toMatch(/v\d+\.\d+/)
-    for (const ext of RECOMMENDED_EXTENSIONS) expect(ext.storeId).toMatch(/^[a-p]{32}$/)
+    expect(html).toContain('No extensions installed')
+    expect(html).toContain('Chrome Web Store')
+    expect(html).toContain('Edge Add-ons')
   })
 
-  it('outside the desktop app, explains where extensions work and disables installs', () => {
+  it('outside the desktop app, explains where extensions work and hides desktop-only quick add', () => {
     const html = renderToString(<ExtensionStoreModal isOpen={true} onClose={vi.fn()} />)
     expect(html).toContain('Extensions are available in the desktop app.')
-    expect(html).not.toContain('Paste a Chrome Web Store')
-    expect(html).toContain('disabled=""')
+    expect(html).not.toContain('Paste Chrome Web Store')
   })
 
-  it('renders tabs and an accessible close button', () => {
+  it('renders an accessible close button and flyout dialog semantics', () => {
     const html = renderToString(<ExtensionStoreModal isOpen={true} onClose={vi.fn()} />)
-    expect(html).toContain('Installed (0)')
-    expect(html).toContain('Recommended')
     expect(html).toContain('extension-store-close-btn')
     expect(html).toContain('aria-label="Close extensions"')
+    expect(html).toContain('role="dialog"')
+    expect(html).toContain('aria-label="Browser extensions"')
   })
 
   it('preserves invariant hook order when transitioning isOpen from false to true', () => {

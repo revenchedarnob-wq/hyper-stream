@@ -222,22 +222,37 @@ fn icon_data_url(dir: &Path, manifest: &serde_json::Value) -> Option<String> {
             .iter()
             .filter_map(|(size, path)| Some((size.parse().ok()?, path.as_str()?.to_string())))
             .collect();
-        sizes.sort();
-        // Smallest icon that's still sharp at 40px, else the largest.
-        sizes.iter().find(|(s, _)| *s >= 48).or(sizes.last()).map(|(_, p)| p.clone())
+        sizes.sort_by_key(|(s, _)| *s);
+        // Prefer crisp icon (48px or larger, else largest available) for high-DPI displays
+        sizes
+            .iter()
+            .find(|(s, _)| *s >= 48)
+            .or_else(|| sizes.last())
+            .map(|(_, p)| p.clone())
     };
     let relative = manifest
         .get("icons")
         .and_then(pick)
-        .or_else(|| ["action", "browser_action"].iter().find_map(|k| manifest.get(k)?.get("default_icon").and_then(pick)))?;
-    let path = dir.join(relative.trim_start_matches('/'));
-    let bytes = std::fs::read(&path).ok().filter(|b| b.len() < 512 * 1024)?;
+        .or_else(|| {
+            ["action", "browser_action", "page_action", "sidebar_action"]
+                .iter()
+                .find_map(|k| manifest.get(k)?.get("default_icon").and_then(pick))
+        })?;
+
+    // Normalize path separators and strip leading relative prefixes to avoid Windows drive-root jumps
+    let clean_relative = relative.replace('\\', "/");
+    let clean_relative = clean_relative
+        .trim_start_matches("./")
+        .trim_start_matches('/');
+    let path = dir.join(clean_relative);
+    let bytes = std::fs::read(&path).ok().filter(|b| b.len() < 1024 * 1024)?;
     let mime = match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "png" => "image/png",
         "svg" => "image/svg+xml",
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
         "gif" => "image/gif",
+        "ico" => "image/x-icon",
         _ => return None,
     };
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
@@ -815,6 +830,23 @@ mod tests {
         assert_eq!(manifest.popup.as_deref(), Some("popup.html"));
         let json = read_json(&dir.join("manifest.json")).unwrap();
         assert_eq!(json["key"], base64::engine::general_purpose::STANDARD.encode(b"key-bytes"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_manifest_icons_properly() {
+        let dir = std::env::temp_dir().join(format!("hs-ext-icon-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("icons")).unwrap();
+        std::fs::write(dir.join("icons").join("48.png"), b"\x89PNG\r\n\x1a\nfake-png-data").unwrap();
+        let manifest = serde_json::json!({
+            "icons": {
+                "16": "icons/16.png",
+                "48": "icons/48.png"
+            }
+        });
+        let icon = icon_data_url(&dir, &manifest).expect("should produce icon data url");
+        assert!(icon.starts_with("data:image/png;base64,"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
