@@ -1491,17 +1491,17 @@
 }
 
 .browser-content-area.is-panel-open {
-  filter: blur(14px) brightness(0.92);
+  filter: blur(16px) brightness(0.90) !important;
   user-select: none;
+  pointer-events: none;
 }
 
 [data-wallpaper-theme="light"] .browser-content-area.is-panel-open {
-  filter: blur(14px) brightness(0.96);
+  filter: blur(16px) brightness(0.96) !important;
 }
 
-.window-container.potato-mode .browser-content-area.is-panel-open {
-  filter: none !important;
-  opacity: 0.60 !important;
+.browser-content-area.is-panel-open .browser-speed-dial-overlay {
+  filter: blur(16px) brightness(0.90);
 }
 
 .browser-speed-dial-overlay {

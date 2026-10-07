@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import {
   errorMessage,
   extensionPageUrl,
@@ -214,14 +215,18 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
     onClose()
   }
 
+  const backdropElement = (
+    <div
+      className="extension-store-backdrop"
+      onClick={close}
+      aria-hidden="true"
+      data-testid="extension-store-overlay"
+    />
+  )
+
   return (
     <>
-      <div
-        className="extension-store-backdrop"
-        onClick={close}
-        aria-hidden="true"
-        data-testid="extension-store-overlay"
-      />
+      {typeof document !== 'undefined' ? createPortal(backdropElement, document.body) : backdropElement}
       <div
         ref={modalRef}
         className="extension-store-modal extension-store-flyout"
