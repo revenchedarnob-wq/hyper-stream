@@ -83,6 +83,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
   const [installed, setInstalled] = useState<InstalledExtension[]>([])
   const [loaded, setLoaded] = useState(!native)
   const [link, setLink] = useState('')
+  const [showAddDrawer, setShowAddDrawer] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [dismissBlockerWarning, setDismissBlockerWarning] = useState(false)
@@ -155,6 +156,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
       playHapticPop()
       const id = await installStoreExtension(input)
       const added = (await getInstalledExtensions()).find((e) => e.id === id || e.storeId === id)
+      setShowAddDrawer(false)
       return `${added?.name ?? name ?? 'Extension'} added.`
     })
 
@@ -231,18 +233,13 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
         <header className="extension-store-header">
           <div className="extension-store-header-brand">
             <div className="extension-header-icon-box" aria-hidden="true">
-              <IconPuzzlePiece size={16} />
+              <IconPuzzlePiece size={15} />
             </div>
             <div className="extension-store-header-titles">
               <h3 className="extension-store-title">Extensions</h3>
-              <div className={`extension-store-status-subtitle ${activeCount > 0 ? 'is-up' : 'is-idle'}`}>
-                <span className="extension-store-status-dot" />
-                <span>
-                  {installed.length === 0
-                    ? 'None installed'
-                    : `${activeCount} enabled · ${installed.length} total`}
-                </span>
-              </div>
+              <span className="extension-store-count-badge">
+                {installed.length === 0 ? 'None installed' : `${activeCount} enabled · ${installed.length} total`}
+              </span>
             </div>
           </div>
 
@@ -321,7 +318,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                 </div>
                 <h4 className="extension-empty-heading">No extensions installed</h4>
                 <p className="extension-empty">
-                  Install extensions directly from the Chrome Web Store, Edge Add-ons, or load an unpacked folder.
+                  Add extensions directly from the Chrome Web Store, Edge Add-ons, or load an unpacked folder.
                 </p>
                 <div className="extension-empty-catalog-actions">
                   <button
@@ -351,26 +348,12 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                   <div className="extension-meta">
                     <div className="extension-name-row">
                       <h4 className="extension-name" title={ext.name}>{ext.name}</h4>
-                      {ext.version && <span className="extension-version">v{ext.version}</span>}
-                      {ext.store && (
-                        <span className={`extension-source is-${ext.store}`}>
-                          {ext.store === 'chrome' ? 'Chrome' : 'Edge'}
-                        </span>
-                      )}
-                      {ext.legacyFormat && (
-                        <span
-                          className="extension-source is-legacy"
-                          title="Built for Manifest V2, which browsers are phasing out."
-                        >
-                          MV2
-                        </span>
-                      )}
                     </div>
                     {ext.error ? (
                       <span className="extension-row-error">{ext.error}</span>
                     ) : (
                       <span className="extension-tagline" title={ext.description || ''}>
-                        {ext.description || 'Extension'}
+                        {ext.description || `${ext.version ? `v${ext.version} · ` : ''}${ext.store === 'chrome' ? 'Chrome Store' : ext.store === 'edge' ? 'Edge Add-ons' : 'Extension'}`}
                       </span>
                     )}
                   </div>
@@ -416,61 +399,65 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
           </div>
         </div>
 
-        {/* Footer Bar */}
+        {/* Streamlined Footer Bar (Spacious, No Clipping) */}
         <footer className="extension-store-footer">
-          {/* Catalogs & Actions Strip */}
-          <div className="extension-store-catalogs-strip">
+          <div className="extension-store-footer-bar">
             <button
               type="button"
-              className="extension-catalog-pill"
+              className="extension-footer-btn is-store"
               onClick={() => openStore(CHROME_STORE_URL)}
               title="Open Chrome Web Store in browser"
             >
-              <IconChrome size={12} className="is-chrome" />
-              <span>Chrome Store</span>
-              <IconExternalLink size={10} className="is-arrow" />
-            </button>
-
-            <button
-              type="button"
-              className="extension-catalog-pill"
-              onClick={() => openStore(EDGE_STORE_URL)}
-              title="Open Edge Add-ons in browser"
-            >
-              <IconEdge size={12} className="is-edge" />
-              <span>Edge Add-ons</span>
+              <IconChrome size={13} className="is-chrome" />
+              <span>Web Store</span>
               <IconExternalLink size={10} className="is-arrow" />
             </button>
 
             {native && (
-              <button
-                type="button"
-                className="extension-catalog-pill is-unpacked"
-                disabled={busy !== null}
-                onClick={() => void handleLoadUnpacked()}
-                title="Load unpacked extension folder"
-              >
-                <IconFolder size={12} />
-                <span>Load unpacked…</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="extension-footer-btn"
+                  onClick={() => void handleLoadUnpacked()}
+                  disabled={busy !== null}
+                  title="Load unpacked extension folder"
+                >
+                  <IconFolder size={12} />
+                  <span>Unpacked</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`extension-footer-btn ${showAddDrawer ? 'is-active' : ''}`}
+                  onClick={() => {
+                    playHapticClick()
+                    setShowAddDrawer(!showAddDrawer)
+                  }}
+                  title="Install extension by link or store ID"
+                >
+                  <IconPlus size={12} />
+                  <span>Add by link</span>
+                </button>
+              </>
             )}
           </div>
 
-          {/* Quick link paste bar (Desktop Only) */}
-          {native && (
-            <div className="extension-store-controls">
+          {/* Smooth Expandable Add-by-Link Drawer */}
+          {native && (showAddDrawer || link) && (
+            <div className="extension-store-controls-drawer">
               <form className="extension-add-form" onSubmit={handleAddLink}>
                 <div className="extension-input-wrapper">
                   <IconPuzzlePiece size={12} className="extension-input-icon" />
                   <input
                     type="text"
                     className="extension-search-input"
-                    placeholder="Paste Chrome Web Store or Edge link"
+                    placeholder="Paste Chrome Web Store or Edge link…"
                     aria-label="Extension link"
                     value={link}
                     onChange={(e) => setLink(e.target.value)}
                     spellCheck={false}
                     autoComplete="off"
+                    autoFocus
                   />
                   {link && (
                     <button
@@ -489,14 +476,9 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                   disabled={!link.trim() || busy !== null}
                 >
                   {busy === link.trim() && busy ? (
-                    <span className="extension-btn-spinner-row">
-                      <span className="extension-spinner" />
-                    </span>
+                    <span className="extension-spinner" />
                   ) : (
-                    <>
-                      <IconPlus size={11} />
-                      <span>Add</span>
-                    </>
+                    <span>Add</span>
                   )}
                 </button>
               </form>
@@ -512,7 +494,7 @@ export function ExtensionStoreModal({ isOpen, onClose, onOpenPage }: ExtensionSt
                 onClick={() => void handleCheckUpdates()}
                 title="Check all installed extensions for updates"
               >
-                <IconReload size={11} className={busy === 'updates' ? 'is-spinning' : ''} />
+                <IconReload size={10} className={busy === 'updates' ? 'is-spinning' : ''} />
                 <span>{busy === 'updates' ? 'Checking…' : 'Check for updates'}</span>
               </button>
             </div>
