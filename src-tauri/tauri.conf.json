@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "HyperStream",
+  "productName": "wisp",
   "version": "1.0.0",
   "identifier": "com.hyperstream.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "HyperStream",
+        "title": "wisp",
         "width": 1240,
         "height": 780,
         "minWidth": 960,
@@ -55,9 +55,9 @@
     "resources": {
       "../extension/": "extension/"
     },
-    "copyright": "Copyright 2026 HyperStream. All rights reserved.",
+    "copyright": "Copyright 2026 wisp. All rights reserved.",
     "shortDescription": "Download videos and music from the web",
-    "longDescription": "HyperStream downloads videos, music and playlists from YouTube and hundreds of other sites, with quality, audio-language and subtitle choices, a download queue, a built-in browser for sites that need a sign-in, and a local media library.",
+    "longDescription": "wisp downloads videos, music and playlists from YouTube and hundreds of other sites, with quality, audio-language and subtitle choices, a download queue, a built-in browser for sites that need a sign-in, and a local media library.",
     "category": "Video",
     "windows": {
       "nsis": {

@@ -109,9 +109,9 @@ export function ExtensionStorePill({ listing, onManage }: { listing: ExtensionSt
           className="stream-action-chip primary"
           disabled={phase === 'installing'}
           onClick={() => void install()}
-          title={`Add this extension to HyperStream's browser (from ${listing.store === 'chrome' ? 'Chrome Web Store' : 'Edge Add-ons'})`}
+          title={`Add this extension to wisp's browser (from ${listing.store === 'chrome' ? 'Chrome Web Store' : 'Edge Add-ons'})`}
         >
-          {phase === 'installing' ? 'Adding…' : 'Add to HyperStream'}
+          {phase === 'installing' ? 'Adding…' : 'Add to wisp'}
         </button>
       )}
     </div>

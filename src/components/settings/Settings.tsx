@@ -148,7 +148,7 @@ function DownloadsPanel() {
               <div className="settings-row-label">Download folder</div>
               <div className="settings-path-box" title={folder}>
                 <IconFolder size={13} className="path-icon" />
-                <span className="path-text">{folder || 'Videos\\HyperStream'}</span>
+                <span className="path-text">{folder || 'Videos\\wisp'}</span>
               </div>
               {folderError && <div className="settings-row-desc settings-desc-error">{folderError}</div>}
             </div>
@@ -310,11 +310,11 @@ function SendToHyperStreamRow() {
   }
   return (
     <Row
-      label="Send to HyperStream"
+      label="Send to wisp"
       desc="Download from Chrome or Edge: drag this button to the bookmarks bar, or copy it and paste it as a new bookmark's address. On a video page, click the bookmark; the page opens here, ready to capture."
     >
       <a ref={setHref} className="action-btn" draggable onClick={(e) => e.preventDefault()} title="Drag to your bookmarks bar">
-        Send to HyperStream
+        Send to wisp
       </a>
       <button type="button" className="action-btn" onClick={() => void copy()}>
         {copied ? 'Copied' : 'Copy'}
@@ -345,7 +345,7 @@ function BrowserExtensionRow() {
     : !status.supported
       ? `The extension works in Chrome, Edge and Brave. Your default browser is ${name}; to use it in another browser, load the folder from its extensions page.`
       : status.installed
-        ? `Added to ${name}. Right-click a video or link and choose Download with HyperStream.`
+        ? `Added to ${name}. Right-click a video or link and choose Download with wisp.`
         : `Finds videos on the pages you visit and sends downloads here from ${name} with one click.`
 
   return (

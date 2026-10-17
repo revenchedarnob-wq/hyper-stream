@@ -55,7 +55,7 @@ describe('InAppBrowser Workspace Integration Suite', () => {
         onOpenInHub={onOpenInHub}
         isWorkspaceActive={true}
         isSidebarOpen={false}
-        sidebarArea={<div data-testid="test-brand">HyperStream</div>}
+        sidebarArea={<div data-testid="test-brand">wisp</div>}
         windowControls={<div data-testid="test-controls">Controls</div>}
       />
     )

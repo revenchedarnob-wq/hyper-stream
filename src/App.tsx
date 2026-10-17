@@ -10,11 +10,9 @@ import { StreamHub } from './components/stream-hub/StreamHub'
 const loadLibrary = () => import('./components/media-library/MediaLibrary')
 const loadSettings = () => import('./components/settings/Settings')
 const loadBrowser = () => import('./components/browser/InAppBrowser')
-const loadMotion = () => import('./components/motion/MotionStudio')
 const MediaLibrary = lazy(() => loadLibrary().then((m) => ({ default: m.MediaLibrary })))
 const Settings = lazy(() => loadSettings().then((m) => ({ default: m.Settings })))
 const InAppBrowser = lazy(() => loadBrowser().then((m) => ({ default: m.InAppBrowser })))
-const MotionStudio = lazy(() => loadMotion().then((m) => ({ default: m.MotionStudio })))
 // First run only: offers to add the browser extension. Loaded after startup has settled.
 const ExtensionPrompt = lazy(() => import('./components/extension/ExtensionSetup'))
 import { IconCompass } from './components/browser/Icons'
@@ -23,7 +21,6 @@ import {
   IconSparkles,
   IconFilm,
   IconCpu,
-  IconPlay,
 } from './components/stream-hub/Icons'
 import {
   playHapticClick,
@@ -62,7 +59,6 @@ const NAV_ITEMS = [
   { id: 'hub', label: 'Stream Hub', icon: IconSparkles },
   { id: 'browser', label: 'Browser', icon: IconCompass },
   { id: 'library', label: 'Media Library', icon: IconFilm },
-  { id: 'motion', label: 'Motion Studio', icon: IconPlay },
   { id: 'settings', label: 'Settings', icon: IconCpu },
 ]
 
@@ -826,12 +822,15 @@ export default function App() {
           <div className={`topbar-sidebar-area ${sidebarOpen ? 'open' : 'closed'}`} data-tauri-drag-region>
             <div className="topbar-brand" data-tauri-drag-region>
               <span className="topbar-logo" data-tauri-drag-region>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm2 .5v8h8V4H4z" opacity="0.3"/>
-                  <path d="M5 6.5A1.5 1.5 0 0 1 6.5 5h3A1.5 1.5 0 0 1 11 6.5v3A1.5 1.5 0 0 1 9.5 11h-3A1.5 1.5 0 0 1 5 9.5v-3z" />
-                </svg>
+                <img
+                  src="/app-logo.png"
+                  alt="wisp logo"
+                  className="topbar-logo-img"
+                  draggable={false}
+                  data-tauri-drag-region
+                />
               </span>
-              <span className="app-title" data-tauri-drag-region>HyperStream</span>
+              <span className="app-title" data-tauri-drag-region>wisp</span>
             </div>
 
             <button
@@ -936,13 +935,6 @@ export default function App() {
             <div key="library" className="hub-view-container jelly-content">
               <Suspense fallback={null}>
                 <MediaLibrary />
-              </Suspense>
-            </div>
-          )}
-          {activeNav === 'motion' && (
-            <div key="motion" className="hub-view-container jelly-content" style={{ padding: 0, height: '100%', overflow: 'hidden' }}>
-              <Suspense fallback={null}>
-                <MotionStudio />
               </Suspense>
             </div>
           )}

@@ -119,7 +119,7 @@ export function ExtensionSetupDialog({
           <>
             <h2 id="ext-setup-title">Download from {browserName}</h2>
             <p>
-              Add the HyperStream extension to {browserName}. It finds videos on the pages you visit and sends
+              Add the wisp extension to {browserName}. It finds videos on the pages you visit and sends
               downloads here with one click.
             </p>
             <div className="ext-setup-actions">
@@ -137,7 +137,7 @@ export function ExtensionSetupDialog({
           <>
             <h2 id="ext-setup-title">Finish in {browserName}</h2>
             <p>
-              {browserName} opened the HyperStream extension page. Click the Add button there, then confirm.
+              {browserName} opened the wisp extension page. Click the Add button there, then confirm.
             </p>
             {waiting}
             <div className="ext-setup-actions">
@@ -160,7 +160,7 @@ export function ExtensionSetupDialog({
               </li>
               <li>Turn on Developer mode (top right), then click Load unpacked.</li>
               <li>
-                Choose the HyperStream extension folder
+                Choose the wisp extension folder
                 <button type="button" className="ext-setup-copy" onClick={() => void copy('folder', manual.folder)}>
                   {copied === 'folder' ? 'Copied' : 'Copy path'}
                 </button>
@@ -178,7 +178,7 @@ export function ExtensionSetupDialog({
         {step === 'done' && (
           <>
             <h2 id="ext-setup-title">Added to {browserName}</h2>
-            <p>Right-click a video or link and choose Download with HyperStream, or use the toolbar button.</p>
+            <p>Right-click a video or link and choose Download with wisp, or use the toolbar button.</p>
           </>
         )}
 

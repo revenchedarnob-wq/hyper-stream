@@ -88,7 +88,7 @@ describe('BrowserTabStrip Component Suite', () => {
         onSelectTab={vi.fn()}
         onCloseTab={vi.fn()}
         onNewTab={vi.fn()}
-        sidebarArea={<div data-testid="test-unified-brand">HyperStream</div>}
+        sidebarArea={<div data-testid="test-unified-brand">wisp</div>}
         windowControls={<div data-testid="test-unified-controls">Controls</div>}
       />
     )
