@@ -776,7 +776,7 @@ pub fn cleanup_stale_orphans_on_startup() {
             let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
             let name = String::from_utf16_lossy(&entry.szExeFile[..len]);
 
-            if name.eq_ignore_ascii_case("HyperStream.exe") && pid != my_pid {
+            if (name.eq_ignore_ascii_case("HyperStream.exe") || name.eq_ignore_ascii_case("wisp.exe")) && pid != my_pid {
                 other_hyperstream_pids.push(pid);
             } else if name.eq_ignore_ascii_case("msedgewebview2.exe") {
                 webview_entries.push((pid, parent_pid));

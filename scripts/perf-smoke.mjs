@@ -13,7 +13,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
-const EXE = path.join(ROOT, 'src-tauri/target/release/HyperStream.exe')
+const EXE = fs.existsSync(path.join(ROOT, 'src-tauri/target/release/wisp.exe'))
+  ? path.join(ROOT, 'src-tauri/target/release/wisp.exe')
+  : path.join(ROOT, 'src-tauri/target/release/HyperStream.exe')
 const PORT = 9341
 
 const BUDGET = {
