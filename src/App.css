@@ -1037,19 +1037,17 @@ body.is-browser-dragging * {
   animation: headerFadeIn 220ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
-/* Linear / Notion style header: brand on left, collapse button on right edge of sidebar */
+/* Sidebar toggle header area: placed cleanly on the left side */
 .topbar-sidebar-area {
-  width: 240px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding-right: 4px;
+  justify-content: flex-start;
+  padding: 0 4px;
   box-sizing: border-box;
-  transition: width 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .topbar-sidebar-area.closed {
-  width: 154px;
+  width: auto;
 }
 
 .topbar-drag-spacer {
