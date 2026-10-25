@@ -820,19 +820,6 @@ export default function App() {
 
         const sidebarAreaElement = (
           <div className={`topbar-sidebar-area ${sidebarOpen ? 'open' : 'closed'}`} data-tauri-drag-region>
-            <div className="topbar-brand" data-tauri-drag-region>
-              <span className="topbar-logo" data-tauri-drag-region>
-                <img
-                  src="/app-logo.png"
-                  alt="wisp logo"
-                  className="topbar-logo-img"
-                  draggable={false}
-                  data-tauri-drag-region
-                />
-              </span>
-              <span className="app-title" data-tauri-drag-region>wisp</span>
-            </div>
-
             <button
               type="button"
               className={`sidebar-toggle-btn ${sidebarOpen ? 'open' : 'closed'}`}

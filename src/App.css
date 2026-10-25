@@ -1042,7 +1042,7 @@ body.is-browser-dragging * {
   width: 240px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding-right: 4px;
   box-sizing: border-box;
   transition: width 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
